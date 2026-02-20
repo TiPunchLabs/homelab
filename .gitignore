@@ -50,8 +50,9 @@ Thumbs.db
 *secret*
 !SECURITY.md
 
-# ===== Claude Code (chemins locaux) =====
-.claude/settings.local.json
+# ===== Claude Code =====
+.claude/
+CLAUDE.md
 
 # ===== Environnement =====
 .envrc

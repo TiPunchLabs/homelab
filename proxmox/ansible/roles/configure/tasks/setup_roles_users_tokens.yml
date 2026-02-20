@@ -1,0 +1,23 @@
+---
+# Copy the config file to the remote host
+- name: Copy config file to remote host
+  ansible.builtin.copy:
+    src: token_setup.json
+    dest: /tmp/token_setup.json
+    mode: '0444'
+
+# Copy the Proxmox setup script to the remote host
+- name: Copy setup_roles_users_tokens.sh script to remote host
+  ansible.builtin.copy:
+    src: setup_roles_users_tokens.sh
+    dest: /tmp/setup_roles_users_tokens.sh
+    mode: '0755'
+
+# Execute the Proxmox setup script
+- name: Execute setup_roles_users_tokens.sh script
+  ansible.builtin.command: /tmp/setup_roles_users_tokens.sh
+  register: add_script_result
+  changed_when: >
+    add_script_result.stdout.find('Command succeeded') != -1
+  environment:
+    GEN_PASS: "{{ configure_gen_password }}"

@@ -1,0 +1,55 @@
+---
+- name: Install sudo
+  ansible.builtin.apt:
+    name: sudo
+    state: present
+
+- name: Make sure we have a 'wheel' group
+  ansible.builtin.group:
+    name: wheel
+    state: present
+
+# Allow 'wheel' group to have passwordless sudo
+- name: Allow 'wheel' group to have passwordless sudo
+  ansible.builtin.lineinfile:
+    dest: /etc/sudoers
+    state: present
+    regexp: "^%wheel"
+    line: "%wheel ALL=(ALL) NOPASSWD: ALL"
+    validate: "visudo -cf %s"
+
+# Add sudoers users to wheel group
+- name: Add sudoers users to wheel group
+  ansible.builtin.user:
+    name: "{{ configure_ssh_user }}"
+    groups: "wheel"
+    append: true
+    state: present
+    createhome: true
+
+# Add identity key to authorized keys on host
+- name: Add identity key to authorized keys on host
+  ansible.posix.authorized_key:
+    user: "{{ configure_ssh_user }}"
+    key: "{{ lookup('file', configure_ssh_identity_key) }}"
+  register: add_identity_key
+  when: configure_ssh_identity_key is defined and configure_ssh_user is defined
+
+# Disable empty password login
+- name: Disable empty password login
+  ansible.builtin.lineinfile:
+    dest: "{{ configure_sshd_config }}"
+    regexp: "^#?PermitEmptyPasswords"
+    line: "PermitEmptyPasswords no"
+  notify: Restart sshd
+
+# Disable password login
+- name: Disable password login
+  ansible.builtin.lineinfile:
+    dest: "{{ configure_sshd_config }}"
+    regexp: '^(#\s*)?PasswordAuthentication '
+    line: "PasswordAuthentication no"
+  when:
+    - add_identity_key is succeeded
+    - not add_identity_key is skipped
+  notify: Restart sshd

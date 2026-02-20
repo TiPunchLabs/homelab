@@ -1,0 +1,30 @@
+---
+- name: Configure dockhost-90
+  become: true
+  hosts:
+    - dockhost
+  pre_tasks:
+    - name: Create group app_data
+      ansible.builtin.group:
+        name: app_data
+        state: present
+        # gid: 2000  # Uncomment and specify GID if needed
+
+    - name: Create path /app/data
+      ansible.builtin.file:
+        path: "/app/data/"
+        state: directory
+        owner: root
+        group: app_data
+        mode: '0770'
+
+  roles:
+    - role: motd
+      tags:
+        - motd
+    - role: docker
+      tags:
+        - docker
+    - role: portainer_agent
+      tags:
+        - portainer-agent

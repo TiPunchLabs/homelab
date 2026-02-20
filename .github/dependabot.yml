@@ -1,0 +1,80 @@
+---
+version: 2
+updates:
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # Terraform - module partage
+  - package-ecosystem: "terraform"
+    directory: "/modules/proxmox_vm_template"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "terraform"
+
+  # Terraform - github repo management
+  - package-ecosystem: "terraform"
+    directory: "/github-terraform"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "terraform"
+
+  # Terraform - proxmox
+  - package-ecosystem: "terraform"
+    directory: "/proxmox/terraform"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "terraform"
+
+  # Terraform - dockhost
+  - package-ecosystem: "terraform"
+    directory: "/dockhost/terraform"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "terraform"
+
+  # Terraform - kubecluster
+  - package-ecosystem: "terraform"
+    directory: "/kubecluster/terraform"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "terraform"
+
+  # Python (uv/pip)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      python-deps:
+        patterns:
+          - "*"

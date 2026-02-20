@@ -1,0 +1,27 @@
+---
+configure_templates:
+  # - name: "ubuntu-2204-cloudinit-template"
+  #   id: 9001
+  #   memory: 2048
+  #   cpu: 2
+  #   desc: "ubuntu 22.04 server cloudimg-amd64-disk-kvm"
+  #   cloud_init_image:
+  #     name: ubuntu-22.04-server
+  #     url: https://cloud-images.ubuntu.com/releases/jammy/release/ubuntu-22.04-server-cloudimg-amd64-disk-kvm.img
+  #     url_checksum: sha256:ddcbdafb40fe71b1813ecdca82c604d1c58920acf9d7ffae9e4e072138f9b738
+  #     path: /tmp/ubuntu-22.04-server-cloudimg-amd64-disk-kvm.img
+  #     # curl -O https://cloud-images.ubuntu.com/releases/jammy/release/SHA256SUMS | grep ubuntu-22.04-server-cloudimg-amd64-disk-kvm.img
+  - name: "ubuntu-2404-cloudinit-template"
+    id: 9001
+    memory: 1024
+    cpu: 1
+    desc: "ubuntu-24.04-server-cloudimg-amd64.img"
+    cloud_init_image:
+      name: ubuntu-24.04-server
+      url: https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img
+      url_checksum: sha256:02dc186dc491514254df58df29a5877c93ca90ac790cc91a164ea90ed3a0bb05
+      path: /tmp/ubuntu-24.04-server-cloudimg-amd64.img
+      # curl -O https://cloud-images.ubuntu.com/releases/noble/release/SHA256SUMS | grep ubuntu-24.04-server-cloudimg-amd64.img
+
+configure_ansible_key_pub: "{{ lookup('file', '~/.ssh/id_vm_proxmox_rsa.pub') }}"
+configure_root_passwd: '{{ vault_cloud_init_root_passwd }}'

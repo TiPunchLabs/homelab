@@ -1,0 +1,31 @@
+
+{{ ansible_managed | comment }}
+
+ ██╗  ██╗██╗   ██╗██████╗ ███████╗ ██████╗██╗     ██╗   ██╗███████╗████████╗███████╗██████╗
+ ██║ ██╔╝██║   ██║██╔══██╗██╔════╝██╔════╝██║     ██║   ██║██╔════╝╚══██╔══╝██╔════╝██╔══██╗
+ █████╔╝ ██║   ██║██████╔╝█████╗  ██║     ██║     ██║   ██║███████╗   ██║   █████╗  ██████╔╝
+ ██╔═██╗ ██║   ██║██╔══██╗██╔══╝  ██║     ██║     ██║   ██║╚════██║   ██║   ██╔══╝  ██╔══██╗
+ ██║  ██╗╚██████╔╝██████╔╝███████╗╚██████╗███████╗╚██████╔╝███████║   ██║   ███████╗██║  ██║
+ ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝ ╚═════╝╚══════╝ ╚═════╝ ╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Hostname:     {{ ansible_hostname }}
+  IP Address:   {{ ansible_default_ipv4.address | default('N/A') }}
+  OS:           {{ ansible_distribution }} {{ ansible_distribution_version }}
+  Kernel:       {{ ansible_kernel }}
+  Uptime:       {{ ansible_uptime_seconds | int // 86400 }}d {{ (ansible_uptime_seconds | int % 86400) // 3600 }}h {{ (ansible_uptime_seconds | int % 3600) // 60 }}m
+  CPU:          {{ ansible_processor_vcpus }} vCPU(s)
+  Memory:       {{ (ansible_memtotal_mb / 1024) | round(1) }} GB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ⎈ Kubernetes Cluster Node | kubeadm {{ k8s_version }}
+{% if 'control_plan_nodes' in group_names %}
+  Role: Control Plane (master)
+{% elif 'worker_nodes' in group_names %}
+  Role: Worker Node
+{% endif %}
+
+  ╭────────────────────────────────────────────────────────────────────────╮
+  │  TiPunchLabs - Homelab Infrastructure                                  │
+  │  https://github.com/tipunchlabs                                        │
+  ╰────────────────────────────────────────────────────────────────────────╯

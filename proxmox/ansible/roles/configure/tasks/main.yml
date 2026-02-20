@@ -1,0 +1,68 @@
+---
+- name: Ensure Debian bookworm main contrib non-free non-free-firmware repo is present
+  ansible.builtin.lineinfile:
+    path: /etc/apt/sources.list
+    line: 'deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware'
+    state: present
+    insertafter: EOF
+  register: debian_repo_added
+  tags:
+    - essentials
+    - security_ssh_hardening
+    - setup_roles_users_tokens
+    - generate_vm_template
+
+- name: Update apt cache if the repository was added
+  ansible.builtin.apt:
+    update_cache: true
+  when: debian_repo_added.changed
+  tags:
+    - essentials
+    - security_ssh_hardening
+    - setup_roles_users_tokens
+    - generate_vm_template
+
+- name: Install a list of packages
+  ansible.builtin.apt:
+    pkg: "{{ configure_packages }}"
+  tags:
+    - essentials
+    - security_ssh_hardening
+    - setup_roles_users_tokens
+    - generate_vm_template
+
+- name: Strengthening the SSH security of the proxmox server
+  ansible.builtin.include_tasks:
+    file: security_ssh_hardening.yml
+    apply:
+      tags:
+        - security_ssh_hardening
+  tags:
+    - always
+
+- name: Add setup roles users tokens
+  ansible.builtin.include_tasks:
+    file: setup_roles_users_tokens.yml
+    apply:
+      tags:
+        - setup_roles_users_tokens
+  tags:
+    - always
+
+- name: Setup storage
+  ansible.builtin.include_tasks:
+    file: setup_storage.yml
+    apply:
+      tags:
+        - setup_storage
+  tags:
+    - always
+
+- name: Generate vm template
+  ansible.builtin.include_tasks:
+    file: generate_vm_template.yml
+    apply:
+      tags:
+        - generate_vm_template
+  tags:
+    - always

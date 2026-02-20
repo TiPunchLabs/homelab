@@ -1,0 +1,99 @@
+---
+# Set of tasks to install and configure kubeadm kubelet kubectl
+- name: Check if kubelet exists
+  ansible.builtin.stat:
+    path: /etc/systemd/system/kubelet.service
+  register: kubelet_stat
+
+- name: Download and extract kubelet
+  when: not kubelet_stat.stat.exists
+  block:
+    - name: Load overlay kernel module
+      ansible.builtin.command: modprobe overlay
+
+    - name: Load br_netfilter kernel module
+      ansible.builtin.command: modprobe br_netfilter
+
+    - name: Load kernel modules - persistent
+      ansible.builtin.blockinfile:
+        path: /etc/modules-load.d/containerd.conf
+        create: true
+        block: |
+          overlay
+          br_netfilter
+        # owner: root
+        # group: root
+        mode: '0644'
+
+    - name: Modify sysctl parameters - persistent
+      ansible.builtin.blockinfile:
+        path: /etc/sysctl.d/99-kubernetes-cri.conf
+        create: true
+        block: |
+          net.bridge.bridge-nf-call-iptables  = 1
+          net.ipv4.ip_forward                 = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+        # owner: root
+        # group: root
+        mode: '0644'
+
+    - name: Load br_netfilter kernel module
+      ansible.builtin.command: sysctl --system
+
+    - name: Make the Swap inactive
+      ansible.builtin.command: swapoff -a
+
+    - name: Remove Swap entry from /etc/fstab.
+      ansible.builtin.lineinfile:
+        dest: /etc/fstab
+        regexp: swap
+        state: absent
+
+    - name: Check if the key file exists for Kubernetes
+      ansible.builtin.stat:
+        path: "{{ cfg_kubeadm_kubelet_kubectl_k8s_gpg.path }}"
+      register: key_exists
+
+    - name: Download Kubernetes official GPG key
+      ansible.builtin.get_url:
+        url: "{{ cfg_kubeadm_kubelet_kubectl_k8s_gpg.url }}"
+        dest: "{{ cfg_kubeadm_kubelet_kubectl_k8s_gpg.tmp_path }}"
+        mode: '0644'
+      when: cfg_kubeadm_kubelet_kubectl_k8s_gpg.url is defined and not key_exists.stat.exists
+
+    - name: Add GPG key for Kubernetes
+      ansible.builtin.command: >
+        gpg --dearmor -o {{ cfg_kubeadm_kubelet_kubectl_k8s_gpg.path }} {{ cfg_kubeadm_kubelet_kubectl_k8s_gpg.tmp_path }}
+      when: cfg_kubeadm_kubelet_kubectl_k8s_gpg.url is defined and not key_exists.stat.exists
+
+    - name: Set up the Kubernets repository
+      ansible.builtin.apt_repository:
+        repo: "{{ cfg_kubeadm_kubelet_kubectl_k8s_gpg.repo }}"
+        filename: "kubernetes"
+        state: present
+        update_cache: true
+
+    - name: Install kubelet kubeadm kubectl
+      ansible.builtin.apt:
+        name:
+          - kubelet={{ k8s_version }}*
+          - kubeadm={{ k8s_version }}*
+          - kubectl={{ k8s_version }}*
+        state: present
+        update_cache: true
+
+    - name: Prevent kubelet/kubeadm/kubectl from being upgraded
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Reload systemd daemon enable and restart kubelet service
+      ansible.builtin.systemd:
+        daemon_reload: true
+        enabled: true
+        state: restarted
+        name: kubelet

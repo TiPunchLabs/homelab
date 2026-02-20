@@ -1,0 +1,11 @@
+---
+# Set of task to initialize packages on all nodes of the cluster
+- name: Update and upgrade apt packages
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: true
+    autoclean: true
+    autoremove: true
+
+- name: Install packages
+  ansible.builtin.include_tasks: install_packages.yml

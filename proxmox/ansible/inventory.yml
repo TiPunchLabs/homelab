@@ -1,0 +1,6 @@
+all:
+  children:
+    proxmox:
+      hosts:
+        pve:
+          ansible_python_interpreter: /usr/bin/python3

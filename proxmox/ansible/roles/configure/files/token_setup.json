@@ -1,0 +1,47 @@
+{
+  "token_setup": [
+    {
+      "name": "terraform",
+      "ugid": "terraform-prov@pve",
+      "role": "TerraformProv",
+      "comment": "Terraform token",
+      "expire": 0,
+      "privsep": 0,
+      "privileges": [
+        "Datastore.AllocateSpace",
+        "Datastore.Audit",
+        "Pool.Allocate",
+        "Sys.Audit",
+        "Sys.Console",
+        "Sys.Modify",
+        "VM.Allocate",
+        "VM.Audit",
+        "VM.Clone",
+        "VM.Config.CDROM",
+        "VM.Config.Cloudinit",
+        "VM.Config.CPU",
+        "VM.Config.Disk",
+        "VM.Config.HWType",
+        "VM.Config.Memory",
+        "VM.Config.Network",
+        "VM.Config.Options",
+        "VM.Migrate",
+        "VM.PowerMgmt",
+        "VM.GuestAgent.Audit",
+        "SDN.Use"
+      ]
+    },
+    {
+      "name": "ansible",
+      "ugid": "ansible-prov@pve",
+      "role": "AnsibleProv",
+      "comment": "Ansible token",
+      "expire": 0,
+      "privsep": 0,
+      "privileges": [
+        "VM.PowerMgmt",
+        "VM.Audit"
+      ]
+    }
+  ]
+}

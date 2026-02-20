@@ -1,0 +1,107 @@
+---
+# Set of task to initialize kubeadm
+- name: Check if /etc/kubernetes/admin.conf exists
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: admin_conf_stat
+
+- name: Initialize Kubernetes cluster
+  when: not admin_conf_stat.stat.exists
+  block:
+    - name: Kubeadm init
+      ansible.builtin.command: "kubeadm init --pod-network-cidr {{ init_kubeadm_pod_cidr }} --kubernetes-version={{ k8s_version }}"
+      args:
+        creates: /etc/kubernetes/admin.conf # skip this task if the file already exists
+      register: kubeadm_init
+      changed_when: kubeadm_init.rc == 0
+
+    - name: Show kube init info
+      ansible.builtin.debug:
+        var: kube_init
+
+- name: Create .kube directory in user home
+  ansible.builtin.file:
+    path: "{{ home_dir }}/.kube"
+    state: directory
+    owner: "{{ ansible_uid }}"
+    group: "{{ ansible_gid }}"
+    mode: '0755'
+
+- name: Configure .kube/config files in user home
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ home_dir }}/.kube/config"
+    remote_src: true
+    owner: "{{ ansible_uid }}"
+    group: "{{ ansible_gid }}"
+    mode: '0600'
+
+- name: Restart kubelet for config changes
+  ansible.builtin.service:
+    name: kubelet
+    state: restarted
+
+- name: Check if calico manifest exists
+  ansible.builtin.stat:
+    path: "{{ home_dir }}/calico.yaml"
+  register: calico_file_stat
+
+- name: Init calico networking
+  when: not calico_file_stat.stat.exists
+  block:
+    - name: Get calico networking manifest
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/projectcalico/calico/v{{ init_kubeadm_calico_version }}/manifests/calico.yaml
+        dest: "{{ home_dir }}/calico.yaml"
+        owner: "{{ ansible_uid }}"
+        group: "{{ ansible_gid }}"
+        mode: '0644'
+
+    - name: Apply calico networking manifest
+      become: false
+      ansible.builtin.command: kubectl apply -f "{{ home_dir }}/calico.yaml"
+
+- name: Check if dashboard manifest exists
+  ansible.builtin.stat:
+    path: "{{ home_dir }}/dashboard.yaml"
+  register: dashboard_file_stat
+
+- name: Init Dashboard
+  when: not dashboard_file_stat.stat.exists
+  block:
+    - name: Get dashboard manifest
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/kubernetes/dashboard/v{{ init_kubeadm_dashboard_version }}/aio/deploy/recommended.yaml
+        dest: "{{ home_dir }}/dashboard.yaml"
+        owner: "{{ ansible_uid }}"
+        group: "{{ ansible_gid }}"
+        mode: '0644'
+
+    - name: Apply dashboard manifest
+      become: false
+      ansible.builtin.command: kubectl apply -f "{{ home_dir }}/dashboard.yaml"
+
+- name: Check if metrics-server manifest exists
+  ansible.builtin.stat:
+    path: "{{ home_dir }}/metrics-server.yaml"
+  register: metrics_server_stat
+
+- name: Init metrics-server
+  when: not metrics_server_stat.stat.exists
+  block:
+    - name: Get metrics server manifest
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/scriptcamp/kubeadm-scripts/main/manifests/metrics-server.yaml
+        dest: "{{ home_dir }}/metrics-server.yaml"
+        owner: "{{ ansible_uid }}"
+        group: "{{ ansible_gid }}"
+        mode: '0644'
+
+    - name: Apply metrics server manifest
+      become: false
+      ansible.builtin.command: kubectl apply -f "{{ home_dir }}/metrics-server.yaml"
+
+- name: Install etcd-client package
+  ansible.builtin.apt:
+    name: etcd-client
+    update_cache: true

@@ -1,0 +1,84 @@
+---
+# Task to add HDD storage to Proxmox
+# This will format and mount the HDD, then add it to Proxmox storage
+
+- name: Check if HDD is already partitioned
+  ansible.builtin.command: lsblk -no FSTYPE {{ configure_storage_disk_device }}1
+  register: hdd_partition_check
+  failed_when: false
+  changed_when: false
+  tags:
+    - setup_storage
+
+- name: Wipe existing filesystem signatures on HDD
+  ansible.builtin.command: wipefs -a {{ configure_storage_disk_device }}
+  when: hdd_partition_check.rc != 0 or configure_storage_force_format | default(false)
+  tags:
+    - setup_storage
+
+- name: Create partition on HDD
+  community.general.parted:
+    device: "{{ configure_storage_disk_device }}"
+    number: 1
+    state: present
+    part_start: 0%
+    part_end: 100%
+  when: hdd_partition_check.rc != 0 or configure_storage_force_format | default(false)
+  tags:
+    - setup_storage
+
+- name: Format HDD partition with filesystem
+  community.general.filesystem:
+    fstype: "{{ configure_storage_filesystem_type }}"
+    dev: "{{ configure_storage_disk_device }}1"
+    force: "{{ configure_storage_force_format | default(false) }}"
+  when: hdd_partition_check.rc != 0 or configure_storage_force_format | default(false)
+  tags:
+    - setup_storage
+
+- name: Create mount point directory
+  ansible.builtin.file:
+    path: "{{ configure_storage_mount_point }}"
+    state: directory
+    mode: '0755'
+  tags:
+    - setup_storage
+
+- name: Mount HDD partition
+  ansible.posix.mount:
+    path: "{{ configure_storage_mount_point }}"
+    src: "{{ configure_storage_disk_device }}1"
+    fstype: "{{ configure_storage_filesystem_type }}"
+    opts: defaults
+    state: mounted
+  tags:
+    - setup_storage
+
+- name: Check if storage already exists in Proxmox
+  ansible.builtin.command: pvesm status --storage {{ configure_storage_name }}
+  register: pvesm_check
+  failed_when: false
+  changed_when: false
+  tags:
+    - setup_storage
+
+- name: Add storage to Proxmox
+  ansible.builtin.command: >
+    pvesm add {{ configure_storage_type }} {{ configure_storage_name }}
+    --path {{ configure_storage_mount_point }}
+    --content {{ configure_storage_content }}
+  when: pvesm_check.rc != 0
+  tags:
+    - setup_storage
+
+- name: Display storage configuration result
+  ansible.builtin.debug:
+    msg: |
+      Storage '{{ configure_storage_name }}' configured successfully!
+      - Device: {{ configure_storage_disk_device }}
+      - Mount point: {{ configure_storage_mount_point }}
+      - Type: {{ configure_storage_type }}
+      - Filesystem: {{ configure_storage_filesystem_type }}
+      - Content types: {{ configure_storage_content }}
+  tags:
+    - setup_storage

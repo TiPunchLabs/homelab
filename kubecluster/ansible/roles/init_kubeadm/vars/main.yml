@@ -1,0 +1,7 @@
+---
+init_kubeadm_pod_cidr: "192.168.0.0/16"
+init_kubeadm_home_dir: "/home/ansible"
+# https://github.com/projectcalico/calico/blob/v3.31.1/manifests/calico.yaml see raw
+init_kubeadm_calico_version: "3.31.1"
+# https://github.com/kubernetes/dashboard/tree/v2.7.0
+init_kubeadm_dashboard_version: "2.7.0"

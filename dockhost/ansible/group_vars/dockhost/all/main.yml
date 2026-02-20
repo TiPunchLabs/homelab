@@ -1,0 +1,22 @@
+app_group: "app_data"
+app_data_path: "/app/data"
+# app_data_gid: 2000
+
+# ============================================================
+# 🔐 Sécurité - Rôle security_hardening
+# ============================================================
+security_ssh_hardening: true
+security_allow_users: "{{ vault_security_allow_users | join(' ') }}"
+security_disable_root_login: true
+
+security_enable_ufw: true
+security_ufw_default_incoming: "deny"
+security_ufw_default_outgoing: "allow"
+
+security_open_ports:
+  - { port: 22, proto: tcp, comment: "SSH access" }
+
+security_portainer_agent:
+  enabled: true
+  manager_ip: "{{ vault_portainer_manager_ip }}"
+  port: 9001

@@ -1,0 +1,3 @@
+---
+- name: Install Docker and Docker Compose
+  ansible.builtin.import_tasks: install_docker_docker_compose_plugin.yml
