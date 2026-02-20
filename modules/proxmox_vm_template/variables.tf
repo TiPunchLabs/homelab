@@ -1,7 +1,6 @@
 variable "project_description" {
-  description = "Project description"
+  description = "Project description for the VM"
   type        = string
-  default     = "Vm for gitlab"
 }
 
 variable "vm_target_node" {

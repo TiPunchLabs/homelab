@@ -30,7 +30,7 @@ The project deploys a complete containerized infrastructure with the following s
 
 ## 📋 Prerequisites
 
-- Terraform (>= 1.13.3)
+- Terraform (>= 1.11.0)
 - Ansible
 - Proxmox account with appropriate permissions
 - A Proxmox VM template (template ID 9001 by default)
@@ -131,14 +131,21 @@ pre-commit install
 │   └── roles/                    # Ansible roles
 │       ├── motd/                 # Custom MOTD banner
 │       ├── docker/               # Docker installation
-│       └── portainer_agent/      # Portainer Agent
+│       ├── security_hardening/   # Security hardening
+│       ├── portainer_agent/      # Portainer Agent
+│       └── github_runner/        # GitHub Actions Runner
 ├── terraform/
 │   ├── main.tf                   # Terraform main configuration
 │   ├── variables.tf              # Variable definitions
 │   └── outputs.tf                # Output definitions
+├── docs.md                       # Documentation technique detaillee
 └── README.md                     # This file
 ```
 
+
+## 📚 Documentation
+
+- [Documentation technique detaillee](docs.md) — Specs VM, capacite, reseau, securite, workflow de deploiement
 
 ## 👥 Contributors
 

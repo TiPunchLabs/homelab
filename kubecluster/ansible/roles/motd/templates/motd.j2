@@ -19,7 +19,7 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   ⎈ Kubernetes Cluster Node | kubeadm {{ k8s_version }}
-{% if 'control_plan_nodes' in group_names %}
+{% if 'control_plane_nodes' in group_names %}
   Role: Control Plane (master)
 {% elif 'worker_nodes' in group_names %}
   Role: Worker Node
