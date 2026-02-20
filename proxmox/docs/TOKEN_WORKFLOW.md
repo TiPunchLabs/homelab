@@ -170,10 +170,10 @@ pveum user token add terraform-prov@pve terraform \
 
 ```bash
 # Run full configuration including token setup
-ansible-playbook playbook.yml --tags "setup_roles_users_tokens"
+ansible-playbook deploy.yml --tags "setup_roles_users_tokens"
 
 # Run all configuration tasks
-ansible-playbook playbook.yml
+ansible-playbook deploy.yml
 ```
 
 ### Viewing Generated Tokens
@@ -181,7 +181,7 @@ ansible-playbook playbook.yml
 Use the `manage` role to display tokens:
 
 ```bash
-ansible-playbook playbook.yml --tags "display_token"
+ansible-playbook deploy.yml --tags "display_token"
 ```
 
 This reads tokens from:
@@ -223,7 +223,7 @@ manage_tokens:
 3. Run playbook:
 
 ```bash
-ansible-playbook playbook.yml --tags "setup_roles_users_tokens"
+ansible-playbook deploy.yml --tags "setup_roles_users_tokens"
 ```
 
 ## Security Considerations
@@ -308,7 +308,7 @@ Full reference: https://pve.proxmox.com/pve-docs/pveum.1.html
 
 **Check script output:**
 ```bash
-ansible-playbook playbook.yml --tags "setup_roles_users_tokens" -vvv
+ansible-playbook deploy.yml --tags "setup_roles_users_tokens" -vvv
 ```
 
 **Verify token exists on Proxmox:**
@@ -338,7 +338,7 @@ ssh root@proxmox "ls -la /root/.terraform_token"
 **Regenerate token:**
 ```bash
 ssh root@proxmox "rm /root/.terraform_token"
-ansible-playbook playbook.yml --tags "setup_roles_users_tokens"
+ansible-playbook deploy.yml --tags "setup_roles_users_tokens"
 ```
 
 ## Future Improvements

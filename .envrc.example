@@ -1,0 +1,19 @@
+# .envrc - Cree et active le venv automatiquement
+if [[ ! -d .venv ]]; then
+    uv venv
+fi
+source .venv/bin/activate
+
+# Synchroniser les dependances si uv.lock existe
+if [[ -f uv.lock ]]; then
+    uv sync
+fi
+
+# Variables Terraform
+TF_VAR_github_token=$(pass github/terraform-token)
+export TF_VAR_github_token
+export TF_VAR_github_owner="your-github-owner"
+
+# Ansible Vault password
+ANSIBLE_VAULT_PASSWORD=$(pass ansible/vault)
+export ANSIBLE_VAULT_PASSWORD

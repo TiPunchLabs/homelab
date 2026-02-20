@@ -50,13 +50,13 @@ configure_storage_content: backup,iso,vztmpl,images,rootdir
 ### Exécuter uniquement le setup storage
 
 ```bash
-ansible-playbook -i inventory.yml playbook.yml --tags setup_storage
+ansible-playbook -i inventory.yml deploy.yml --tags setup_storage
 ```
 
 ### Exécuter tout le playbook (inclut storage)
 
 ```bash
-ansible-playbook -i inventory.yml playbook.yml
+ansible-playbook -i inventory.yml deploy.yml
 ```
 
 ### Premier formatage (⚠️ efface les données)
@@ -68,7 +68,7 @@ configure_storage_force_format: true
 
 Puis exécuter:
 ```bash
-ansible-playbook -i inventory.yml playbook.yml --tags setup_storage
+ansible-playbook -i inventory.yml deploy.yml --tags setup_storage
 ```
 
 **Important:** Remettre `configure_storage_force_format: false` après.
