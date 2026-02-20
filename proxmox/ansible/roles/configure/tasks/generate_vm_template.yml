@@ -1,0 +1,18 @@
+---
+## Install tools
+- name: Install libguestfs-tools
+  ansible.builtin.apt:
+    name: libguestfs-tools
+    state: present
+
+## Check cloud-init image list
+- name: Check cloud-init image list
+  ansible.builtin.command: "qm list"
+  register: qm_list
+  changed_when: false
+
+## Build template
+- name: Build template
+  ansible.builtin.include_tasks: tasks_generate_vm_template.yml
+  loop: "{{ configure_templates }}"
+  when: item.name not in qm_list.stdout

@@ -1,0 +1,102 @@
+---
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-ansible:
+    name: Ansible Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Ansible lint - dockhost
+        run: uv run ansible-lint dockhost/ansible/
+
+      - name: Ansible lint - proxmox
+        run: uv run ansible-lint proxmox/ansible/
+
+      - name: Ansible lint - kubecluster
+        run: uv run ansible-lint kubecluster/ansible/
+
+  lint-terraform:
+    name: Terraform Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate - proxmox
+        run: |
+          cd proxmox/terraform
+          terraform init -backend=false
+          terraform validate
+
+      - name: Terraform validate - dockhost
+        run: |
+          cd dockhost/terraform
+          terraform init -backend=false
+          terraform validate
+
+      - name: Terraform validate - kubecluster
+        run: |
+          cd kubecluster/terraform
+          terraform init -backend=false
+          terraform validate
+
+  lint-shell:
+    name: Shell Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: scripts
+
+  security-check:
+    name: Security Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for vault files encryption
+        run: |
+          for f in $(find . -path "*/vault/*" -name "*.yml" 2>/dev/null); do
+            if ! head -1 "$f" | grep -q '^\$ANSIBLE_VAULT'; then
+              echo "ERROR: Unencrypted vault file: $f"
+              exit 1
+            fi
+          done
+          echo "All vault files are encrypted"
+
+      - name: Scan for secrets
+        run: |
+          if grep -rE "(password|secret|api.?key|token)\s*=\s*['\"][^'\"]{8,}['\"]" \
+            --include="*.tf" --include="*.yml" --include="*.yaml" \
+            --exclude-dir=".git" --exclude-dir=".venv" . 2>/dev/null | \
+            grep -v "your-" | grep -v "example" | grep -v "placeholder" | \
+            grep -v '\${var\.' | grep -v 'var\.'; then
+            echo "WARNING: Potential secrets found in code"
+            exit 1
+          fi
+          echo "No obvious secrets detected"

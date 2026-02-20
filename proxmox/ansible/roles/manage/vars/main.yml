@@ -1,0 +1,4 @@
+---
+manage_tokens:
+  - terraform
+  - ansible

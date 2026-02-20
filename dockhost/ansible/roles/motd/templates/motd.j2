@@ -1,0 +1,26 @@
+
+{{ ansible_managed | comment }}
+
+ ██████╗  ██████╗  ██████╗██╗  ██╗██╗  ██╗ ██████╗ ███████╗████████╗
+ ██╔══██╗██╔═══██╗██╔════╝██║ ██╔╝██║  ██║██╔═══██╗██╔════╝╚══██╔══╝
+ ██║  ██║██║   ██║██║     █████╔╝ ███████║██║   ██║███████╗   ██║
+ ██║  ██║██║   ██║██║     ██╔═██╗ ██╔══██║██║   ██║╚════██║   ██║
+ ██████╔╝╚██████╔╝╚██████╗██║  ██╗██║  ██║╚██████╔╝███████║   ██║
+ ╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Hostname:     {{ ansible_hostname }}
+  IP Address:   {{ ansible_default_ipv4.address | default('N/A') }}
+  OS:           {{ ansible_distribution }} {{ ansible_distribution_version }}
+  Kernel:       {{ ansible_kernel }}
+  Uptime:       {{ ansible_uptime_seconds | int // 86400 }}d {{ (ansible_uptime_seconds | int % 86400) // 3600 }}h {{ (ansible_uptime_seconds | int % 3600) // 60 }}m
+  CPU:          {{ ansible_processor_vcpus }} vCPU(s)
+  Memory:       {{ (ansible_memtotal_mb / 1024) | round(1) }} GB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Docker Host | Infrastructure as Code | Proxmox VM
+
+  ╭───────────────────────────────────────────────────────────╮
+  │  TiPunchLabs - Homelab Infrastructure                     │
+  │  https://github.com/tipunchlabs                           │
+  ╰───────────────────────────────────────────────────────────╯

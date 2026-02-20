@@ -1,0 +1,16 @@
+---
+- name: Check if token file exists
+  ansible.builtin.stat:
+    path: /root/.{{ item }}_token
+  register: token_stat
+
+- name: Display the content of the token if it exists
+  ansible.builtin.command: cat /root/.{{ item }}_token
+  when: token_stat.stat.exists
+  register: token_content
+  changed_when: false
+
+- name: Show the content of the token file
+  ansible.builtin.debug:
+    msg: "{{ item }} Token Content: {{ token_content.stdout }}"
+  when: token_stat.stat.exists

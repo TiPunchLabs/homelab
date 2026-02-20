@@ -1,0 +1,11 @@
+---
+- name: Configure proxmox, Setup terraform permission and Create VM Template
+  hosts: proxmox
+  become: true
+  roles:
+    - role: configure
+      tags:
+        - configure
+    - role: manage
+      tags:
+        - manage

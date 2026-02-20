@@ -1,0 +1,10 @@
+all:
+  children:
+    proxmox:
+      hosts:
+        pve:
+    dockhost:
+      hosts:
+        dockhost-90:
+          ansible_host: dockhost-90
+          # ansible_python_interpreter: /usr/bin/python3

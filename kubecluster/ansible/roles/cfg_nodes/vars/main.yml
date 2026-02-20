@@ -1,0 +1,13 @@
+---
+cfg_nodes_packages:
+  - net-tools
+  - socat
+  - conntrack
+  - ipvsadm
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - jq
+  - openssl
+  - software-properties-common
+  - vim

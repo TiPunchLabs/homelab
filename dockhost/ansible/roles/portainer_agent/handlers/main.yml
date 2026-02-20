@@ -1,0 +1,6 @@
+---
+- name: Restart portainer agent
+  community.docker.docker_compose_v2:
+    project_src: /opt/portainer/agent
+    state: restarted
+  register: portainer_agent_restart_result

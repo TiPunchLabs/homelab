@@ -62,11 +62,14 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 git clone git@github.com:TiPunchLabs/homelab.git
 cd homelab
 
-# Allow direnv (sets up venv, secrets, env vars)
+# Allow direnv (creates .venv via uv, loads secrets via pass)
 direnv allow
 
+# Install Python dependencies
+uv sync
+
 # Install pre-commit hooks
-pre-commit install
+uv run pre-commit install
 
 # Provision a sub-project (example: dockhost)
 cd dockhost/terraform

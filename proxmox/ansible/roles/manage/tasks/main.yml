@@ -1,0 +1,10 @@
+---
+- name: Check end display all tokens
+  ansible.builtin.include_tasks:
+    file: check_and_display_token.yml
+    apply:
+      tags:
+        - display_token
+  loop: "{{ manage_tokens }}"
+  tags:
+    - always

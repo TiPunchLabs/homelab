@@ -1,0 +1,3 @@
+---
+configure_gen_password: "{{ vault_gen_password }}"
+# configure_proxmox_ip: "{{ vault_proxmox_ip }}"

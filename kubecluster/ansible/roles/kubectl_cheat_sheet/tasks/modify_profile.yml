@@ -1,0 +1,7 @@
+---
+- name: Add alias k and active completion
+  ansible.builtin.blockinfile:
+    path: "{{ home_dir }}/.profile"
+    block: |
+      export do="--dry-run=client -o yaml"
+      complete -o default -F __start_kubectl k

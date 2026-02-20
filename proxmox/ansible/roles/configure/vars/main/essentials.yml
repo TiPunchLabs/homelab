@@ -1,0 +1,6 @@
+---
+configure_packages:
+# The essentials
+  - guestfs-tools
+  - libguestfs-tools
+  - jq

@@ -1,0 +1,27 @@
+---
+# Storage configuration variables for Proxmox
+
+# Disk device to use (e.g., /dev/sdb)
+configure_storage_disk_device: /dev/sdb
+
+# Storage name in Proxmox
+configure_storage_name: hdd-storage
+
+# Mount point for the storage
+configure_storage_mount_point: /mnt/pve/hdd-storage
+
+# Filesystem type (ext4, xfs, vfat)
+configure_storage_filesystem_type: vfat
+
+# Storage type in Proxmox (dir, lvm, lvmthin, zfspool)
+configure_storage_type: dir
+
+# Content types allowed on this storage
+# Options: images, rootdir, vztmpl, backup, iso, snippets
+# For directory storage, common combinations:
+#   - "backup,iso,vztmpl" for backups and templates
+#   - "images,rootdir" for VM disks and containers
+configure_storage_content: backup,iso,vztmpl
+
+# Force format the disk (WARNING: destroys all data!)
+configure_storage_force_format: false

@@ -1,0 +1,6 @@
+---
+- name: Install required packages
+  ansible.builtin.apt:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ cfg_nodes_packages }}"

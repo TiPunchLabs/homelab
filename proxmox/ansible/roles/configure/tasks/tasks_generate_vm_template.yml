@@ -1,0 +1,111 @@
+## Download cloud image
+- name: Download cloud image
+  ansible.builtin.get_url:
+    url: "{{ item.cloud_init_image.url }}"
+    dest: "{{ item.cloud_init_image.path }}"
+    checksum: "{{ item.cloud_init_image.url_checksum }}"
+    mode: "0700"
+
+## Check if VM template already exists
+- name: Check if VM already exists
+  ansible.builtin.command: qm status {{ item.id }}
+  register: vm_status
+  failed_when: false
+  changed_when: false
+
+## Customize cloud image
+- name: Customize and prepare cloud image
+  ansible.builtin.command: |
+    virt-customize -a {{ item.cloud_init_image.path }} \
+      --root-password password:{{ configure_root_passwd }} \
+      --install qemu-guest-agent,cloud-init \
+      --run-command 'cloud-init clean' \
+      --run-command 'truncate -s 0 /etc/machine-id' \
+      --run-command 'rm -f /var/lib/dbus/machine-id' \
+      --run-command 'ln -s /etc/machine-id /var/lib/dbus/machine-id' \
+      --run-command 'systemctl enable cloud-init.service cloud-config.service cloud-final.service' \
+      --run-command "echo 'datasource_list: [ NoCloud, ConfigDrive ]' > /etc/cloud/cloud.cfg.d/99-proxmox.cfg"
+      --run-command 'echo "GRUB_CMDLINE_LINUX=\"console=ttyS0\"" >> /etc/default/grub' \
+      --run-command 'update-grub' \
+      --run-command 'systemctl enable serial-getty@ttyS0.service' \
+      --run-command 'useradd -m -s /bin/bash ansible' \
+      --run-command 'mkdir -p /home/ansible/.ssh' \
+      --run-command 'chown -R ansible:ansible /home/ansible/.ssh' \
+      --run-command 'chmod 700 /home/ansible/.ssh' \
+      --run-command 'usermod -aG sudo ansible' \
+      --run-command "echo 'ansible ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers" \
+      --run-command "echo '{{ configure_ansible_key_pub }}' > /home/ansible/.ssh/authorized_keys" \
+      --run-command 'chown ansible:ansible /home/ansible/.ssh/authorized_keys' \
+      --run-command 'chmod 600 /home/ansible/.ssh/authorized_keys'
+  when: vm_status.rc != 0
+  changed_when: true
+
+## Create a VM to use as a template
+- name: Create a VM to use as a template
+  ansible.builtin.command: |
+    qm create {{ item.id }} \
+    --memory {{ item.memory }} \
+    --core {{ item.cpu }} \
+    --name {{ item.name }} \
+    --net0 virtio,bridge=vmbr0 \
+    --description test
+  when: vm_status.rc != 0
+  changed_when: true
+
+## Import disk image
+- name: Import disk image
+  ansible.builtin.command: |
+    qm importdisk {{ item.id }} {{ item.cloud_init_image.path }} local-lvm
+  when: vm_status.rc != 0
+  changed_when: true
+
+## Attach disk to VM
+- name: Attach disk to VM
+  ansible.builtin.command: |
+    qm set {{ item.id }} \
+    --scsihw virtio-scsi-pci \
+    --scsi0 local-lvm:vm-{{ item.id }}-disk-0
+  when: vm_status.rc != 0
+  changed_when: true
+
+## Configure boot from the image
+- name: Configure boot from the image
+  ansible.builtin.command: |
+    qm set {{ item.id }} --boot c --bootdisk scsi0
+  when: vm_status.rc != 0
+  changed_when: true
+
+## Add cloud-init image as CDROM
+- name: Add cloud-init image as CDROM
+  ansible.builtin.command: |
+    qm set {{ item.id }} --ide2 local-lvm:cloudinit
+  when: vm_status.rc != 0
+  changed_when: true
+
+## Attach serial console (fix for cloud-init and Ubuntu 24.04)
+- name: Attach serial console
+  ansible.builtin.command: |
+    qm set {{ item.id }} --serial0 socket --vga std
+  when: vm_status.rc != 0
+  changed_when: true
+
+## Enable agent
+- name: Enable agent
+  ansible.builtin.command: |
+    qm set {{ item.id }} --agent enabled=1
+  when: vm_status.rc != 0
+  changed_when: true
+
+## Create template from VM
+- name: Create template from VM
+  ansible.builtin.command: |
+    qm template {{ item.id }}
+  when: vm_status.rc != 0
+  changed_when: true
+
+## Resize disk 2G (default) + 18G to 20G
+- name: Resize disk 2G (default) + 18G to 20G
+  ansible.builtin.command: |
+    qm resize {{ item.id }} scsi0 +18G
+  when: vm_status.rc != 0
+  changed_when: true

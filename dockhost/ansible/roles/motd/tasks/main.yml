@@ -1,0 +1,26 @@
+---
+- name: Disable default MOTD scripts
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: '0644'
+  loop:
+    - /etc/update-motd.d/10-help-text
+    - /etc/update-motd.d/50-motd-news
+    - /etc/update-motd.d/90-updates-available
+    - /etc/update-motd.d/91-release-upgrade
+    - /etc/update-motd.d/92-unattended-upgrades
+  failed_when: false
+  when: motd_disable_default_motd
+
+- name: Deploy custom MOTD
+  ansible.builtin.template:
+    src: motd.j2
+    dest: /etc/motd
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Remove custom dynamic MOTD script if exists
+  ansible.builtin.file:
+    path: /etc/update-motd.d/00-dockhost
+    state: absent

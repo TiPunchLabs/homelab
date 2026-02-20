@@ -1,0 +1,15 @@
+all:
+  children:
+    kubecluster:
+      children:
+        control_plane_nodes:
+          hosts:
+            kubecluster-40:
+        worker_nodes:
+          hosts:
+            kubecluster-41:
+            kubecluster-42:
+        cluster_nodes:
+          children:
+            control_plane_nodes:
+            worker_nodes:

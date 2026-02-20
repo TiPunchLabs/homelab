@@ -1,0 +1,25 @@
+---
+- name: Create directory for docker-compose
+  ansible.builtin.file:
+    path: /opt/portainer/agent/
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Copy docker compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: /opt/portainer/agent/docker-compose.yml
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart portainer agent
+
+- name: Deploy portainer agent with Docker Compose
+  community.docker.docker_compose_v2:
+    project_src: /opt/portainer/agent
+    state: present
+    recreate: auto
+    remove_orphans: true
+  register: portainer_agent_deploy
