@@ -1,0 +1,4 @@
+pm_api_url           = "https://your-proxmox-server:8006/api2/json"
+pm_api_token_id      = "your-user@pam!token-name"
+pm_api_token_secret  = "your-token-secret"
+vm_started           = false
