@@ -1,5 +1,0 @@
-github_token           = ""
-github_owner           = "your-github-username"
-repository_name        = "my-repository"
-repository_description = "Managed by Terraform"
-visibility             = "public"
