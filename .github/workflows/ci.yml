@@ -44,12 +44,6 @@ jobs:
       - name: Terraform fmt check
         run: terraform fmt -check -recursive
 
-      - name: Terraform validate - proxmox
-        run: |
-          cd proxmox/terraform
-          terraform init -backend=false
-          terraform validate
-
       - name: Terraform validate - dockhost
         run: |
           cd dockhost/terraform

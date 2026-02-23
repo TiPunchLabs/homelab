@@ -4,7 +4,7 @@
 
 > **Sous-projet du monorepo [homelab](https://github.com/TiPunchLabs/homelab)**
 >
-> Configuration et hardening du serveur Proxmox VE via **Ansible** (configuration serveur) et **Terraform** (gestion du repository GitHub).
+> Configuration et hardening du serveur Proxmox VE via **Ansible**.
 
 ## 📁 Structure
 
@@ -20,12 +20,6 @@ proxmox/
 │   └── roles/
 │       ├── configure/             # SSH, tokens, storage, VM templates
 │       └── manage/                # Verification tokens
-├── terraform/
-│   ├── main.tf
-│   ├── providers.tf
-│   ├── variables.tf
-│   ├── outputs.tf
-│   └── terraform.tfvars.example
 ├── docs/
 │   └── TOKEN_WORKFLOW.md          # Guide generation tokens Proxmox API
 ├── ansible.cfg
@@ -38,12 +32,10 @@ proxmox/
 - 👤 Creation roles, utilisateurs et tokens API Proxmox
 - 💾 Configuration du stockage (disques, LVM)
 - 🐧 Generation de templates VM Ubuntu Cloud-Init
-- 🌐 Gestion du repository GitHub via Terraform
 
 ## ✅ Prerequis
 
 - Ansible (installe via `uv` depuis la racine du monorepo)
-- Terraform >= 1.11.0
 - Acces SSH au serveur Proxmox
 - `pass` configure pour les secrets (vault password via `scripts/ansible-vault-pass.sh`)
 
@@ -70,17 +62,6 @@ ansible-playbook ansible/deploy.yml --tags "setup_storage"
 
 # Generation template VM
 ansible-playbook ansible/deploy.yml --tags "generate_vm_template"
-```
-
-### Terraform (gestion GitHub)
-
-```bash
-cd proxmox/terraform
-cp terraform.tfvars.example terraform.tfvars
-# Editer terraform.tfvars avec vos valeurs
-terraform init
-terraform plan
-terraform apply
 ```
 
 ## 🔐 Secrets
