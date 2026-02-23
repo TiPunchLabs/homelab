@@ -35,16 +35,6 @@ updates:
       - "dependencies"
       - "terraform"
 
-  # Terraform - proxmox
-  - package-ecosystem: "terraform"
-    directory: "/proxmox/terraform"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    labels:
-      - "dependencies"
-      - "terraform"
-
   # Terraform - dockhost
   - package-ecosystem: "terraform"
     directory: "/dockhost/terraform"
