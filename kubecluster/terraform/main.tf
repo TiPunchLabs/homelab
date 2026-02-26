@@ -19,6 +19,7 @@ module "kubecluster_control_plane" {
   vm_baseid           = 9040
   vm_ip_start         = 40
   vm_started          = var.vm_started
+  vm_ssh_keys         = fileexists(pathexpand("~/.ssh/id_vm_proxmox_rsa.pub")) ? [trimspace(file(pathexpand("~/.ssh/id_vm_proxmox_rsa.pub")))] : []
   project_description = "KubeCluster Control Plane Node"
 
 }
@@ -44,6 +45,7 @@ module "kubecluster_workers" {
   vm_baseid           = 9041
   vm_ip_start         = 41
   vm_started          = var.vm_started
+  vm_ssh_keys         = fileexists(pathexpand("~/.ssh/id_vm_proxmox_rsa.pub")) ? [trimspace(file(pathexpand("~/.ssh/id_vm_proxmox_rsa.pub")))] : []
   project_description = "KubeCluster Worker Node"
 
 }

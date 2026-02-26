@@ -92,3 +92,15 @@ variable "vm_started" {
   type        = bool
   default     = true
 }
+
+variable "vm_ssh_user" {
+  description = "Username for cloud-init SSH access"
+  type        = string
+  default     = "ansible"
+}
+
+variable "vm_ssh_keys" {
+  description = "List of SSH public keys for cloud-init user"
+  type        = list(string)
+  default     = []
+}
