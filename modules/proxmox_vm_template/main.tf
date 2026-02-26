@@ -59,6 +59,11 @@ resource "proxmox_virtual_environment_vm" "vm" {
         gateway = var.vm_gateway
       }
     }
+
+    user_account {
+      username = var.vm_ssh_user
+      keys     = var.vm_ssh_keys
+    }
   }
 
   vga {

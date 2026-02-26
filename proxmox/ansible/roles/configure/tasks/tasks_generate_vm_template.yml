@@ -24,19 +24,11 @@
       --run-command 'rm -f /var/lib/dbus/machine-id' \
       --run-command 'ln -s /etc/machine-id /var/lib/dbus/machine-id' \
       --run-command 'systemctl enable cloud-init.service cloud-config.service cloud-final.service' \
-      --run-command "echo 'datasource_list: [ NoCloud, ConfigDrive ]' > /etc/cloud/cloud.cfg.d/99-proxmox.cfg"
+      --run-command "echo 'datasource_list: [ NoCloud, ConfigDrive ]' > /etc/cloud/cloud.cfg.d/99-proxmox.cfg" \
       --run-command 'echo "GRUB_CMDLINE_LINUX=\"console=ttyS0\"" >> /etc/default/grub' \
       --run-command 'update-grub' \
       --run-command 'systemctl enable serial-getty@ttyS0.service' \
-      --run-command 'useradd -m -s /bin/bash ansible' \
-      --run-command 'mkdir -p /home/ansible/.ssh' \
-      --run-command 'chown -R ansible:ansible /home/ansible/.ssh' \
-      --run-command 'chmod 700 /home/ansible/.ssh' \
-      --run-command 'usermod -aG sudo ansible' \
-      --run-command "echo 'ansible ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers" \
-      --run-command "echo '{{ configure_ansible_key_pub }}' > /home/ansible/.ssh/authorized_keys" \
-      --run-command 'chown ansible:ansible /home/ansible/.ssh/authorized_keys' \
-      --run-command 'chmod 600 /home/ansible/.ssh/authorized_keys'
+      --run-command 'rm -f /etc/ssh/ssh_host_*'
   when: vm_status.rc != 0
   changed_when: true
 
