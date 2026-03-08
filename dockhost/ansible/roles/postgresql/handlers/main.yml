@@ -1,0 +1,6 @@
+---
+- name: Restart postgresql
+  community.docker.docker_compose_v2:
+    project_src: "{{ postgresql_install_dir }}"
+    state: restarted
+  register: postgresql_restart_result

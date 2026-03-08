@@ -1,0 +1,21 @@
+# {{ ansible_managed }}
+# PostgreSQL Client Authentication Configuration
+
+# TYPE  DATABASE  USER  ADDRESS       METHOD
+
+# Local connections (unix socket) - used by healthcheck
+local   all       all                 trust
+
+# Loopback - trust for local container access
+host    all       all   127.0.0.1/32  trust
+host    all       all   ::1/128       trust
+
+# Docker network - password auth
+host    all       all   172.0.0.0/8   md5
+
+# Homelab subnet - password auth
+host    all       all   192.168.1.0/24 md5
+
+# Reject everything else
+host    all       all   0.0.0.0/0     reject
+host    all       all   ::/0          reject

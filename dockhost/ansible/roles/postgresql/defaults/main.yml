@@ -1,0 +1,30 @@
+---
+# Image Docker PostgreSQL
+postgresql_image: "postgres"
+postgresql_image_tag: "17.4"
+postgresql_image_digest: "sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad"
+
+# Repertoires sur l'hote
+postgresql_install_dir: "/opt/postgresql"
+postgresql_data_dir: "/app/data/postgresql"
+
+# Port expose
+postgresql_port: 5432
+
+# Credentials (superuser)
+postgresql_user: "postgres"
+postgresql_db: "postgres"
+
+# Performance tuning (adapte a une VM 10 GB RAM)
+postgresql_max_connections: 100
+postgresql_shared_buffers: "256MB"
+postgresql_effective_cache_size: "1GB"
+postgresql_work_mem: "4MB"
+postgresql_maintenance_work_mem: "128MB"
+postgresql_wal_level: "replica"
+postgresql_max_wal_size: "1GB"
+
+# Logging
+postgresql_log_min_duration_statement: 1000
+postgresql_log_timezone: "UTC"
+postgresql_timezone: "UTC"

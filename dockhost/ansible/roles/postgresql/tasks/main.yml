@@ -1,0 +1,68 @@
+---
+- name: Create directory for docker-compose
+  ansible.builtin.file:
+    path: "{{ postgresql_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create config directory
+  ansible.builtin.file:
+    path: "{{ postgresql_install_dir }}/config"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create data directory
+  ansible.builtin.file:
+    path: "{{ postgresql_data_dir }}"
+    state: directory
+    owner: "999"
+    group: "999"
+    mode: '0700'
+
+- name: Copy docker compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ postgresql_install_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart postgresql
+
+- name: Copy postgresql.conf
+  ansible.builtin.template:
+    src: postgresql.conf.j2
+    dest: "{{ postgresql_install_dir }}/config/postgresql.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart postgresql
+
+- name: Copy pg_hba.conf
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: "{{ postgresql_install_dir }}/config/pg_hba.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart postgresql
+
+- name: Deploy postgresql with Docker Compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ postgresql_install_dir }}"
+    state: present
+    recreate: auto
+    remove_orphans: true
+  register: postgresql_deploy
+
+- name: Wait for PostgreSQL to be ready
+  ansible.builtin.command:
+    cmd: docker exec postgresql pg_isready -U {{ postgresql_user }}
+  register: pg_ready
+  retries: 10
+  delay: 3
+  until: pg_ready.rc == 0
+  changed_when: false

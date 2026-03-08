@@ -1,0 +1,46 @@
+# {{ ansible_managed }}
+# PostgreSQL configuration - optimized for homelab VM (10 GB RAM)
+
+# -----------------------------
+# Connection settings
+# -----------------------------
+listen_addresses = '*'
+port = 5432
+max_connections = {{ postgresql_max_connections }}
+
+# -----------------------------
+# Memory
+# -----------------------------
+shared_buffers = {{ postgresql_shared_buffers }}
+effective_cache_size = {{ postgresql_effective_cache_size }}
+work_mem = {{ postgresql_work_mem }}
+maintenance_work_mem = {{ postgresql_maintenance_work_mem }}
+
+# -----------------------------
+# WAL
+# -----------------------------
+wal_level = {{ postgresql_wal_level }}
+max_wal_size = {{ postgresql_max_wal_size }}
+
+# -----------------------------
+# Logging
+# -----------------------------
+log_min_duration_statement = {{ postgresql_log_min_duration_statement }}
+log_timezone = '{{ postgresql_log_timezone }}'
+log_line_prefix = '%m [%p] %q%u@%d '
+
+# -----------------------------
+# Locale
+# -----------------------------
+timezone = '{{ postgresql_timezone }}'
+datestyle = 'iso, mdy'
+lc_messages = 'en_US.utf8'
+lc_monetary = 'en_US.utf8'
+lc_numeric = 'en_US.utf8'
+lc_time = 'en_US.utf8'
+default_text_search_config = 'pg_catalog.english'
+
+# -----------------------------
+# SSL (disabled for internal homelab network)
+# -----------------------------
+ssl = off

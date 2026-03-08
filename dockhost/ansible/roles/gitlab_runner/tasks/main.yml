@@ -1,0 +1,34 @@
+---
+- name: Create directory for docker-compose
+  ansible.builtin.file:
+    path: "{{ gitlab_runner_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Copy GitLab Runner config
+  ansible.builtin.template:
+    src: config.toml.j2
+    dest: "{{ gitlab_runner_install_dir }}/config.toml"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart gitlab runner
+
+- name: Copy docker compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ gitlab_runner_install_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart gitlab runner
+
+- name: Deploy gitlab runner with Docker Compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ gitlab_runner_install_dir }}"
+    state: present
+    recreate: auto
+    remove_orphans: true
+  register: gitlab_runner_deploy

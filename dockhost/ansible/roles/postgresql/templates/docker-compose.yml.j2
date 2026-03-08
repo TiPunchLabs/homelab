@@ -1,0 +1,30 @@
+services:
+  postgresql:
+    image: {{ postgresql_image }}:{{ postgresql_image_tag }}@{{ postgresql_image_digest }}
+    container_name: postgresql
+    restart: always
+    ports:
+      - "{{ postgresql_port }}:5432"
+    environment:
+      POSTGRES_USER: "{{ postgresql_user }}"
+      POSTGRES_PASSWORD: "{{ vault_postgresql_password }}"
+      POSTGRES_DB: "{{ postgresql_db }}"
+    command: >-
+      postgres
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c hba_file=/etc/postgresql/pg_hba.conf
+    volumes:
+      - "{{ postgresql_data_dir }}:/var/lib/postgresql/data"
+      - "./config/postgresql.conf:/etc/postgresql/postgresql.conf:ro"
+      - "./config/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ postgresql_user }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vm-docker-90-net
+
+networks:
+  vm-docker-90-net:
+    driver: bridge

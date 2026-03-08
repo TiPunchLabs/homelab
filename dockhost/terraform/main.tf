@@ -15,6 +15,7 @@ module "dockhost_vm" {
   vm_baseid           = 9090
   vm_ip_start         = 90
   vm_started          = var.vm_started
+  vm_ssh_keys         = [trimspace(file("~/.ssh/id_vm_proxmox_rsa.pub"))]
   project_description = "VM for dockhost project - All Docker apps"
 
 }

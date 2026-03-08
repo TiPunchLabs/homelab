@@ -1,0 +1,24 @@
+services:
+  github_runner:
+    image: {{ github_runner_image }}:{{ github_runner_image_tag }}@{{ github_runner_image_digest }}
+    container_name: github_runner
+    restart: always
+    environment:
+      RUNNER_SCOPE: "org"
+      ORG_NAME: "{{ github_runner_org_name }}"
+      ACCESS_TOKEN: "{{ vault_github_runner_pat }}"
+      RUNNER_NAME_PREFIX: "{{ github_runner_name_prefix }}"
+      RUNNER_WORKDIR: "{{ github_runner_work_dir }}"
+      LABELS: "{{ github_runner_labels }}"
+      RUNNER_GROUP: "{{ github_runner_group }}"
+      DISABLE_AUTO_UPDATE: "{{ github_runner_disable_auto_update }}"
+      EPHEMERAL: "{{ github_runner_ephemeral }}"
+      RUN_AS_ROOT: "{{ github_runner_run_as_root }}"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      - vm-docker-90-net
+
+networks:
+  vm-docker-90-net:
+    driver: bridge
