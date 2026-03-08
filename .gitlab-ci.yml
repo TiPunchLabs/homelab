@@ -1,0 +1,120 @@
+stages:
+  - lint
+  - security
+
+# =============================================================================
+# Templates
+# =============================================================================
+.uv-setup:
+  image: python:3.12
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - .cache/pip
+      - .cache/uv
+  variables:
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+    UV_CACHE_DIR: "$CI_PROJECT_DIR/.cache/uv"
+  before_script:
+    - pip install uv
+    - uv sync --frozen
+
+# =============================================================================
+# Lint — Ansible
+# =============================================================================
+ansible-lint:
+  stage: lint
+  extends: .uv-setup
+  script:
+    - uv run ansible-lint dockhost/ansible/
+    - uv run ansible-lint proxmox/ansible/
+    - uv run ansible-lint kubecluster/ansible/
+    - uv run ansible-lint bastion/ansible/
+
+# =============================================================================
+# Lint — Terraform
+# =============================================================================
+terraform-lint:
+  stage: lint
+  image:
+    name: hashicorp/terraform:latest
+    entrypoint: [""]
+  script:
+    - terraform fmt -check -recursive
+    - cd dockhost/terraform && terraform init -backend=false && terraform validate
+    - cd ../../kubecluster/terraform && terraform init -backend=false && terraform validate
+    - cd ../../bastion/terraform && terraform init -backend=false && terraform validate
+
+# =============================================================================
+# Lint — Shell
+# =============================================================================
+shell-lint:
+  stage: lint
+  image: koalaman/shellcheck-alpine:latest
+  script:
+    - shellcheck scripts/*.sh
+
+# =============================================================================
+# Security — Vault encryption check
+# =============================================================================
+security-check:
+  stage: security
+  image: alpine:latest
+  script:
+    - |
+      for f in $(find . -path "*/vault/*" -name "*.yml" 2>/dev/null); do
+        if ! head -1 "$f" | grep -q '^\$ANSIBLE_VAULT'; then
+          echo "ERROR: Unencrypted vault file: $f"
+          exit 1
+        fi
+      done
+      echo "All vault files are encrypted"
+    - |
+      if grep -rE "(password|secret|api.?key|token)\s*=\s*['\"][^'\"]{8,}['\"]" \
+        --include="*.tf" --include="*.yml" --include="*.yaml" \
+        --exclude-dir=".git" --exclude-dir=".venv" . 2>/dev/null | \
+        grep -v "your-" | grep -v "example" | grep -v "placeholder" | \
+        grep -v '\${var\.' | grep -v 'var\.'; then
+        echo "WARNING: Potential secrets found in code"
+        exit 1
+      fi
+      echo "No obvious secrets detected"
+
+# =============================================================================
+# Security — Docker image scan
+# =============================================================================
+scan-docker-images:
+  stage: security
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache grep sed curl
+  script:
+    - |
+      images=$(grep -rh '^\s*image:' --include="*.j2" . \
+        | sed 's/.*image:\s*//' \
+        | sed 's/@sha256:[a-f0-9]*//' \
+        | sed 's/{{[^}]*}}//g' \
+        | tr -d ' "' \
+        | grep -v '^:' \
+        | grep -v '^$' \
+        | sort -u)
+      echo "Images found:"
+      echo "$images"
+    - |
+      curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+      images=$(grep -rh '^\s*image:' --include="*.j2" . \
+        | sed 's/.*image:\s*//' \
+        | sed 's/@sha256:[a-f0-9]*//' \
+        | sed 's/{{[^}]*}}//g' \
+        | tr -d ' "' \
+        | grep -v '^:' \
+        | grep -v '^$' \
+        | sort -u)
+      echo "$images" | while IFS= read -r image; do
+        [ -z "$image" ] && continue
+        echo "============================================="
+        echo "Scanning: $image"
+        echo "============================================="
+        trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress "$image" || true
+      done
+  allow_failure: true
