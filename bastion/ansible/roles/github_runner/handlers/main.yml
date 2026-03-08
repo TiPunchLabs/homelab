@@ -1,6 +1,0 @@
----
-- name: Restart github runner
-  ansible.builtin.systemd:
-    name: "actions.runner.{{ github_runner_org_name }}.{{ github_runner_name }}"
-    state: restarted
-    daemon_reload: true

@@ -1,9 +1,0 @@
----
-github_runner_version: "2.322.0"
-github_runner_org_name: "TiPunchLabs"
-github_runner_name: "bastion-60"
-github_runner_labels: "self-hosted,linux,bastion"
-github_runner_group: "Default"
-github_runner_install_dir: "/opt/github-runner"
-github_runner_user: "ansible"
-github_runner_arch: "linux-x64"

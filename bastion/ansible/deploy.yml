@@ -16,6 +16,6 @@
     - role: ssh_keys
       tags:
         - ssh-keys
-    - role: github_runner
+    - role: gitlab_runner
       tags:
-        - github-runner
+        - gitlab-runner

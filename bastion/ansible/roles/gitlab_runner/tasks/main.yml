@@ -1,0 +1,55 @@
+---
+- name: Check if gitlab-runner binary exists
+  ansible.builtin.stat:
+    path: /usr/local/bin/gitlab-runner
+  register: runner_binary
+
+- name: Download GitLab Runner binary
+  ansible.builtin.get_url:
+    url: "https://gitlab-runner-downloads.s3.amazonaws.com/v{{ gitlab_runner_version }}/binaries/gitlab-runner-linux-{{ gitlab_runner_arch }}"
+    dest: /usr/local/bin/gitlab-runner
+    mode: "0755"
+  when: not runner_binary.stat.exists
+
+- name: Create runner config directory
+  ansible.builtin.file:
+    path: "{{ gitlab_runner_install_dir }}"
+    state: directory
+    owner: "{{ gitlab_runner_user }}"
+    group: "{{ gitlab_runner_user }}"
+    mode: "0755"
+
+- name: Check if runner is already configured
+  ansible.builtin.stat:
+    path: "{{ gitlab_runner_install_dir }}/config.toml"
+  register: runner_config
+
+- name: Register runner with GitLab
+  ansible.builtin.command:
+    cmd: >
+      gitlab-runner register --non-interactive
+      --url {{ gitlab_runner_url }}
+      --token {{ vault_gitlab_runner_token }}
+      --name {{ gitlab_runner_name }}
+      --executor {{ gitlab_runner_executor }}
+      --config {{ gitlab_runner_install_dir }}/config.toml
+  become: true
+  become_user: "{{ gitlab_runner_user }}"
+  no_log: true
+  when: not runner_config.stat.exists
+
+- name: Deploy gitlab-runner systemd service
+  ansible.builtin.template:
+    src: gitlab-runner.service.j2
+    dest: /etc/systemd/system/gitlab-runner.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart gitlab runner
+
+- name: Start and enable gitlab-runner service
+  ansible.builtin.systemd:
+    name: gitlab-runner
+    state: started
+    enabled: true
+    daemon_reload: true

@@ -1,0 +1,8 @@
+---
+gitlab_runner_version: "17.8.3"
+gitlab_runner_url: "https://gitlab.com"
+gitlab_runner_name: "bastion-60"
+gitlab_runner_executor: "shell"
+gitlab_runner_install_dir: "/opt/gitlab-runner"
+gitlab_runner_user: "ansible"
+gitlab_runner_arch: "amd64"
