@@ -1,6 +1,0 @@
----
-- name: Restart github runner
-  community.docker.docker_compose_v2:
-    project_src: "{{ github_runner_install_dir }}"
-    state: restarted
-  register: github_runner_restart_result

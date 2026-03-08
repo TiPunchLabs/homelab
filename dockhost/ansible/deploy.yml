@@ -31,9 +31,6 @@
     - role: postgresql
       tags:
         - postgresql
-    # - role: github_runner
-    #   tags:
-    #     - github-runner
     - role: gitlab_runner
       tags:
         - gitlab-runner
