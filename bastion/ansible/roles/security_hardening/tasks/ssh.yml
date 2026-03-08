@@ -1,0 +1,32 @@
+---
+- name: Disable root login via SSH
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin no'
+    validate: 'sshd -t -f %s'
+  notify: Restart sshd
+
+- name: Disable password authentication
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+    validate: 'sshd -t -f %s'
+  notify: Restart sshd
+
+- name: Restrict SSH access to allowed users
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?AllowUsers'
+    line: 'AllowUsers {{ security_allow_users }}'
+    validate: 'sshd -t -f %s'
+  notify: Restart sshd
+
+- name: Accept environment variables for secrets injection
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?AcceptEnv'
+    line: 'AcceptEnv LANG LC_* ANSIBLE_VAULT_PASSWORD TF_VAR_*'
+    validate: 'sshd -t -f %s'
+  notify: Restart sshd

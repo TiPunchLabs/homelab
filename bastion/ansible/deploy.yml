@@ -1,0 +1,21 @@
+---
+- name: Configure bastion-60
+  become: true
+  hosts:
+    - bastion
+  roles:
+    - role: motd
+      tags:
+        - motd
+    - role: security_hardening
+      tags:
+        - security-hardening
+    - role: tooling
+      tags:
+        - tooling
+    - role: ssh_keys
+      tags:
+        - ssh-keys
+    - role: github_runner
+      tags:
+        - github-runner

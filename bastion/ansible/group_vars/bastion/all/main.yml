@@ -1,0 +1,26 @@
+# ============================================================
+# 🔐 Securite - Role security_hardening
+# ============================================================
+security_ssh_hardening: true
+security_allow_users: "{{ vault_security_allow_users | join(' ') }}"
+security_disable_root_login: true
+
+security_enable_ufw: true
+security_ufw_default_incoming: "deny"
+security_ufw_default_outgoing: "allow"
+
+security_open_ports:
+  - { port: 22, proto: tcp, comment: "SSH access" }
+
+# ============================================================
+# 🛠️ Tooling - Role tooling
+# ============================================================
+tooling_terraform_version: "1.11.4"
+tooling_homelab_repo: "https://github.com/TiPunchLabs/homelab.git"
+tooling_user: "ansible"
+
+# ============================================================
+# 🔑 SSH Keys - Role ssh_keys
+# ============================================================
+ssh_keys_user: "ansible"
+ssh_keys_group: "ansible"

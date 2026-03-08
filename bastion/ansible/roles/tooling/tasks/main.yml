@@ -1,0 +1,171 @@
+---
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - git
+      - curl
+      - unzip
+      - python3
+      - python3-pip
+      - python3-venv
+      - gnupg
+      - pass
+      - software-properties-common
+      - direnv
+    state: present
+    update_cache: true
+
+- name: Add direnv hook to bashrc
+  ansible.builtin.lineinfile:
+    path: "/home/{{ tooling_user }}/.bashrc"
+    line: 'eval "$(direnv hook bash)"'
+    regexp: 'direnv hook bash'
+    state: present
+  become: true
+  become_user: "{{ tooling_user }}"
+
+- name: Download uv installer
+  ansible.builtin.get_url:
+    url: https://astral.sh/uv/install.sh
+    dest: "/tmp/uv-install.sh"
+    mode: '0755'
+
+- name: Install uv for user {{ tooling_user }}
+  ansible.builtin.command: /tmp/uv-install.sh
+  args:
+    creates: "/home/{{ tooling_user }}/.local/bin/uv"
+  become: true
+  become_user: "{{ tooling_user }}"
+
+- name: Remove uv installer
+  ansible.builtin.file:
+    path: /tmp/uv-install.sh
+    state: absent
+
+- name: Add HashiCorp GPG key
+  ansible.builtin.apt_key:
+    url: https://apt.releases.hashicorp.com/gpg
+    state: present
+
+- name: Add HashiCorp repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64] https://apt.releases.hashicorp.com {{ ansible_facts['distribution_release'] }} main"
+    state: present
+    filename: hashicorp
+
+- name: Install Terraform
+  ansible.builtin.apt:
+    name: "terraform={{ tooling_terraform_version }}-1"
+    state: present
+    update_cache: true
+
+- name: Clone homelab repository
+  ansible.builtin.git:
+    repo: "{{ tooling_homelab_repo }}"
+    dest: "/home/{{ tooling_user }}/homelab"
+    version: main
+  become: true
+  become_user: "{{ tooling_user }}"
+
+- name: Import GPG private key
+  ansible.builtin.shell:
+    cmd: set -o pipefail && echo "{{ vault_gpg_private_key }}" | gpg --batch --import
+    executable: /bin/bash
+  become: true
+  become_user: "{{ tooling_user }}"
+  register: gpg_import
+  changed_when: "'imported' in gpg_import.stderr"
+  no_log: true
+
+- name: Set GPG key trust to ultimate
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail &&
+      gpg --list-keys --with-colons "{{ vault_gpg_key_id }}"
+      | awk -F: '/^fpr:/{print $10 ":6:"; exit}'
+      | gpg --import-ownertrust
+    executable: /bin/bash
+  become: true
+  become_user: "{{ tooling_user }}"
+  changed_when: false
+  no_log: true
+
+- name: Check current password store GPG ID
+  ansible.builtin.slurp:
+    src: "/home/{{ tooling_user }}/.password-store/.gpg-id"
+  become: true
+  become_user: "{{ tooling_user }}"
+  register: pass_gpg_id
+  failed_when: false
+
+- name: Initialize password store
+  ansible.builtin.command:
+    cmd: pass init "{{ vault_gpg_key_id }}"
+  become: true
+  become_user: "{{ tooling_user }}"
+  when: pass_gpg_id.content is not defined or (pass_gpg_id.content | b64decode | trim) != vault_gpg_key_id
+
+- name: Insert ansible/vault into password store
+  ansible.builtin.shell:
+    cmd: set -o pipefail && echo "{{ vault_pass_ansible_vault }}" | pass insert -f -m ansible/vault
+    executable: /bin/bash
+  args:
+    creates: "/home/{{ tooling_user }}/.password-store/ansible/vault.gpg"
+  become: true
+  become_user: "{{ tooling_user }}"
+  no_log: true
+
+- name: Insert proxmox/api-token-id into password store
+  ansible.builtin.shell:
+    cmd: set -o pipefail && echo "{{ vault_pass_proxmox_api_token_id }}" | pass insert -f -m proxmox/api-token-id
+    executable: /bin/bash
+  args:
+    creates: "/home/{{ tooling_user }}/.password-store/proxmox/api-token-id.gpg"
+  become: true
+  become_user: "{{ tooling_user }}"
+  no_log: true
+
+- name: Insert proxmox/api-token-secret into password store
+  ansible.builtin.shell:
+    cmd: set -o pipefail && echo "{{ vault_pass_proxmox_api_token_secret }}" | pass insert -f -m proxmox/api-token-secret
+    executable: /bin/bash
+  args:
+    creates: "/home/{{ tooling_user }}/.password-store/proxmox/api-token-secret.gpg"
+  become: true
+  become_user: "{{ tooling_user }}"
+  no_log: true
+
+- name: Insert github/terraform-token into password store
+  ansible.builtin.shell:
+    cmd: set -o pipefail && echo "{{ vault_pass_github_terraform_token }}" | pass insert -f -m github/terraform-token
+    executable: /bin/bash
+  args:
+    creates: "/home/{{ tooling_user }}/.password-store/github/terraform-token.gpg"
+  become: true
+  become_user: "{{ tooling_user }}"
+  no_log: true
+
+- name: Deploy .envrc to homelab directory
+  ansible.builtin.template:
+    src: envrc.j2
+    dest: "/home/{{ tooling_user }}/homelab/.envrc"
+    owner: "{{ tooling_user }}"
+    group: "{{ tooling_user }}"
+    mode: "0600"
+  become: true
+  become_user: "{{ tooling_user }}"
+
+- name: Allow direnv in homelab directory
+  ansible.builtin.command:
+    cmd: direnv allow /home/{{ tooling_user }}/homelab
+  become: true
+  become_user: "{{ tooling_user }}"
+  changed_when: false
+
+- name: Install Python dependencies (ansible, ansible-lint) via uv
+  ansible.builtin.command:
+    cmd: /home/{{ tooling_user }}/.local/bin/uv sync
+    chdir: "/home/{{ tooling_user }}/homelab"
+  become: true
+  become_user: "{{ tooling_user }}"
+  changed_when: false

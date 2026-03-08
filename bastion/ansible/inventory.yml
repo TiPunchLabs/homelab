@@ -1,0 +1,6 @@
+all:
+  children:
+    bastion:
+      hosts:
+        bastion-60:
+          ansible_host: bastion-60

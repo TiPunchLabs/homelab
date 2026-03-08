@@ -1,0 +1,36 @@
+{{ ansible_managed | comment }}
+
+Host pve
+  HostName 192.168.1.1
+  User root
+  IdentityFile ~/.ssh/proxmox
+  IdentitiesOnly yes
+  StrictHostKeyChecking no
+
+Host dockhost-50
+  HostName 192.168.1.50
+  User ansible
+  IdentityFile ~/.ssh/id_vm_proxmox_rsa
+  IdentitiesOnly yes
+  StrictHostKeyChecking no
+
+Host kubecluster-40
+  HostName 192.168.1.40
+  User ansible
+  IdentityFile ~/.ssh/id_vm_proxmox_rsa
+  IdentitiesOnly yes
+  StrictHostKeyChecking no
+
+Host kubecluster-41
+  HostName 192.168.1.41
+  User ansible
+  IdentityFile ~/.ssh/id_vm_proxmox_rsa
+  IdentitiesOnly yes
+  StrictHostKeyChecking no
+
+Host kubecluster-42
+  HostName 192.168.1.42
+  User ansible
+  IdentityFile ~/.ssh/id_vm_proxmox_rsa
+  IdentitiesOnly yes
+  StrictHostKeyChecking no

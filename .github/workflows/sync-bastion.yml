@@ -1,0 +1,17 @@
+---
+name: Sync Bastion
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  sync:
+    name: Sync homelab on bastion
+    runs-on: [self-hosted, linux, bastion]
+    steps:
+      - name: Pull latest changes
+        run: |
+          cd ~/homelab
+          git fetch origin main
+          git reset --hard origin/main
