@@ -41,9 +41,9 @@ terraform-lint:
     entrypoint: [""]
   script:
     - terraform fmt -check -recursive
-    - cd dockhost/terraform && terraform init -backend=false && terraform validate
-    - cd ../../kubecluster/terraform && terraform init -backend=false && terraform validate
-    - cd ../../bastion/terraform && terraform init -backend=false && terraform validate
+    - cd $CI_PROJECT_DIR/dockhost/terraform && terraform init -backend=false && terraform validate
+    - cd $CI_PROJECT_DIR/kubecluster/terraform && terraform init -backend=false && terraform validate
+    - cd $CI_PROJECT_DIR/bastion/terraform && terraform init -backend=false && terraform validate
 
 # =============================================================================
 # Lint — Shell
