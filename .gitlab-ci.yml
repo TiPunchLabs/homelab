@@ -41,6 +41,7 @@ terraform-lint:
     entrypoint: [""]
   script:
     - terraform fmt -check -recursive
+    - mkdir -p ~/.ssh && echo "fake-key-for-ci-validation" > ~/.ssh/id_vm_proxmox_rsa.pub
     - cd $CI_PROJECT_DIR/dockhost/terraform && terraform init -backend=false && terraform validate
     - cd $CI_PROJECT_DIR/kubecluster/terraform && terraform init -backend=false && terraform validate
     - cd $CI_PROJECT_DIR/bastion/terraform && terraform init -backend=false && terraform validate
