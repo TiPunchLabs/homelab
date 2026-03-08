@@ -1,6 +1,7 @@
 stages:
   - lint
   - security
+  - deploy
 
 # =============================================================================
 # Templates
@@ -119,3 +120,17 @@ scan-docker-images:
         trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress "$image" || true
       done
   allow_failure: true
+
+# =============================================================================
+# Deploy — Sync bastion
+# =============================================================================
+sync-bastion:
+  stage: deploy
+  tags:
+    - bastion
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - cd ~/homelab
+    - git fetch origin main
+    - git reset --hard origin/main
