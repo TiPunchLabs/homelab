@@ -4,10 +4,16 @@ stages:
   - deploy
 
 # =============================================================================
+# Global defaults
+# =============================================================================
+default:
+  interruptible: true
+
+# =============================================================================
 # Templates
 # =============================================================================
 .uv-setup:
-  image: python:3.12
+  image: python:3.12-slim
   cache:
     key: ${CI_COMMIT_REF_SLUG}
     paths:
@@ -38,7 +44,7 @@ ansible-lint:
 terraform-lint:
   stage: lint
   image:
-    name: hashicorp/terraform:latest
+    name: hashicorp/terraform:1.11
     entrypoint: [""]
   script:
     - terraform fmt -check -recursive
@@ -52,7 +58,7 @@ terraform-lint:
 # =============================================================================
 shell-lint:
   stage: lint
-  image: koalaman/shellcheck-alpine:latest
+  image: koalaman/shellcheck-alpine:v0.10.0
   script:
     - shellcheck scripts/*.sh
 
@@ -61,33 +67,66 @@ shell-lint:
 # =============================================================================
 security-check:
   stage: security
-  image: alpine:latest
+  image: alpine:3.21
   script:
+    # 1. Vault files must be encrypted
     - |
+      echo "=== Checking vault file encryption ==="
+      failed=0
       for f in $(find . -path "*/vault/*" -name "*.yml" 2>/dev/null); do
         if ! head -1 "$f" | grep -q '^\$ANSIBLE_VAULT'; then
           echo "ERROR: Unencrypted vault file: $f"
-          exit 1
+          failed=1
         fi
       done
-      echo "All vault files are encrypted"
+      [ "$failed" -eq 0 ] && echo "OK: All vault files are encrypted"
+      [ "$failed" -eq 1 ] && exit 1
+    # 2. No private keys in plaintext
     - |
-      if grep -rE "(password|secret|api.?key|token)\s*=\s*['\"][^'\"]{8,}['\"]" \
-        --include="*.tf" --include="*.yml" --include="*.yaml" \
+      echo "=== Checking for private keys ==="
+      if grep -rl "BEGIN \(RSA \|OPENSSH \|EC \|DSA \|PGP \)\?PRIVATE KEY" \
+        --include="*.yml" --include="*.yaml" --include="*.tf" \
+        --include="*.j2" --include="*.sh" --include="*.cfg" --include="*.toml" \
         --exclude-dir=".git" --exclude-dir=".venv" . 2>/dev/null | \
-        grep -v "your-" | grep -v "example" | grep -v "placeholder" | \
-        grep -v '\${var\.' | grep -v 'var\.'; then
-        echo "WARNING: Potential secrets found in code"
+        grep -v "vault/" ; then
+        echo "ERROR: Private key found in plaintext (outside vault)"
         exit 1
       fi
-      echo "No obvious secrets detected"
+      echo "OK: No private keys in plaintext"
+    # 3. No hardcoded secrets (passwords, tokens, API keys)
+    - |
+      echo "=== Checking for hardcoded secrets ==="
+      if grep -rE "(password|secret|api.?key|token)\s*[:=]\s*['\"][^'\"]{8,}['\"]" \
+        --include="*.tf" --include="*.yml" --include="*.yaml" \
+        --include="*.j2" --include="*.sh" --include="*.cfg" --include="*.toml" \
+        --exclude-dir=".git" --exclude-dir=".venv" . 2>/dev/null | \
+        grep -v "your-" | grep -v "example" | grep -v "placeholder" | \
+        grep -v "fake-key" | \
+        grep -v '\${var\.' | grep -v 'var\.' | \
+        grep -v 'vault/' ; then
+        echo "ERROR: Potential secrets found in code"
+        exit 1
+      fi
+      echo "OK: No hardcoded secrets detected"
+    # 4. No known token patterns (GitHub PAT, GitLab tokens, AWS keys)
+    - |
+      echo "=== Checking for known token patterns ==="
+      if grep -rE "(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{80,}|glpat-[a-zA-Z0-9\-_]{20,}|AKIA[0-9A-Z]{16}|Bearer\s+[a-zA-Z0-9\-._~+/]{20,})" \
+        --include="*.tf" --include="*.yml" --include="*.yaml" \
+        --include="*.j2" --include="*.sh" --include="*.cfg" --include="*.toml" \
+        --exclude-dir=".git" --exclude-dir=".venv" . 2>/dev/null | \
+        grep -v 'vault/' ; then
+        echo "ERROR: Known token pattern found in plaintext"
+        exit 1
+      fi
+      echo "OK: No known token patterns found"
 
 # =============================================================================
 # Security — Docker image scan
 # =============================================================================
 scan-docker-images:
   stage: security
-  image: alpine:latest
+  image: alpine:3.21
   before_script:
     - apk add --no-cache grep sed curl
   script:
@@ -128,8 +167,9 @@ sync-bastion:
   stage: deploy
   tags:
     - bastion
+  interruptible: false
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE != "merge_request_event"
   script:
     - cd ~/homelab
     - git fetch origin main
