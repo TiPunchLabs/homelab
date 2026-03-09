@@ -15,27 +15,17 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 
 ## Architecture
 
-```
-                        ┌──────────────┐
-                        │   Proxmox VE │
-                        │  Hypervisor  │
-                        └──────┬───────┘
-                               │
-              ┌────────────────┼────────────────┐
-              │                │                │
-     ┌────────▼───────┐ ┌─────▼──────┐ ┌───────▼────────┐
-     │   dockhost      │ │ kubecluster│ │   (future VMs) │
-     │   Docker apps   │ │ K8s cluster│ │                │
-     │   1 VM          │ │ 3 VMs      │ │                │
-     └────────────────┘ └────────────┘ └────────────────┘
-```
+<p align="center">
+  <img src="docs/architecture.jpg" alt="Homelab Architecture Diagram" width="100%" />
+</p>
 
 ## Sub-projects
 
 | Directory | Description | VMs | Stack |
 |-----------|-------------|-----|-------|
 | [`proxmox/`](proxmox/) | Proxmox hypervisor configuration (SSH hardening, users, tokens, VM templates) | Host | Ansible |
-| [`dockhost/`](dockhost/) | Docker-based services VM (Docker, Portainer, security hardening) | 1 | Terraform + Ansible |
+| [`bastion/`](bastion/) | Bastion VM — GitLab Runner (shell), Terraform, Ansible, pass, direnv | 1 | Terraform + Ansible |
+| [`dockhost/`](dockhost/) | Docker-based services VM (Docker, Portainer, GitLab Runner, security hardening) | 1 | Terraform + Ansible |
 | [`kubecluster/`](kubecluster/) | Kubernetes cluster (kubeadm, containerd, CNI) | 3 (1 CP + 2 workers) | Terraform + Ansible |
 
 ### Shared components
@@ -43,6 +33,7 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 | Directory | Description |
 |-----------|-------------|
 | `modules/` | Reusable Terraform modules (`proxmox_vm_template`) |
+| `gitlab-terraform/` | GitLab project management via Terraform |
 | `github-terraform/` | GitHub repository management via Terraform |
 | `scripts/` | Shared scripts (Ansible Vault password, pre-commit checks) |
 
@@ -59,7 +50,7 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 
 ```bash
 # Clone the repository
-git clone git@github.com:TiPunchLabs/homelab.git
+git clone git@gitlab.com:tipunchlabs/homelab.git
 cd homelab
 
 # Allow direnv (creates .venv via uv, loads secrets via pass)
@@ -87,7 +78,8 @@ ansible-playbook ansible/deploy.yml
 
 ```
 homelab/
-├── .github/                        # CI/CD, issue templates, dependabot
+├── .gitlab-ci.yml                  # GitLab CI pipeline (lint, security, deploy)
+├── .github/                        # GitHub (read-only push mirror)
 ├── .claude/                        # Claude Code config & commands
 ├── .pre-commit-config.yaml         # Pre-commit hooks (shared)
 ├── .envrc                          # direnv: venv, TF_VAR, vault password
@@ -97,6 +89,7 @@ homelab/
 ├── modules/                        # Shared Terraform modules
 │   └── proxmox_vm_template/        #   Reusable VM provisioning module
 │
+├── gitlab-terraform/               # GitLab project management (Terraform)
 ├── github-terraform/               # GitHub repo management (Terraform)
 │
 ├── scripts/                        # Shared scripts
@@ -105,10 +98,14 @@ homelab/
 │
 ├── proxmox/                        # Hypervisor configuration
 │   ├── ansible/                    #   Roles: configure, manage
-│   └── terraform/                  #   GitHub repo provisioning
+│   └── terraform/
+│
+├── bastion/                        # Bastion VM
+│   ├── ansible/                    #   Roles: motd, security, tooling, ssh_keys, gitlab_runner
+│   └── terraform/                  #   VM provisioning (1 VM)
 │
 ├── dockhost/                       # Docker services VM
-│   ├── ansible/                    #   Roles: docker, motd, portainer, security
+│   ├── ansible/                    #   Roles: docker, motd, portainer, security, gitlab_runner
 │   └── terraform/                  #   VM provisioning (1 VM)
 │
 └── kubecluster/                    # Kubernetes cluster
@@ -120,7 +117,8 @@ homelab/
 
 | VM | VMID | IP | CPU | RAM | Disk | Purpose |
 |----|------|----|-----|-----|------|---------|
-| dockhost-90 | 9090 | 192.168.1.90 | 3 cores | 10 GB | 100 GB | Docker services |
+| bastion-60 | 9060 | 192.168.1.60 | 2 cores | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
+| dockhost-50 | 9050 | 192.168.1.50 | 3 cores | 10 GB | 100 GB | Docker services |
 | kubecluster-40 | 9040 | 192.168.1.40 | 2 cores | 4 GB | 35 GB | K8s Control Plane |
 | kubecluster-41 | 9041 | 192.168.1.41 | 1 core | 3.5 GB | 30 GB | K8s Worker |
 | kubecluster-42 | 9042 | 192.168.1.42 | 1 core | 3.5 GB | 30 GB | K8s Worker |
@@ -129,33 +127,38 @@ homelab/
 
 Secrets are managed via [pass](https://www.passwordstore.org/) and [direnv](https://direnv.net/):
 
-- **Terraform tokens**: `pass github/terraform-token` (injected as `TF_VAR_github_token`)
+```
+Ansible Vault → GPG Key → pass init → direnv → Env Vars
+```
+
+- **Terraform credentials**: `pass` entries injected as `TF_VAR_*` via `.envrc`
 - **Ansible Vault password**: `pass ansible/vault` (used by `scripts/ansible-vault-pass.sh`)
 - **Sensitive variables**: encrypted with Ansible Vault in `*/ansible/group_vars/*/vault/`
 
 ## CI/CD
 
-GitHub Actions runs on every push/PR to `main`:
+GitLab CI pipeline (`.gitlab-ci.yml`) runs on every push/MR:
 
-| Job | Description |
-|-----|-------------|
-| `lint-ansible` | Ansible lint on all sub-projects |
-| `lint-terraform` | `terraform fmt` + `terraform validate` |
-| `lint-shell` | ShellCheck on `scripts/` |
-| `security-check` | Vault encryption + secret scanning |
+| Stage | Jobs | Runner |
+|-------|------|--------|
+| **lint** | ansible-lint, terraform fmt/validate, shellcheck | Shared (Docker) |
+| **security** | Vault encryption check, private key scan, secret detection, token pattern scan, Docker image scan (Trivy) | Shared (Docker) |
+| **deploy** | sync-bastion (main branch only) | Self-hosted bastion (shell) |
+
+GitHub is a **read-only push mirror** — no CI, no runners.
 
 ## Contributing
 
 1. Create a feature branch: `git checkout -b feat/my-feature`
 2. Follow [Conventional Commits](https://www.conventionalcommits.org/)
 3. Run checks: `pre-commit run --all-files`
-4. Submit a Pull Request
+4. Submit a Merge Request
 
 ## Author
 
 **Xavier GUERET**
 
-[![GitHub](https://img.shields.io/github/followers/TiPunchLabs?style=social)](https://github.com/TiPunchLabs)
+[![GitLab](https://img.shields.io/badge/GitLab-tipunchlabs-orange?logo=gitlab)](https://gitlab.com/tipunchlabs) [![GitHub](https://img.shields.io/github/followers/TiPunchLabs?style=social)](https://github.com/TiPunchLabs)
 
 ## License
 
