@@ -65,13 +65,7 @@ dockhost/
         │       ├── ssh.yml
         │       └── ufw.yml
         │
-        ├── github_runner/              # [5] GitHub Actions Runner
-        │   ├── defaults/main.yml
-        │   ├── tasks/main.yml
-        │   ├── handlers/main.yml
-        │   └── templates/docker-compose.yml.j2
-        │
-        └── gitlab_runner/              # [6] GitLab Runner
+        └── gitlab_runner/              # [5] GitLab Runner (Docker executor)
             ├── defaults/main.yml
             ├── tasks/main.yml
             ├── handlers/main.yml
@@ -128,8 +122,6 @@ Fichiers deployes sur `dockhost-50` (192.168.1.50) :
 │   │   └── config/
 │   │       ├── postgresql.conf
 │   │       └── pg_hba.conf
-│   ├── github-runner/
-│   │   └── docker-compose.yml
 │   └── gitlab-runner/
 │       ├── docker-compose.yml
 │       └── config/config.toml
@@ -174,8 +166,7 @@ Pre-tasks
 [2] docker                  # Docker Engine + Compose
 [3] portainer_agent         # Agent Portainer (port 9001)
 [4] postgresql              # PostgreSQL 17.4 (port 5432)
-[5] github_runner           # GitHub Actions Runner
-[6] gitlab_runner           # GitLab Runner
+[5] gitlab_runner           # GitLab Runner (Docker executor)
 ```
 
 > **Note** : Chaque role peut etre execute independamment via son tag :

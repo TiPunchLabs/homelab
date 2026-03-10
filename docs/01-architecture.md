@@ -3,30 +3,36 @@
 ## Vue d'ensemble
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                              RESEAU LOCAL (10.0.1.0/24)                      │
-├────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                │
-│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐            │
-│  │   POSTE LOCAL   │    │   PROXMOX VE    │    │  NAS SYNOLOGY   │            │
-│  │                 │    │  10.0.1.26   │    │  10.0.1.93   │            │
-│  │  - Caddy Proxy  │    │                 │    │                 │            │
-│  │  - Docker local │    │  ┌───────────┐  │    │  - Stockage     │            │
-│  │  - Dev tools    │    │  │   VMs     │  │    │  - Backups      │            │
-│  │                 │    │  │ dockhost  │  │    │  - Media        │            │
-│  └────────┬────────┘    │  │ kubeclust │  │    └─────────────────┘            │
-│           │             │  └───────────┘  │                                    │
-│           │             └─────────────────┘                                    │
-│           │                                                                    │
-│           │             ┌─────────────────────────────────────┐               │
-│           │             │   RESEAU VAGRANT (10.0.122.0/24)  │               │
-│           │             │                                     │               │
-│           └─────────────│  k8s-controlplan  10.0.122.70    │               │
-│                         │  k8s-node1        10.0.122.71    │               │
-│                         │  k8s-node2        10.0.122.72    │               │
-│                         └─────────────────────────────────────┘               │
-│                                                                                │
-└────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                              RESEAU LOCAL (192.168.1.0/24)                        │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  ┌─────────────────┐    ┌──────────────────────────────┐    ┌────────────────┐  │
+│  │   POSTE LOCAL   │    │         PROXMOX VE           │    │  NAS SYNOLOGY  │  │
+│  │  192.168.1.x       │    │         192.168.1.26            │    │  192.168.1.93     │  │
+│  │                 │    │                              │    │                │  │
+│  │  - Caddy Proxy  │    │  ┌────────────────────────┐  │    │  - Stockage    │  │
+│  │  - Docker local │    │  │ bastion-60  192.168.1.60  │  │    │  - Backups     │  │
+│  │  - Dev tools    │    │  │ GitLab Runner (shell)   │  │    │  - Media       │  │
+│  │                 │    │  ├────────────────────────┤  │    └────────────────┘  │
+│  └────────┬────────┘    │  │ dockhost-50 192.168.1.50  │  │                        │
+│           │             │  │ Docker, GitLab Runner   │  │                        │
+│           │             │  ├────────────────────────┤  │                        │
+│           │             │  │ kubecluster-40 .40     │  │                        │
+│           │             │  │ kubecluster-41 .41     │  │                        │
+│           │             │  │ kubecluster-42 .42     │  │                        │
+│           │             │  └────────────────────────┘  │                        │
+│           │             └──────────────────────────────┘                        │
+│           │                                                                      │
+│           │             ┌─────────────────────────────────┐                     │
+│           │             │   RESEAU VAGRANT (192.168.122.0/24)│                     │
+│           │             │                                 │                     │
+│           └─────────────│  k8s-controlplan  192.168.122.70   │                     │
+│                         │  k8s-node1        192.168.122.71   │                     │
+│                         │  k8s-node2        192.168.122.72   │                     │
+│                         └─────────────────────────────────┘                     │
+│                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -35,8 +41,8 @@
 
 ### 1. Proxmox VE (Hyperviseur)
 
-**Adresse**: 10.0.1.26
-**Interface web**: https://10.0.1.26:8006
+**Adresse**: 192.168.1.26
+**Interface web**: https://192.168.1.26:8006
 **SSH**: `ssh pve` (user: root)
 
 Proxmox Virtual Environment est l'hyperviseur principal qui heberge toutes les VMs de production.
@@ -54,9 +60,9 @@ Proxmox Virtual Environment est l'hyperviseur principal qui heberge toutes les V
 
 ### 2. NAS Synology
 
-**Adresse**: 10.0.1.93
-**Interface DSM**: http://10.0.1.93:5000
-**SSH**: `ssh nas` (user: <user>)
+**Adresse**: 192.168.1.93
+**Interface DSM**: http://192.168.1.93:5000
+**SSH**: `ssh nas` (user: xgueret)
 
 Stockage reseau pour sauvegardes, fichiers partages et media.
 
@@ -74,27 +80,34 @@ Le poste de travail local execute:
 ### Schema des VMs
 
 ```
-PROXMOX VE (10.0.1.26)
+PROXMOX VE (192.168.1.26)
 │
 ├── Template: ubuntu-2404-cloudinit-template (ID: 9001)
 │
+├── BASTION (Plan de controle)
+│   └── bastion-60 (ID: 9060) ─── 192.168.1.60
+│       ├── GitLab Runner (shell executor, systemd)
+│       ├── Terraform + Ansible
+│       └── pass + GPG (secrets management)
+│
 ├── DOCKHOST (Docker services)
-│   └── dockhost-50 (ID: 9050) ─── 10.0.1.50
+│   └── dockhost-50 (ID: 9050) ─── 192.168.1.50
 │       ├── Docker Engine
 │       ├── Portainer Agent
-│       └── GitHub Actions Runner (self-hosted, org: <github-org>)
+│       └── GitLab Runner (Docker executor)
 │
 └── KUBECLUSTER (Kubernetes kubeadm)
-    ├── kubecluster-40 (ID: 9040) ─── 10.0.1.40 [Control Plane]
-    ├── kubecluster-41 (ID: 9041) ─── 10.0.1.41 [Worker 1]
-    └── kubecluster-42 (ID: 9042) ─── 10.0.1.42 [Worker 2]
+    ├── kubecluster-40 (ID: 9040) ─── 192.168.1.40 [Control Plane]
+    ├── kubecluster-41 (ID: 9041) ─── 192.168.1.41 [Worker 1]
+    └── kubecluster-42 (ID: 9042) ─── 192.168.1.42 [Worker 2]
 ```
 
 ### Specifications des VMs
 
 | VM | vCPU | RAM | Disque | Usage |
 |----|------|-----|--------|-------|
-| dockhost-50 | 3 | 10 GB | 100 GB | Docker services (Portainer, GitHub Runner) |
+| bastion-60 | 2 | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
+| dockhost-50 | 3 | 10 GB | 100 GB | Docker services (Portainer, GitLab Runner) |
 | kubecluster-40 | 2 | 4 GB | 35 GB | K8s Control Plane |
 | kubecluster-41 | 1 | 3.5 GB | 30 GB | K8s Worker |
 | kubecluster-42 | 1 | 3.5 GB | 30 GB | K8s Worker |
@@ -120,8 +133,8 @@ Caddy s'execute en local et route le trafic vers les differents backends.
 │  (host.docker.    │    │                         │    │   (Vagrant)         │
 │   internal)       │    │                         │    │                     │
 ├───────────────────┤    ├─────────────────────────┤    ├─────────────────────┤
-│ syncthing:8384    │    │ nas: 10.0.1.93:5000  │    │ traefik:30928       │
-│ portainer:9000    │    │ proxmox: 10.0.1.26   │    │ prometheus:30928    │
+│ syncthing:8384    │    │ nas: 192.168.1.93:5000  │    │ traefik:30928       │
+│ portainer:9000    │    │ proxmox: 192.168.1.26   │    │ prometheus:30928    │
 │ excalidraw:8082   │    │          :8006 (HTTPS)  │    │ grafana:30928       │
 │ openwebui:8080    │    │                         │    │ alertmanager:30928  │
 │ n8n:5678          │    │                         │    │                     │
@@ -138,18 +151,18 @@ Cluster Kubernetes local pour tests et developpement.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│              RESEAU LIBVIRT (10.0.122.0/24)             │
+│              RESEAU LIBVIRT (192.168.122.0/24)             │
 ├────────────────────────────────────────────────────────────┤
 │                                                            │
 │  ┌────────────────────────────────────────────────────┐   │
-│  │           k8s-controlplan (10.0.122.70)         │   │
+│  │           k8s-controlplan (192.168.122.70)         │   │
 │  │  - API Server, Controller Manager, Scheduler, etcd │   │
 │  └────────────────────────┬───────────────────────────┘   │
 │              ┌────────────┴────────────┐                  │
 │              ▼                         ▼                  │
 │  ┌───────────────────────┐  ┌───────────────────────┐    │
 │  │ k8s-node1             │  │ k8s-node2             │    │
-│  │ (10.0.122.71)      │  │ (10.0.122.72)      │    │
+│  │ (192.168.122.71)      │  │ (192.168.122.72)      │    │
 │  │ Kubelet, Kube-proxy   │  │ Kubelet, Kube-proxy   │    │
 │  │ Containerd            │  │ Containerd            │    │
 │  │                       │  │                       │    │
@@ -197,7 +210,7 @@ Emplacement: ~/vagrant-k8s-cluster/
 ```
 ~/homelab/
 │
-├── .github/workflows/ci.yml     # CI: ansible-lint, terraform, shellcheck, trivy
+├── .gitlab-ci.yml               # CI: ansible-lint, terraform, shellcheck, trivy
 ├── .pre-commit-config.yaml      # Pre-commit hooks
 ├── pyproject.toml               # Dependances Python (uv)
 ├── .envrc                       # direnv: secrets via pass
@@ -222,13 +235,25 @@ Emplacement: ~/vagrant-k8s-cluster/
 ├── dockhost/                    # VM Docker services
 │   ├── terraform/               # Provisionnement (1 VM)
 │   └── ansible/
-│       ├── deploy.yml           # Tags: motd, docker, portainer-agent, github-runner
+│       ├── deploy.yml           # Tags: motd, docker, portainer-agent, gitlab-runner
 │       └── roles/
 │           ├── motd/
 │           ├── docker/
 │           ├── portainer_agent/
-│           ├── github_runner/
-│           └── security_hardening/
+│           ├── postgresql/
+│           ├── security_hardening/
+│           └── gitlab_runner/
+│
+├── bastion/                     # Bastion VM (plan de controle)
+│   ├── terraform/               # Provisionnement (1 VM)
+│   └── ansible/
+│       ├── deploy.yml           # Tags: motd, security-hardening, tooling, ssh-keys, gitlab-runner
+│       └── roles/
+│           ├── motd/
+│           ├── security_hardening/
+│           ├── tooling/
+│           ├── ssh_keys/
+│           └── gitlab_runner/
 │
 └── kubecluster/                 # Cluster Kubernetes (3 VMs)
     ├── terraform/               # Provisionnement (1 CP + 2 workers)
@@ -300,7 +325,7 @@ docker ps
 | **pass** (password-store) | Stockage cles, tokens, mots de passe |
 | **Ansible Vault** | Chiffrement des variables sensibles dans le repo |
 | **direnv (.envrc)** | Export des `TF_VAR_*` depuis `pass` |
-| **GitHub Actions secrets** | Secrets CI/CD |
+| **GitLab CI/CD Variables** | Secrets CI/CD |
 
 **Vault password**: `pass show ansible/vault` (via `scripts/ansible-vault-pass.sh`)
 

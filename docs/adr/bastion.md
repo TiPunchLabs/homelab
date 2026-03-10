@@ -9,7 +9,8 @@
 
 - [ADR-001 : Bastion dans le monorepo homelab](#adr-001--bastion-dans-le-monorepo-homelab)
 - [ADR-002 : Mise a jour du bastion depuis le workstation](#adr-002--mise-a-jour-du-bastion-depuis-le-workstation)
-- [ADR-003 : Runner GitHub Actions natif et auto-sync](#adr-003--runner-github-actions-natif-et-auto-sync)
+- [ADR-003 : Runner GitHub Actions natif et auto-sync](#adr-003--runner-github-actions-natif-et-auto-sync) *(remplace par ADR-004)*
+- [ADR-004 : Migration vers GitLab Runner et GitLab CI](#adr-004--migration-vers-gitlab-runner-et-gitlab-ci)
 
 ------
 
@@ -81,11 +82,11 @@ Apres le bootstrap initial, le bastion doit pouvoir etre mis a jour (nouveaux se
 - **Coherence** : meme pattern two-stage que dockhost et kubecluster. Le workstation est l'unique point d'execution Ansible pour le provisioning.
 - **Simplicite** : pas de logique de self-management (git pull + ansible-playbook local) a implementer et maintenir sur le bastion.
 - **Reproductibilite** : l'etat du bastion est entierement defini par le code sur le workstation, pas par un `git pull` potentiellement desynchronise.
-- **Securite** : le bastion n'a pas besoin d'un token GitHub pour pull le repo (clone HTTPS en lecture seule suffit pour l'usage operationnel).
+- **Securite** : le bastion n'a pas besoin d'un token pour pull le repo (clone HTTPS en lecture seule suffit pour l'usage operationnel).
 
 ### Consequences
 
-- Le workflow de mise a jour est : modifier le code localement, push sur GitHub, puis `ansible-playbook bastion/ansible/deploy.yml` depuis le workstation.
+- Le workflow de mise a jour est : modifier le code localement, push sur GitLab, puis `ansible-playbook bastion/ansible/deploy.yml` depuis le workstation.
 - Le clone `~/homelab` sur le bastion sert uniquement a l'execution operationnelle (terraform/ansible sur les autres VMs), pas a la mise a jour du bastion lui-meme.
 - Pour mettre a jour le code operationnel sur le bastion, il faut soit relancer le role tooling (qui fait `git clone/pull`), soit SSH manuellement pour `git pull`.
 
@@ -96,7 +97,7 @@ Apres le bootstrap initial, le bastion doit pouvoir etre mis a jour (nouveaux se
 | | |
 |---|---|
 | **Date** | 2026-03-07 |
-| **Statut** | Accepte |
+| **Statut** | Remplace par ADR-004 |
 | **Decideurs** | xgueret |
 
 ### Contexte
@@ -141,6 +142,49 @@ Le meme PAT que dockhost (`vault_github_runner_pat`) est reutilise pour l'enregi
 - Le runner est enregistre au niveau organisation (TiPunchLabs), pas au niveau repo.
 - **Securite** : le repo etant public, les workflows de fork PR ne doivent pas s'executer sur les self-hosted runners. Verifier dans GitHub Settings > Actions > General que "Fork pull request workflows" est desactive.
 - La mise a jour de la version du runner est manuelle (modifier `github_runner_version` dans les defaults et relancer le playbook).
+
+------
+
+## ADR-004 : Migration vers GitLab Runner et GitLab CI
+
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Statut** | Accepte |
+| **Decideurs** | xgueret |
+| **Remplace** | ADR-003 |
+
+### Contexte
+
+Le projet a migre de GitHub (origin principal) vers GitLab. GitHub devient un miroir read-only (push mirror automatique). La CI/CD passe entierement sur GitLab CI (`.gitlab-ci.yml`). Le runner GitHub Actions sur bastion n'a plus de raison d'etre.
+
+### Decision
+
+**Remplacer le runner GitHub Actions par un GitLab Runner natif (shell executor, systemd) sur bastion-60.**
+
+### Justification
+
+| Critere | GitLab Runner (choisi) | GitHub Actions Runner (ancien) |
+|---------|----------------------|-------------------------------|
+| Coherence | GitLab est l'origin principal | GitHub est un miroir read-only |
+| CI/CD | `.gitlab-ci.yml` unique | `.github/workflows/` supprime |
+| Runner | Shell executor natif (systemd) | Binaire natif (systemd) |
+| Sync | Job `sync-bastion` dans `.gitlab-ci.yml` | Workflow `sync-bastion.yml` |
+
+```
+┌──────────┐   push to main   ┌──────────────┐   job           ┌────────────┐
+│  GitLab   │ ───────────────► │ GitLab CI    │ ──────────────► │ Bastion-60 │
+│  (repo)   │                  │ (.gitlab-ci) │  sync-bastion   │ ~/homelab  │
+└──────────┘                   └──────────────┘  shell runner   │ git reset  │
+                                                                └────────────┘
+```
+
+### Consequences
+
+- Le runner GitHub Actions et les workflows GitHub ont ete supprimes.
+- Le miroir GitHub est gere par `gitlab_project_mirror` dans `gitlab-terraform/`.
+- Le job `sync-bastion` se declenche sur `push` to `main` uniquement, via le runner shell `bastion-60`.
+- Le `.bash_logout` du user `ansible` est supprime par le role `gitlab_runner` pour eviter un `exit status 1` du shell executor (clear_console sans TTY).
 
 ------
 

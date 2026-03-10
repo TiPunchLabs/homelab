@@ -51,8 +51,8 @@ ansible-playbook ansible/deploy.yml --tags docker
 # Portainer Agent
 ansible-playbook ansible/deploy.yml --tags portainer-agent
 
-# GitHub Actions Runner
-ansible-playbook ansible/deploy.yml --tags github-runner
+# GitLab Runner
+ansible-playbook ansible/deploy.yml --tags gitlab-runner
 ```
 
 ### Verification
@@ -61,7 +61,46 @@ ansible-playbook ansible/deploy.yml --tags github-runner
 ssh dockhost-50
 docker ps
 docker compose -f /opt/portainer-agent/docker-compose.yml ps
-docker compose -f /opt/github-runner/docker-compose.yml ps
+docker compose -f /opt/gitlab-runner/docker-compose.yml ps
+```
+
+---
+
+## Bastion
+
+### Provisionnement (Terraform)
+
+```bash
+cd bastion/terraform
+terraform init
+terraform plan
+terraform apply
+```
+
+### Configuration (Ansible)
+
+```bash
+cd bastion
+ansible-playbook ansible/deploy.yml
+```
+
+### Par tag
+
+```bash
+# MOTD
+ansible-playbook ansible/deploy.yml --tags motd
+
+# Security hardening (SSH + UFW)
+ansible-playbook ansible/deploy.yml --tags security-hardening
+
+# Tooling (uv, Terraform, direnv, pass, git)
+ansible-playbook ansible/deploy.yml --tags tooling
+
+# SSH keys
+ansible-playbook ansible/deploy.yml --tags ssh-keys
+
+# GitLab Runner (shell executor)
+ansible-playbook ansible/deploy.yml --tags gitlab-runner
 ```
 
 ---
@@ -193,7 +232,7 @@ pre-commit run --all-files
 ### Ansible Lint
 
 ```bash
-uv run ansible-lint proxmox/ansible/ dockhost/ansible/ kubecluster/ansible/
+uv run ansible-lint proxmox/ansible/ bastion/ansible/ dockhost/ansible/ kubecluster/ansible/
 ```
 
 ### Terraform format + validation
@@ -215,10 +254,11 @@ shellcheck -x -S warning scripts/*.sh
 | Cible | Commande | User |
 |-------|----------|------|
 | Proxmox | `ssh pve` | root |
+| Bastion | `ssh bastion-60` | ansible |
 | Dockhost | `ssh dockhost-50` | ansible |
 | K8s Control Plane | `ssh kubecluster-40` | ansible |
 | K8s Worker 1 | `ssh kubecluster-41` | ansible |
 | K8s Worker 2 | `ssh kubecluster-42` | ansible |
-| NAS Synology | `ssh nas` | <user> |
+| NAS Synology | `ssh nas` | xgueret |
 
 Configuration : `~/.ssh/config`

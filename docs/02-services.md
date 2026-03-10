@@ -3,14 +3,19 @@
 ## Vue d'ensemble
 
 ```
-PROXMOX VE (10.0.1.26)
+PROXMOX VE (192.168.1.26)
 │
-├── DOCKHOST (dockhost-50 / 10.0.1.50)
+├── BASTION (bastion-60 / 192.168.1.60)
+│   ├── GitLab Runner (shell executor, systemd)
+│   ├── Terraform + Ansible (execution operationnelle)
+│   └── pass + GPG (secrets management)
+│
+├── DOCKHOST (dockhost-50 / 192.168.1.50)
 │   ├── Docker Engine
 │   ├── Portainer Agent ──► Gere par Portainer (poste local)
-│   └── GitHub Actions Runner ──► Self-hosted pour <github-org>
+│   └── GitLab Runner (Docker executor)
 │
-└── KUBECLUSTER (10.0.1.40-42)
+└── KUBECLUSTER (192.168.1.40-42)
     ├── Control Plane (kubecluster-40)
     │   └── etcd, API Server, Controller Manager, Scheduler
     └── Workers (kubecluster-41, kubecluster-42)
@@ -26,7 +31,7 @@ PROXMOX VE (10.0.1.26)
 | Parametre | Valeur |
 |-----------|--------|
 | VMID | 9050 |
-| IP | 10.0.1.50 |
+| IP | 192.168.1.50 |
 | OS | Ubuntu 24.04 (cloud-init) |
 | vCPU | 3 |
 | RAM | 10 GB |
@@ -42,8 +47,9 @@ Le playbook `dockhost/ansible/deploy.yml` execute les roles suivants :
 | `motd` | `motd` | Message of the Day personnalise |
 | `docker` | `docker` | Installation Docker Engine + Docker Compose |
 | `portainer_agent` | `portainer-agent` | Agent Portainer pour gestion centralisee |
-| `github_runner` | `github-runner` | Runner GitHub Actions self-hosted |
-| `security_hardening` | - | Hardening SSH, UFW, securite systeme |
+| `postgresql` | `postgresql` | PostgreSQL 17.4 (port 5432) |
+| `security_hardening` | `security-hardening` | Hardening SSH, UFW, securite systeme |
+| `gitlab_runner` | `gitlab-runner` | GitLab Runner (Docker executor) |
 
 ### Portainer Agent
 
@@ -63,25 +69,22 @@ Portainer (poste local) ──► Portainer Agent (dockhost-50:9001)
 - Reseau : `vm-docker-90-net` (bridge)
 - Installation : `/opt/portainer-agent/docker-compose.yml`
 
-### GitHub Actions Runner
+### GitLab Runner (Docker executor)
 
-Runner self-hosted pour l'organisation **<github-org>** sur GitHub.
+Runner GitLab CI pour le projet **tipunchlabs/homelab**.
 
 **Details** :
-- Image : `myoung34/github-runner:2.332.0` (pinnee par digest SHA256)
-- Scope : Organisation (`<github-org>`)
-- Authentification : PAT classique (stocke dans Ansible Vault)
-- Labels : `self-hosted,linux,docker,homelab`
-- Mode : Persistent (non ephemere)
-- Installation : `/opt/github-runner/docker-compose.yml`
+- Executor : Docker
+- Installation : `/opt/gitlab-runner/docker-compose.yml` + `config/config.toml`
+- Token : stocke dans Ansible Vault
 
-**Variable vault requise** : `vault_github_runner_pat` dans `dockhost/ansible/group_vars/dockhost/vault/config.yml`
+**Variable vault requise** : `vault_gitlab_runner_token` dans `dockhost/ansible/group_vars/dockhost/vault/config.yml`
 
-**Configuration GitHub** :
-1. Creer un PAT classique avec scope `admin:org`
-2. Chiffrer avec `ansible-vault encrypt` dans le fichier vault
-3. Deployer avec `ansible-playbook ansible/deploy.yml --tags github-runner`
-4. Verifier dans GitHub > Organisation > Settings > Actions > Runners
+**Deploiement** :
+1. Enregistrer le runner sur GitLab (token de projet ou groupe)
+2. Chiffrer le token avec `ansible-vault encrypt` dans le fichier vault
+3. Deployer avec `ansible-playbook ansible/deploy.yml --tags gitlab-runner`
+4. Verifier dans GitLab > Settings > CI/CD > Runners
 
 ### Security Hardening
 
@@ -98,15 +101,66 @@ Avant l'execution des roles, le playbook cree :
 
 ---
 
+## Bastion (bastion-60)
+
+### Specifications
+
+| Parametre | Valeur |
+|-----------|--------|
+| VMID | 9060 |
+| IP | 192.168.1.60 |
+| OS | Ubuntu 24.04 (cloud-init) |
+| vCPU | 2 |
+| RAM | 2 GB |
+| Disque | 25 GB SSD |
+| SSH | `ssh bastion-60` (user: ansible) |
+
+### Roles Ansible deployes
+
+Le playbook `bastion/ansible/deploy.yml` execute les roles suivants :
+
+| Role | Tag | Description |
+|------|-----|-------------|
+| `motd` | `motd` | Message of the Day personnalise |
+| `security_hardening` | `security-hardening` | Hardening SSH + UFW |
+| `tooling` | `tooling` | Python, uv, Terraform, direnv, pass, GPG, git clone homelab |
+| `ssh_keys` | `ssh-keys` | Deploiement cles SSH + config pour tous les hosts |
+| `gitlab_runner` | `gitlab-runner` | GitLab Runner natif (shell executor, systemd) |
+
+### GitLab Runner (shell executor)
+
+Runner natif installe directement sur la VM (pas de Docker).
+
+**Details** :
+- Executor : Shell (bash)
+- Service : systemd (`gitlab-runner.service`)
+- User : `ansible`
+- Working directory : `/opt/gitlab-runner`
+- Config : `/opt/gitlab-runner/config.toml`
+
+Le runner execute le job `sync-bastion` qui synchronise le clone `~/homelab` sur le bastion a chaque push sur `main`.
+
+### Tooling installe
+
+| Outil | Usage |
+|-------|-------|
+| **Terraform** | Provisionnement infrastructure |
+| **Ansible** (via uv) | Configuration et deploiement |
+| **pass** + GPG | Gestion des secrets (cle GPG sans passphrase) |
+| **direnv** | Auto-activation venv et variables |
+| **git** | Clone `~/homelab` pour execution operationnelle |
+
+---
+
 ## Kubecluster (kubecluster-40/41/42)
 
 ### Specifications
 
 | Node | Role | VMID | IP | vCPU | RAM | Disque |
 |------|------|------|-----|------|-----|--------|
-| kubecluster-40 | Control Plane | 9040 | 10.0.1.40 | 2 | 4 GB | 35 GB |
-| kubecluster-41 | Worker | 9041 | 10.0.1.41 | 1 | 3.5 GB | 30 GB |
-| kubecluster-42 | Worker | 9042 | 10.0.1.42 | 1 | 3.5 GB | 30 GB |
+| kubecluster-40 | Control Plane | 9040 | 192.168.1.40 | 2 | 4 GB | 35 GB |
+| kubecluster-41 | Worker | 9041 | 192.168.1.41 | 1 | 3.5 GB | 30 GB |
+| kubecluster-42 | Worker | 9042 | 192.168.1.42 | 1 | 3.5 GB | 30 GB |
 
 ### Roles Ansible deployes
 
@@ -167,7 +221,7 @@ Le playbook `proxmox/ansible/deploy.yml` configure l'hyperviseur Proxmox :
 ### Acces
 
 - **SSH** : `ssh pve` (user: root)
-- **Web UI** : https://10.0.1.26:8006
+- **Web UI** : https://192.168.1.26:8006
 
 ---
 
