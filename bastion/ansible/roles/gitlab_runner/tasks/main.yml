@@ -38,6 +38,11 @@
   no_log: true
   when: not runner_config.stat.exists
 
+- name: Remove .bash_logout to prevent shell executor failure
+  ansible.builtin.file:
+    path: "/home/{{ gitlab_runner_user }}/.bash_logout"
+    state: absent
+
 - name: Deploy gitlab-runner systemd service
   ansible.builtin.template:
     src: gitlab-runner.service.j2
