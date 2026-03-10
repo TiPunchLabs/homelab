@@ -14,6 +14,19 @@ resource "gitlab_project" "project" {
 # =============================================================================
 # Branch Protection - Require CI to pass before merge
 # =============================================================================
+# =============================================================================
+# Push Mirror - GitLab -> GitHub (read-only)
+# =============================================================================
+resource "gitlab_project_mirror" "github" {
+  project                 = gitlab_project.project.id
+  url                     = "https://${var.github_mirror_owner}:${var.github_mirror_token}@github.com/${var.github_mirror_owner}/${var.project_name}.git"
+  keep_divergent_refs     = false
+  only_protected_branches = false
+}
+
+# =============================================================================
+# Branch Protection - Require CI to pass before merge
+# =============================================================================
 resource "gitlab_branch_protection" "main" {
   project            = gitlab_project.project.id
   branch             = "main"

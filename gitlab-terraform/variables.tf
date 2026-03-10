@@ -28,6 +28,18 @@ variable "project_description" {
   default     = "Homelab infrastructure as code - Proxmox, Docker (dockhost), Kubernetes (kubecluster), Bastion"
 }
 
+variable "github_mirror_token" {
+  description = "GitHub Personal Access Token (Fine-grained, contents:write) for push mirroring. Set via TF_VAR_github_mirror_token environment variable."
+  type        = string
+  sensitive   = true
+}
+
+variable "github_mirror_owner" {
+  description = "GitHub organization or user owning the mirror repository."
+  type        = string
+  default     = "TiPunchLabs"
+}
+
 variable "visibility_level" {
   description = "Project visibility: 'public', 'internal', or 'private'."
   type        = string
