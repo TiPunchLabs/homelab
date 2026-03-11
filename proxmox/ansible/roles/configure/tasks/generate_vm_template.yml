@@ -1,10 +1,4 @@
 ---
-## Install tools
-- name: Install libguestfs-tools
-  ansible.builtin.apt:
-    name: libguestfs-tools
-    state: present
-
 ## Check cloud-init image list
 - name: Check cloud-init image list
   ansible.builtin.command: "qm list"

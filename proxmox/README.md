@@ -48,13 +48,27 @@ cd proxmox
 ansible-playbook ansible/deploy.yml
 ```
 
+### Bootstrap initial (premiere execution)
+
+Avant le deploiement de la cle SSH, l'agent SSH local propose trop de cles et le serveur refuse la connexion. Il faut forcer l'authentification par mot de passe :
+
+```bash
+ansible-playbook ansible/deploy.yml -u root --ask-pass --tags "security_ssh_hardening" \
+  -e 'ansible_ssh_extra_args="-o PreferredAuthentications=password -o IdentitiesOnly=yes"'
+```
+
+Une fois le hardening SSH et la cle deployee, la configuration normale (`ansible.cfg`) reprend le dessus.
+
 ### Lancer par tags
 
 ```bash
-# Hardening SSH (premiere execution avec -u root)
-ansible-playbook ansible/deploy.yml -u root --tags "security_ssh_hardening"
+# Packages essentiels (apt sources + packages de base)
+ansible-playbook ansible/deploy.yml --tags "essentials"
 
-# Configuration roles/utilisateurs/tokens
+# Hardening SSH
+ansible-playbook ansible/deploy.yml --tags "security_ssh_hardening"
+
+# Configuration roles/utilisateurs/tokens API
 ansible-playbook ansible/deploy.yml --tags "setup_roles_users_tokens"
 
 # Configuration stockage
@@ -62,6 +76,9 @@ ansible-playbook ansible/deploy.yml --tags "setup_storage"
 
 # Generation template VM
 ansible-playbook ansible/deploy.yml --tags "generate_vm_template"
+
+# Afficher les tokens API existants
+ansible-playbook ansible/deploy.yml --tags "display_token"
 ```
 
 ## 🔐 Secrets
