@@ -1,29 +1,49 @@
-# Commandes de reference
+# Command reference
 
 ## Proxmox
 
-### Deploiement complet
+### Initial bootstrap (first execution)
+
+```bash
+cd proxmox
+ansible-playbook ansible/deploy.yml -u root --ask-pass --tags "security_ssh_hardening" \
+  -e 'ansible_ssh_extra_args="-o PreferredAuthentications=password -o IdentitiesOnly=yes"'
+```
+
+### Full deployment
 
 ```bash
 cd proxmox
 ansible-playbook ansible/deploy.yml
 ```
 
-### Par tag
+### By tag
 
 ```bash
-# Hardening SSH du serveur Proxmox
-ansible-playbook ansible/deploy.yml --tags "configure"
+# Essential packages (apt sources + base packages)
+ansible-playbook ansible/deploy.yml --tags "essentials"
 
-# Verification des tokens API
-ansible-playbook ansible/deploy.yml --tags "manage"
+# SSH hardening
+ansible-playbook ansible/deploy.yml --tags "security_ssh_hardening"
+
+# API roles/users/tokens configuration
+ansible-playbook ansible/deploy.yml --tags "setup_roles_users_tokens"
+
+# Storage configuration
+ansible-playbook ansible/deploy.yml --tags "setup_storage"
+
+# VM template generation
+ansible-playbook ansible/deploy.yml --tags "generate_vm_template"
+
+# Display existing API tokens
+ansible-playbook ansible/deploy.yml --tags "display_token"
 ```
 
 ---
 
 ## Dockhost
 
-### Provisionnement (Terraform)
+### Provisioning (Terraform)
 
 ```bash
 cd dockhost/terraform
@@ -39,10 +59,10 @@ cd dockhost
 ansible-playbook ansible/deploy.yml
 ```
 
-### Par tag
+### By tag
 
 ```bash
-# MOTD uniquement
+# MOTD only
 ansible-playbook ansible/deploy.yml --tags motd
 
 # Docker Engine
@@ -68,7 +88,7 @@ docker compose -f /opt/gitlab-runner/docker-compose.yml ps
 
 ## Bastion
 
-### Provisionnement (Terraform)
+### Provisioning (Terraform)
 
 ```bash
 cd bastion/terraform
@@ -84,7 +104,7 @@ cd bastion
 ansible-playbook ansible/deploy.yml
 ```
 
-### Par tag
+### By tag
 
 ```bash
 # MOTD
@@ -107,7 +127,7 @@ ansible-playbook ansible/deploy.yml --tags gitlab-runner
 
 ## Kubecluster
 
-### Provisionnement (Terraform)
+### Provisioning (Terraform)
 
 ```bash
 cd kubecluster/terraform
@@ -123,22 +143,22 @@ cd kubecluster
 ansible-playbook ansible/deploy.yml
 ```
 
-### Par tag
+### By tag
 
 ```bash
-# Configuration systeme des noeuds
+# Node system configuration
 ansible-playbook ansible/deploy.yml --tags cfg_nodes
 
-# Installation containerd
+# containerd installation
 ansible-playbook ansible/deploy.yml --tags cfg_containerd
 
-# Initialisation kubeadm (control plane)
+# kubeadm initialization (control plane)
 ansible-playbook ansible/deploy.yml --tags init_kubeadm
 
-# Jonction des workers
+# Workers joining
 ansible-playbook ansible/deploy.yml --tags join_workers
 
-# Cheat sheet kubectl
+# kubectl cheat sheet
 ansible-playbook ansible/deploy.yml --tags kubectl_cheat_sheet
 ```
 
@@ -154,76 +174,76 @@ kubectl get pods -A
 
 ## Secrets (Ansible Vault)
 
-### Chiffrer un fichier
+### Encrypt a file
 
 ```bash
-ansible-vault encrypt <fichier>
+ansible-vault encrypt <file>
 ```
 
-### Dechiffrer temporairement
+### Temporarily decrypt
 
 ```bash
-ansible-vault decrypt <fichier>
-# Ne pas oublier de re-chiffrer avant commit !
-ansible-vault encrypt <fichier>
+ansible-vault decrypt <file>
+# Don't forget to re-encrypt before committing!
+ansible-vault encrypt <file>
 ```
 
-### Editer un fichier chiffre
+### Edit an encrypted file
 
 ```bash
-ansible-vault edit <fichier>
+ansible-vault edit <file>
 ```
 
-### Voir le contenu sans dechiffrer
+### View content without decrypting
 
 ```bash
-ansible-vault view <fichier>
+ansible-vault view <file>
 ```
 
-Le mot de passe vault est recupere automatiquement via `pass show ansible/vault` (script `scripts/ansible-vault-pass.sh`).
+The vault password is automatically retrieved via `pass show ansible/vault` (script `scripts/ansible-vault-pass.sh`).
 
 ---
 
 ## Terraform
 
-### Commandes communes
+### Common commands
 
 ```bash
-# Initialiser le provider
+# Initialize the provider
 terraform init
 
-# Voir les changements prevus
+# Preview planned changes
 terraform plan
 
-# Appliquer les changements
+# Apply changes
 terraform apply
 
-# Detruire l'infrastructure
+# Destroy infrastructure
 terraform destroy
 
-# Formater le code
+# Format code
 terraform fmt -recursive
 
-# Valider la syntaxe
+# Validate syntax
 terraform validate
 ```
 
-### Variables d'environnement
+### Environment variables
 
-Les credentials Terraform sont exportes via `direnv` depuis `.envrc` :
+Terraform credentials are exported via `direnv` from `.envrc`:
 
 ```bash
-# Variables automatiquement disponibles dans le shell
-TF_VAR_pm_api_url      # URL API Proxmox
+# Variables automatically available in the shell
+TF_VAR_pm_api_url      # Proxmox API URL
 TF_VAR_pm_api_token_id  # Token ID
 TF_VAR_pm_api_token_secret  # Token secret
 ```
 
 ---
 
-## Qualite du code
+## Code quality
 
-### Pre-commit (tous les hooks)
+### Pre-commit (all hooks)
 
 ```bash
 pre-commit run --all-files
@@ -249,11 +269,11 @@ shellcheck -x -S warning scripts/*.sh
 
 ---
 
-## Acces SSH
+## SSH access
 
-| Cible | Commande | User |
+| Target | Command | User |
 |-------|----------|------|
-| Proxmox | `ssh pve` | root |
+| Proxmox | `ssh pve` | ansible |
 | Bastion | `ssh bastion-60` | ansible |
 | Dockhost | `ssh dockhost-50` | ansible |
 | K8s Control Plane | `ssh kubecluster-40` | ansible |
@@ -261,4 +281,4 @@ shellcheck -x -S warning scripts/*.sh
 | K8s Worker 2 | `ssh kubecluster-42` | ansible |
 | NAS Synology | `ssh nas` | xgueret |
 
-Configuration : `~/.ssh/config`
+Configuration: `~/.ssh/config`

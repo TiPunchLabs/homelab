@@ -1,16 +1,16 @@
-# Reference des adresses IP
+# IP address reference
 
-## Reseau principal (192.168.1.0/24)
+## Main network (192.168.1.0/24)
 
-### Equipements physiques
+### Physical equipment
 
-| Equipement | IP | Description |
+| Equipment | IP | Description |
 |------------|-----|-------------|
-| **Proxmox VE** | 192.168.1.26 | Hyperviseur principal |
-| **NAS Synology** | 192.168.1.93 | Stockage reseau |
-| **Gateway** | 192.168.1.254 | Routeur/Gateway |
+| **Proxmox VE** | 192.168.1.100 | Main hypervisor |
+| **NAS Synology** | 192.168.1.93 | Network storage |
+| **Gateway** | 192.168.1.254 | Router/Gateway |
 
-### VMs Proxmox
+### Proxmox VMs
 
 | VM | VMID | IP | Usage |
 |----|------|-----|-------|
@@ -20,9 +20,9 @@
 | kubecluster-41 | 9041 | 192.168.1.41 | K8s Worker |
 | kubecluster-42 | 9042 | 192.168.1.42 | K8s Worker |
 
-### Ports importants
+### Important ports
 
-| Service | Port | Protocole |
+| Service | Port | Protocol |
 |---------|------|-----------|
 | SSH | 22 | TCP |
 | HTTP | 80 | TCP |
@@ -33,9 +33,9 @@
 
 ---
 
-## Reseau Vagrant/libvirt (192.168.122.0/24)
+## Vagrant/libvirt network (192.168.122.0/24)
 
-### Cluster Kubernetes local
+### Local Kubernetes cluster
 
 | VM | IP | Role |
 |----|-----|------|
@@ -43,9 +43,9 @@
 | k8s-node1 | 192.168.122.71 | Worker |
 | k8s-node2 | 192.168.122.72 | Worker |
 
-### NodePorts exposes
+### Exposed NodePorts
 
-| Service | NodePort | Acces |
+| Service | NodePort | Access |
 |---------|----------|-------|
 | Traefik | 30928 | http://192.168.122.71:30928 |
 | Prometheus | 30928 | Via Host header |
@@ -54,25 +54,25 @@
 
 ---
 
-## Plan d'adressage des VMs
+## VM addressing plan
 
-Convention : `192.168.1.{vm_ip_start}` ou `vm_ip_start` est defini dans Terraform.
+Convention: `192.168.1.{vm_ip_start}` where `vm_ip_start` is defined in Terraform.
 
 ```
-.40-.49  : Cluster kubecluster (Kubernetes)
-.50-.59  : Cluster dockhost (Docker services)
-.60-.69  : Bastion (plan de controle)
+.40-.49  : kubecluster cluster (Kubernetes)
+.50-.59  : dockhost cluster (Docker services)
+.60-.69  : Bastion (control plane)
 ```
 
 ---
 
-## Correspondance VM ID / IP
+## VM ID / IP mapping
 
-La convention utilise le schema suivant :
-- VM ID : `90XX`
-- IP : `192.168.1.XX`
+The convention uses the following scheme:
+- VM ID: `90XX`
+- IP: `192.168.1.XX`
 
-| Plage ID | Plage IP | Usage |
+| ID range | IP range | Usage |
 |----------|----------|-------|
 | 9040-9049 | .40-.49 | kubecluster |
 | 9050-9059 | .50-.59 | dockhost |
@@ -80,13 +80,13 @@ La convention utilise le schema suivant :
 
 ---
 
-## Configuration SSH
+## SSH configuration
 
-Les alias SSH sont configures dans `~/.ssh/config` :
+SSH aliases are configured in `~/.ssh/config`:
 
-| Alias | IP | User | Cle |
+| Alias | IP | User | Key |
 |-------|-----|------|-----|
-| `pve` | 192.168.1.26 | root | `~/.ssh/id_proxmox` |
+| `pve` | 192.168.1.100 | ansible | `~/.ssh/proxmox` |
 | `bastion-60` | 192.168.1.60 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `dockhost-50` | 192.168.1.50 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `kubecluster-40` | 192.168.1.40 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
