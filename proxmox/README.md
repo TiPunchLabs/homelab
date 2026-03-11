@@ -97,13 +97,21 @@ Le tag `setup_roles_users_tokens` cree deux tokens API sur le serveur Proxmox :
 | `terraform-prov@pve!terraform` | `terraform-prov@pve` | `TerraformProv` | Provisioning VMs via Terraform |
 | `ansible-prov@pve!ansible` | `ansible-prov@pve` | `AnsibleProv` | Gestion VMs via Ansible |
 
-Les secrets des tokens sont sauvegardes sur le serveur dans `/root/.terraform_token` et `/root/.ansible_token`.
+Les secrets des tokens sont automatiquement stockes dans `pass` a la creation :
+
+```
+proxmox/
+├── terraform-token-id       # terraform-prov@pve!terraform
+├── terraform-token-secret
+├── ansible-token-id         # ansible-prov@pve!ansible
+└── ansible-token-secret
+```
 
 Pour utiliser le token Terraform dans les autres sous-projets, configurer dans `.envrc` :
 
 ```bash
-export PM_API_TOKEN_ID="terraform-prov@pve!terraform"
-export PM_API_TOKEN_SECRET="$(pass show proxmox/api-token-secret)"
+export PM_API_TOKEN_ID="$(pass show proxmox/terraform-token-id)"
+export PM_API_TOKEN_SECRET="$(pass show proxmox/terraform-token-secret)"
 ```
 
 Voir [Token Workflow](docs/TOKEN_WORKFLOW.md) pour le guide complet.
