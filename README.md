@@ -105,7 +105,6 @@ ansible-playbook ansible/deploy.yml
 ```
 homelab/
 ├── .gitlab-ci.yml                  # GitLab CI pipeline (lint, security, deploy)
-├── .github/                        # GitHub (read-only push mirror)
 ├── .pre-commit-config.yaml         # Pre-commit hooks (shared)
 ├── .envrc                          # direnv: venv, TF_VAR, vault password
 ├── ansible.cfg                     # Default Ansible config
