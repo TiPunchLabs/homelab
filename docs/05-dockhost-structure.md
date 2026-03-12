@@ -21,7 +21,7 @@ dockhost/
 │
 └── ansible/                            # Stage 2 : Configuration services
     ├── deploy.yml                      # Playbook principal
-    ├── inventory.yml                   # Inventaire (dockhost-50)
+    ├── inventory.yml                   # Inventaire (dockhost-90)
     ├── requirements.yml                # Collections Ansible requises
     │
     ├── group_vars/
@@ -110,7 +110,7 @@ defaults/main.yml          tasks/main.yml                    templates/
 
 ## Arborescence sur la VM (runtime)
 
-Fichiers deployes sur `dockhost-50` (192.168.1.50) :
+Fichiers deployes sur `dockhost-90` (192.168.1.90) :
 
 ```
 /

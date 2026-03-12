@@ -6,14 +6,14 @@
 
 ```bash
 # Check that the VM is running
-ssh pve "qm status 9050"  # dockhost
+ssh pve "qm status 9090"  # dockhost
 ssh pve "qm status 9040"  # kubecluster control plane
 
 # Test network connectivity
-ping 192.168.1.50
+ping 192.168.1.90
 
 # Test SSH with verbose output
-ssh -vvv dockhost-50
+ssh -vvv dockhost-90
 ```
 
 ### Permission denied (publickey)
@@ -26,7 +26,7 @@ ssh-add -l
 ssh-add ~/.ssh/id_vm_proxmox_rsa
 
 # Check SSH config
-cat ~/.ssh/config | grep -A 4 "dockhost"
+cat ~/.ssh/config | grep -A 4 "dockhost-90"
 ```
 
 ### Host key changed (MITM warning)
@@ -35,7 +35,7 @@ After re-provisioning a VM, the host key changes:
 
 ```bash
 # Remove the old host key
-ssh-keygen -R 192.168.1.50    # dockhost
+ssh-keygen -R 192.168.1.90    # dockhost
 ssh-keygen -R 192.168.1.40    # kubecluster CP
 ```
 
@@ -103,12 +103,12 @@ ansible-galaxy collection install -r requirements.yml
 
 ---
 
-## Docker (on dockhost-50)
+## Docker (on dockhost-90)
 
 ### Container won't start
 
 ```bash
-ssh dockhost-50
+ssh dockhost-90
 
 # View container logs
 docker logs gitlab_runner
@@ -135,10 +135,10 @@ docker logs gitlab_runner
 
 ```bash
 # Check that the port is open
-ssh dockhost-50 "ss -tlnp | grep 9001"
+ssh dockhost-90 "ss -tlnp | grep 9001"
 
 # Check the firewall
-ssh dockhost-50 "sudo ufw status"
+ssh dockhost-90 "sudo ufw status"
 
 # Port 9001 must be allowed from the Portainer manager IP
 ```

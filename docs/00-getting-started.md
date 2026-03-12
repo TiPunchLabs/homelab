@@ -19,7 +19,7 @@ LOCAL WORKSTATION                    PROXMOX VE (192.168.1.100)
 │                  │   (terraform)  │  │ → ansible, terraform, pass │  │
 │                  │                │  │ → GitLab Runner (shell)    │  │
 │                  │   3. Configure │  ├────────────────────────────┤  │
-│                  │───────────────►│  │ dockhost-50 (.50)          │  │
+│                  │───────────────►│  │ dockhost-90 (.50)          │  │
 │                  │   (ansible)    │  │ → Docker, Portainer        │  │
 │                  │                │  │ → GitLab Runner (docker)   │  │
 │                  │                │  ├────────────────────────────┤  │
@@ -213,8 +213,8 @@ Host bastion-60
   IdentityFile ~/.ssh/id_vm_proxmox_rsa
   IdentitiesOnly yes
 
-Host dockhost-50
-  HostName 192.168.1.50
+Host dockhost-90
+  HostName 192.168.1.90
   User ansible
   IdentityFile ~/.ssh/id_vm_proxmox_rsa
   IdentitiesOnly yes
@@ -403,7 +403,7 @@ terraform apply
 ```
 
 This creates:
-- **bastion-60** (VMID 9050, IP 192.168.1.60)
+- **bastion-60** (VMID 9090, IP 192.168.1.60)
 - 2 vCPU, 2 GB RAM, 25 GB disk
 - Cloned from template 9001 with cloud-init (ansible user + SSH key)
 
@@ -490,7 +490,7 @@ echo $TF_VAR_pm_api_token_id
 
 # Check SSH to other hosts
 ssh pve hostname       # Should print: proxmox
-ssh dockhost-50        # Will fail until dockhost is provisioned (expected)
+ssh dockhost-90        # Will fail until dockhost is provisioned (expected)
 
 # Check GitLab Runner
 sudo systemctl status gitlab-runner
@@ -514,13 +514,13 @@ terraform apply
 ```
 
 This creates:
-- **dockhost-50** (VMID 9050, IP 192.168.1.50)
+- **dockhost-90** (VMID 9090, IP 192.168.1.90)
 - 3 vCPU, 10 GB RAM, 100 GB disk
 
 Wait for boot + cloud-init, then verify:
 
 ```bash
-ssh dockhost-50
+ssh dockhost-90
 ```
 
 ### 5.2 Prepare vault secrets
@@ -552,7 +552,7 @@ Roles:
 ### 5.4 Verify dockhost
 
 ```bash
-ssh dockhost-50
+ssh dockhost-90
 
 docker ps
 # Should show running containers: portainer_agent, gitlab_runner, postgresql
@@ -666,7 +666,7 @@ Two runners are used:
 | Runner | Location | Executor | Purpose |
 |--------|----------|----------|---------|
 | **bastion-60** | bastion VM | Shell | Ansible/Terraform execution, bastion sync |
-| **dockhost-50** | dockhost VM | Docker | Lint, security scans (isolated containers) |
+| **dockhost-90** | dockhost VM | Docker | Lint, security scans (isolated containers) |
 
 Runner tokens are generated in GitLab (**Settings > CI/CD > Runners > New project runner**) and stored in the respective vault files.
 
@@ -719,7 +719,7 @@ After completing all steps, verify each component:
 
 ### Dockhost
 
-- [ ] `ssh dockhost-50` connects successfully
+- [ ] `ssh dockhost-90` connects successfully
 - [ ] `docker ps` shows running containers
 - [ ] Portainer Agent is reachable on port 9001
 - [ ] GitLab Runner container is running
@@ -785,7 +785,7 @@ The `.envrc` file auto-exports these variables via direnv:
 |------|----|------|-----------|
 | Proxmox VE | 192.168.1.100 | — | `pve` |
 | bastion-60 | 192.168.1.60 | 9060 | `bastion-60` |
-| dockhost-50 | 192.168.1.50 | 9050 | `dockhost-50` |
+| dockhost-90 | 192.168.1.90 | 9090 | `dockhost-90` |
 | kubecluster-40 | 192.168.1.40 | 9040 | `kubecluster-40` |
 | kubecluster-41 | 192.168.1.41 | 9041 | `kubecluster-41` |
 | kubecluster-42 | 192.168.1.42 | 9042 | `kubecluster-42` |
@@ -797,6 +797,6 @@ The `.envrc` file auto-exports these variables via direnv:
 | SSH connection refused | [04-troubleshooting.md — SSH](04-troubleshooting.md#ssh) |
 | Terraform provider errors | [04-troubleshooting.md — Terraform](04-troubleshooting.md#terraform) |
 | Ansible vault password not found | [04-troubleshooting.md — Ansible](04-troubleshooting.md#ansible) |
-| Docker containers won't start | [04-troubleshooting.md — Docker](04-troubleshooting.md#docker-on-dockhost-50) |
+| Docker containers won't start | [04-troubleshooting.md — Docker](04-troubleshooting.md#docker-on-dockhost-90) |
 | Kubernetes nodes not ready | [04-troubleshooting.md — Kubernetes](04-troubleshooting.md#kubernetes-kubecluster) |
 | Pre-commit hooks fail | [04-troubleshooting.md — CI/CD](04-troubleshooting.md#cicd) |

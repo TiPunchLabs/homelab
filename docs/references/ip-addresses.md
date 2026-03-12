@@ -7,7 +7,6 @@
 | Equipment | IP | Description |
 |------------|-----|-------------|
 | **Proxmox VE** | 192.168.1.100 | Main hypervisor |
-| **NAS Synology** | 192.168.1.93 | Network storage |
 | **Gateway** | 192.168.1.254 | Router/Gateway |
 
 ### Proxmox VMs
@@ -15,7 +14,7 @@
 | VM | VMID | IP | Usage |
 |----|------|-----|-------|
 | bastion-60 | 9060 | 192.168.1.60 | Bastion (GitLab Runner shell, Terraform, Ansible) |
-| dockhost-50 | 9050 | 192.168.1.50 | Docker services (Portainer, GitLab Runner) |
+| dockhost-90 | 9090 | 192.168.1.90 | Docker services (Portainer, GitLab Runner) |
 | kubecluster-40 | 9040 | 192.168.1.40 | K8s Control Plane |
 | kubecluster-41 | 9041 | 192.168.1.41 | K8s Worker |
 | kubecluster-42 | 9042 | 192.168.1.42 | K8s Worker |
@@ -28,7 +27,6 @@
 | HTTP | 80 | TCP |
 | HTTPS | 443 | TCP |
 | Proxmox Web | 8006 | TCP/HTTPS |
-| Synology DSM | 5000 | TCP/HTTP |
 | Portainer Agent | 9001 | TCP |
 
 ---
@@ -59,9 +57,9 @@
 Convention: `192.168.1.{vm_ip_start}` where `vm_ip_start` is defined in Terraform.
 
 ```
-.40-.49  : kubecluster cluster (Kubernetes)
-.50-.59  : dockhost cluster (Docker services)
-.60-.69  : Bastion (control plane)
+.40-.49  : kubecluster (Kubernetes)
+.60-.69  : bastion (control plane)
+.90-.99  : dockhost (Docker services)
 ```
 
 ---
@@ -75,8 +73,8 @@ The convention uses the following scheme:
 | ID range | IP range | Usage |
 |----------|----------|-------|
 | 9040-9049 | .40-.49 | kubecluster |
-| 9050-9059 | .50-.59 | dockhost |
 | 9060-9069 | .60-.69 | bastion |
+| 9090-9099 | .90-.99 | dockhost |
 
 ---
 
@@ -88,8 +86,7 @@ SSH aliases are configured in `~/.ssh/config`:
 |-------|-----|------|-----|
 | `pve` | 192.168.1.100 | ansible | `~/.ssh/proxmox` |
 | `bastion-60` | 192.168.1.60 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
-| `dockhost-50` | 192.168.1.50 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
+| `dockhost-90` | 192.168.1.90 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `kubecluster-40` | 192.168.1.40 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `kubecluster-41` | 192.168.1.41 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `kubecluster-42` | 192.168.1.42 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
-| `nas` | 192.168.1.93 | xgueret | `~/.ssh/id_nas` |

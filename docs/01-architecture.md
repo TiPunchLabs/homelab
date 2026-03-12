@@ -3,36 +3,36 @@
 ## Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                              LOCAL NETWORK (192.168.1.0/24)                       │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  ┌─────────────────┐    ┌──────────────────────────────┐    ┌────────────────┐  │
-│  │   LOCAL MACHINE │    │         PROXMOX VE           │    │  NAS SYNOLOGY  │  │
-│  │  192.168.1.x       │    │         192.168.1.100            │    │  192.168.1.93     │  │
-│  │                 │    │                              │    │                │  │
-│  │  - Caddy Proxy  │    │  ┌────────────────────────┐  │    │  - Storage     │  │
-│  │  - Docker local │    │  │ bastion-60  192.168.1.60  │  │    │  - Backups     │  │
-│  │  - Dev tools    │    │  │ GitLab Runner (shell)   │  │    │  - Media       │  │
-│  │                 │    │  ├────────────────────────┤  │    └────────────────┘  │
-│  └────────┬────────┘    │  │ dockhost-50 192.168.1.50  │  │                        │
-│           │             │  │ Docker, GitLab Runner   │  │                        │
-│           │             │  ├────────────────────────┤  │                        │
-│           │             │  │ kubecluster-40 .40     │  │                        │
-│           │             │  │ kubecluster-41 .41     │  │                        │
-│           │             │  │ kubecluster-42 .42     │  │                        │
-│           │             │  └────────────────────────┘  │                        │
-│           │             └──────────────────────────────┘                        │
-│           │                                                                      │
-│           │             ┌─────────────────────────────────┐                     │
-│           │             │   VAGRANT NETWORK (192.168.122.0/24)│                     │
-│           │             │                                 │                     │
-│           └─────────────│  k8s-controlplan  192.168.122.70   │                     │
-│                         │  k8s-node1        192.168.122.71   │                     │
-│                         │  k8s-node2        192.168.122.72   │                     │
-│                         └─────────────────────────────────┘                     │
-│                                                                                  │
-└──────────────────────────────────────────────────────────────────────────────────┘
+LOCAL NETWORK (192.168.1.0/24)
+
+┌─────────────────┐       ┌──────────────────────────────────────────────┐
+│ LOCAL WORKSTATION│       │              PROXMOX VE (.100)              │
+│                 │       │                                              │
+│ Caddy proxy     │       │  ┌────────────────────────────────────────┐  │
+│ Docker local    │──SSH──│  │ BASTION (bastion-60 / .60)             │  │
+│ Dev tools       │  TF   │  │ GitLab Runner (shell), TF, Ansible    │  │
+│                 │       │  └──────────────────┬─────────────────────┘  │
+│                 │       │                     │ deploys via TF+Ansible │
+│                 │       │          ┌──────────┴──────────┐            │
+│                 │       │          ▼                     ▼            │
+│                 │       │  ┌──────────────────┐  ┌────────────────┐  │
+│                 │       │  │ DOCKHOST         │  │ KUBECLUSTER    │  │
+│                 │       │  │ dockhost-90 / .90│  │ -40 / .40 [CP]│  │
+│                 │       │  │                  │  │ -41 / .41 [W1]│  │
+│                 │       │  │ Docker           │  │ -42 / .42 [W2]│  │
+│                 │       │  │ Portainer        │  │                │  │
+│                 │       │  │ GitLab Runner    │  │ Kubernetes     │  │
+│                 │       │  └──────────────────┘  └────────────────┘  │
+│                 │       │                                              │
+└─────────────────┘       └──────────────────────────────────────────────┘
+
+                          ┌──────────────────────────────────┐
+                          │ VAGRANT NETWORK (192.168.122.0/24)│
+                          │                                  │
+                          │ k8s-controlplan  192.168.122.70  │
+                          │ k8s-node1        192.168.122.71  │
+                          │ k8s-node2        192.168.122.72  │
+                          └──────────────────────────────────┘
 ```
 
 ---
@@ -58,15 +58,7 @@ Proxmox Virtual Environment is the main hypervisor hosting all production VMs.
 - Name: `ubuntu-2404-cloudinit-template`
 - OS: Ubuntu 24.04 Server (cloud-init)
 
-### 2. NAS Synology
-
-**Address**: 192.168.1.93
-**DSM interface**: http://192.168.1.93:5000
-**SSH**: `ssh nas` (user: xgueret)
-
-Network storage for backups, shared files, and media.
-
-### 3. Local machine
+### 2. Local machine
 
 The local workstation runs:
 - **Caddy**: Reverse proxy for .local domains
@@ -91,7 +83,7 @@ PROXMOX VE (192.168.1.100)
 │       └── pass + GPG (secrets management)
 │
 ├── DOCKHOST (Docker services)
-│   └── dockhost-50 (ID: 9050) ─── 192.168.1.50
+│   └── dockhost-90 (ID: 9090) ─── 192.168.1.90
 │       ├── Docker Engine
 │       ├── Portainer Agent
 │       └── GitLab Runner (Docker executor)
@@ -107,7 +99,7 @@ PROXMOX VE (192.168.1.100)
 | VM | vCPU | RAM | Disk | Usage |
 |----|------|-----|--------|-------|
 | bastion-60 | 2 | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
-| dockhost-50 | 3 | 10 GB | 100 GB | Docker services (Portainer, GitLab Runner) |
+| dockhost-90 | 3 | 10 GB | 100 GB | Docker services (Portainer, GitLab Runner) |
 | kubecluster-40 | 2 | 4 GB | 35 GB | K8s Control Plane |
 | kubecluster-41 | 1 | 3.5 GB | 30 GB | K8s Worker |
 | kubecluster-42 | 1 | 3.5 GB | 30 GB | K8s Worker |
@@ -133,9 +125,9 @@ Caddy runs locally and routes traffic to the various backends.
 │  (host.docker.    │    │                         │    │   (Vagrant)         │
 │   internal)       │    │                         │    │                     │
 ├───────────────────┤    ├─────────────────────────┤    ├─────────────────────┤
-│ syncthing:8384    │    │ nas: 192.168.1.93:5000  │    │ traefik:30928       │
-│ portainer:9000    │    │ proxmox: 192.168.1.100   │    │ prometheus:30928    │
-│ excalidraw:8082   │    │          :8006 (HTTPS)  │    │ grafana:30928       │
+│ syncthing:8384    │    │ proxmox: 192.168.1.100  │    │ traefik:30928       │
+│ portainer:9000    │    │          :8006 (HTTPS)  │    │ prometheus:30928    │
+│ excalidraw:8082   │    │                         │    │ grafana:30928       │
 │ openwebui:8080    │    │                         │    │ alertmanager:30928  │
 │ n8n:5678          │    │                         │    │                     │
 └───────────────────┘    └─────────────────────────┘    └─────────────────────┘
@@ -310,7 +302,7 @@ cd ..
 ansible-playbook ansible/deploy.yml
 
 # 3. Verification
-ssh dockhost-50
+ssh dockhost-90
 docker ps
 ```
 

@@ -78,7 +78,7 @@ ansible-playbook ansible/deploy.yml --tags gitlab-runner
 ### Verification
 
 ```bash
-ssh dockhost-50
+ssh dockhost-90
 docker ps
 docker compose -f /opt/portainer-agent/docker-compose.yml ps
 docker compose -f /opt/gitlab-runner/docker-compose.yml ps
@@ -275,10 +275,9 @@ shellcheck -x -S warning scripts/*.sh
 |-------|----------|------|
 | Proxmox | `ssh pve` | ansible |
 | Bastion | `ssh bastion-60` | ansible |
-| Dockhost | `ssh dockhost-50` | ansible |
+| Dockhost | `ssh dockhost-90` | ansible |
 | K8s Control Plane | `ssh kubecluster-40` | ansible |
 | K8s Worker 1 | `ssh kubecluster-41` | ansible |
 | K8s Worker 2 | `ssh kubecluster-42` | ansible |
-| NAS Synology | `ssh nas` | xgueret |
 
 Configuration: `~/.ssh/config`

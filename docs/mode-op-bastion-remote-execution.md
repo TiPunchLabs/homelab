@@ -1,6 +1,6 @@
 # 🔧 Mode Operatoire : Execution distante depuis le Bastion
 
-> **Objectif** : Valider que le bastion-60 peut executer des playbooks Ansible sur les VMs cibles (dockhost-50, kubecluster-*) de maniere autonome et non-interactive.
+> **Objectif** : Valider que le bastion-60 peut executer des playbooks Ansible sur les VMs cibles (dockhost-90, kubecluster-*) de maniere autonome et non-interactive.
 >
 > **Prerequis** :
 > - Bastion-60 provisionne et accessible (`ssh bastion-60`)
@@ -69,7 +69,7 @@ pass show ansible/vault
 
 ```bash
 # Dockhost
-ssh -o BatchMode=yes dockhost-50 "hostname && uptime"
+ssh -o BatchMode=yes dockhost-90 "hostname && uptime"
 
 # Kubecluster control plane
 ssh -o BatchMode=yes kubecluster-40 "hostname && uptime"
@@ -95,11 +95,11 @@ uv run ansible-playbook ansible/deploy.yml --tags motd --check
 ### Resultat attendu
 
 ```
-PLAY [Configure dockhost-50] **************
+PLAY [Configure dockhost-90] **************
 TASK [motd : ...] ************************
-ok/changed: [dockhost-50]
+ok/changed: [dockhost-90]
 PLAY RECAP ********************************
-dockhost-50 : ok=X  changed=Y  unreachable=0  failed=0
+dockhost-90 : ok=X  changed=Y  unreachable=0  failed=0
 ```
 
 ### Troubleshooting
@@ -125,7 +125,7 @@ uv run ansible-playbook ansible/deploy.yml --tags motd
 Puis verifier sur la cible :
 
 ```bash
-ssh dockhost-50 "cat /etc/motd"
+ssh dockhost-90 "cat /etc/motd"
 ```
 
 ------
@@ -157,7 +157,7 @@ uv run ansible-playbook ansible/deploy.yml --tags cfg_nodes --check
 
 - [ ] `ssh bastion-60` fonctionne
 - [ ] `pass show ansible/vault` retourne le secret sans prompt
-- [ ] `ssh dockhost-50 "hostname"` fonctionne depuis le bastion
+- [ ] `ssh dockhost-90 "hostname"` fonctionne depuis le bastion
 - [ ] `uv run ansible-playbook --tags motd --check` passe en dry-run
 - [ ] `uv run ansible-playbook --tags motd` passe en execution reelle
 - [ ] Commande SSH one-shot depuis le workstation fonctionne

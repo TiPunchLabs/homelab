@@ -10,7 +10,7 @@ PROXMOX VE (192.168.1.100)
 │   ├── Terraform + Ansible (operational execution)
 │   └── pass + GPG (secrets management)
 │
-├── DOCKHOST (dockhost-50 / 192.168.1.50)
+├── DOCKHOST (dockhost-90 / 192.168.1.90)
 │   ├── Docker Engine
 │   ├── Portainer Agent ──► Managed by Portainer (local machine)
 │   └── GitLab Runner (Docker executor)
@@ -24,19 +24,19 @@ PROXMOX VE (192.168.1.100)
 
 ---
 
-## Dockhost (dockhost-50)
+## Dockhost (dockhost-90)
 
 ### Specifications
 
 | Parameter | Value |
 |-----------|--------|
-| VMID | 9050 |
-| IP | 192.168.1.50 |
+| VMID | 9090 |
+| IP | 192.168.1.90 |
 | OS | Ubuntu 24.04 (cloud-init) |
 | vCPU | 3 |
 | RAM | 10 GB |
 | Disk | 100 GB SSD |
-| SSH | `ssh dockhost-50` (user: ansible) |
+| SSH | `ssh dockhost-90` (user: ansible) |
 
 ### Deployed Ansible roles
 
@@ -56,7 +56,7 @@ The playbook `dockhost/ansible/deploy.yml` runs the following roles:
 Portainer Agent to manage Docker remotely from the Portainer instance on the local machine.
 
 ```
-Portainer (local machine) ──► Portainer Agent (dockhost-50:9001)
+Portainer (local machine) ──► Portainer Agent (dockhost-90:9001)
                                     │
                                     ▼
                               Docker Engine
