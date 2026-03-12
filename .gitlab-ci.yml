@@ -177,6 +177,7 @@ renovate:
     - renovate "$CI_PROJECT_PATH"
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "web" && $RENOVATE == "true"
   resource_group: renovate
 
 # =============================================================================
