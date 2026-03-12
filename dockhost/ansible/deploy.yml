@@ -1,5 +1,5 @@
 ---
-- name: Configure dockhost-50
+- name: Configure dockhost-90
   become: true
   hosts:
     - dockhost
