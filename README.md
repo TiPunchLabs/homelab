@@ -11,6 +11,8 @@
 
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen) ![Proxmox VE](https://img.shields.io/badge/Proxmox%20VE-9-orange?logo=proxmox&logoColor=white) ![Terraform](https://img.shields.io/badge/Terraform-%3E%3D1.11-blueviolet?logo=terraform) ![Ansible](https://img.shields.io/badge/Ansible-Automation-red?logo=ansible)
 
+> **Mirror notice**: If you are reading this on **GitHub**, this is a **read-only mirror**. The source of truth is on [GitLab](https://gitlab.com/tipunchlabs/homelab). Issues, merge requests, and CI/CD run exclusively on GitLab.
+
 Monorepo for provisioning and managing a complete homelab infrastructure on **Proxmox VE** using **Terraform** and **Ansible**.
 
 ## Architecture
@@ -118,7 +120,7 @@ homelab/
 | VM | VMID | IP | CPU | RAM | Disk | Purpose |
 |----|------|----|-----|-----|------|---------|
 | bastion-60 | 9060 | 192.168.1.60 | 2 cores | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
-| dockhost-50 | 9050 | 192.168.1.50 | 3 cores | 10 GB | 100 GB | Docker services |
+| dockhost-90 | 9090 | 192.168.1.90 | 3 cores | 10 GB | 100 GB | Docker services |
 | kubecluster-40 | 9040 | 192.168.1.40 | 2 cores | 4 GB | 35 GB | K8s Control Plane |
 | kubecluster-41 | 9041 | 192.168.1.41 | 1 core | 3.5 GB | 30 GB | K8s Worker |
 | kubecluster-42 | 9042 | 192.168.1.42 | 1 core | 3.5 GB | 30 GB | K8s Worker |
