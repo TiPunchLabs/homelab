@@ -20,14 +20,14 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 ```
 LOCAL NETWORK (192.168.1.0/24)
 
-┌─────────────────┐       ┌──────────────────────────────────────────────┐       ┌────────────┐
-│ LOCAL WORKSTATION│       │              PROXMOX VE (.100)              │       │    NAS     │
-│                 │       │                                              │       │  SYNOLOGY  │
-│ Caddy proxy     │       │  ┌────────────────────────────────────────┐  │       │  (.93)     │
-│ Docker local    │──SSH──│  │ BASTION (bastion-60 / .60)             │  │       │            │
-│ Dev tools       │  TF   │  │ GitLab Runner (shell), TF, Ansible    │  │──NFS──│ Storage    │
-│                 │       │  └──────────────────┬─────────────────────┘  │       │ Backups    │
-│                 │       │                     │ deploys via TF+Ansible │       └────────────┘
+┌─────────────────┐       ┌──────────────────────────────────────────────┐
+│ LOCAL WORKSTATION│       │              PROXMOX VE (.100)              │
+│                 │       │                                              │
+│ Caddy proxy     │       │  ┌────────────────────────────────────────┐  │
+│ Docker local    │──SSH──│  │ BASTION (bastion-60 / .60)             │  │
+│ Dev tools       │  TF   │  │ GitLab Runner (shell), TF, Ansible    │  │
+│                 │       │  └──────────────────┬─────────────────────┘  │
+│                 │       │                     │ deploys via TF+Ansible │
 │                 │       │          ┌──────────┴──────────┐            │
 │                 │       │          ▼                     ▼            │
 │                 │       │  ┌──────────────────┐  ┌────────────────┐  │
