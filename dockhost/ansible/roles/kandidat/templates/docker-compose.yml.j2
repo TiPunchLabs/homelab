@@ -1,0 +1,28 @@
+{{ ansible_managed | comment }}
+
+services:
+  kandidat:
+    image: {{ kandidat_registry }}:{{ kandidat_image_tag }}
+    container_name: kandidat
+    restart: always
+    ports:
+      - "{{ kandidat_port }}:8000"
+    environment:
+      SECRET_KEY: "{{ vault_kandidat_secret_key }}"
+      KANDIDAT_ENV: "prod"
+      FT_DATA_DIR: "/app/data"
+      DATABASE_URL: "{{ vault_kandidat_database_url }}"
+    volumes:
+      - "{{ kandidat_data_dir }}:/app/data"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - vm-docker-90-net
+
+networks:
+  vm-docker-90-net:
+    driver: bridge

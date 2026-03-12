@@ -1,0 +1,5 @@
+---
+- name: Restart kandidat
+  community.docker.docker_compose_v2:
+    project_src: "{{ kandidat_install_dir }}"
+    state: restarted

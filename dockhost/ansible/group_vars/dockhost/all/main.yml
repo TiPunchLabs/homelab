@@ -16,6 +16,7 @@ security_ufw_default_outgoing: "allow"
 security_open_ports:
   - { port: 22, proto: tcp, comment: "SSH access" }
   - { port: 5432, proto: tcp, comment: "PostgreSQL access" }
+  - { port: 8000, proto: tcp, comment: "Kandidat web app" }
 
 security_portainer_agent:
   enabled: true

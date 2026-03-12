@@ -34,3 +34,6 @@
     - role: gitlab_runner
       tags:
         - gitlab-runner
+    - role: kandidat
+      tags:
+        - kandidat
