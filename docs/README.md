@@ -2,6 +2,12 @@
 
 Technical documentation for the homelab project - Infrastructure as Code for Proxmox VE.
 
+## Getting started
+
+| Document | Description |
+|----------|-------------|
+| [00-getting-started.md](00-getting-started.md) | **Full setup guide** — from bare Proxmox to production environment |
+
 ## Table of contents
 
 | Document | Description |

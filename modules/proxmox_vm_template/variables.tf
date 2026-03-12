@@ -6,7 +6,7 @@ variable "project_description" {
 variable "vm_target_node" {
   description = "Target node name"
   type        = string
-  default     = "pve"
+  default     = "proxmox"
 }
 
 variable "vm_count" {

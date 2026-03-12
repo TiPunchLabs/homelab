@@ -16,7 +16,7 @@ security_open_ports:
 # 🛠️ Tooling - Role tooling
 # ============================================================
 tooling_terraform_version: "1.11.4"
-tooling_homelab_repo: "https://github.com/TiPunchLabs/homelab.git"
+tooling_homelab_repo: "https://gitlab.com/tipunchlabs/homelab.git"
 tooling_user: "ansible"
 
 # ============================================================

@@ -12,6 +12,7 @@
       - pass
       - software-properties-common
       - direnv
+      - fzf
     state: present
     update_cache: true
 
@@ -115,22 +116,22 @@
   become_user: "{{ tooling_user }}"
   no_log: true
 
-- name: Insert proxmox/api-token-id into password store
+- name: Insert proxmox/terraform-token-id into password store
   ansible.builtin.shell:
-    cmd: set -o pipefail && echo "{{ vault_pass_proxmox_api_token_id }}" | pass insert -f -m proxmox/api-token-id
+    cmd: set -o pipefail && echo "{{ vault_pass_proxmox_api_token_id }}" | pass insert -f -m proxmox/terraform-token-id
     executable: /bin/bash
   args:
-    creates: "/home/{{ tooling_user }}/.password-store/proxmox/api-token-id.gpg"
+    creates: "/home/{{ tooling_user }}/.password-store/proxmox/terraform-token-id.gpg"
   become: true
   become_user: "{{ tooling_user }}"
   no_log: true
 
-- name: Insert proxmox/api-token-secret into password store
+- name: Insert proxmox/terraform-token-secret into password store
   ansible.builtin.shell:
-    cmd: set -o pipefail && echo "{{ vault_pass_proxmox_api_token_secret }}" | pass insert -f -m proxmox/api-token-secret
+    cmd: set -o pipefail && echo "{{ vault_pass_proxmox_api_token_secret }}" | pass insert -f -m proxmox/terraform-token-secret
     executable: /bin/bash
   args:
-    creates: "/home/{{ tooling_user }}/.password-store/proxmox/api-token-secret.gpg"
+    creates: "/home/{{ tooling_user }}/.password-store/proxmox/terraform-token-secret.gpg"
   become: true
   become_user: "{{ tooling_user }}"
   no_log: true
