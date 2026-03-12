@@ -20,20 +20,21 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 ```
 LOCAL NETWORK (192.168.1.0/24)
 
-┌─────────────────┐     ┌──────────────────────────────────────┐     ┌────────────────┐
-│ LOCAL WORKSTATION│     │          PROXMOX VE (.100)           │     │ NAS SYNOLOGY   │
-│                 │     │                                      │     │ (.93)          │
-│ Caddy proxy     │     │  bastion-60 ──── .60                 │     │ Storage        │
-│ Docker local    │     │  GitLab Runner (shell), TF, Ansible  │     │ Backups        │
-│ Dev tools       │     │                                      │     └────────────────┘
-│                 │     │  dockhost-90 ──── .90                 │
-│                 │     │  Docker, Portainer, GitLab Runner     │
-│                 │     │                                      │
-│                 │     │  kubecluster-40 ── .40  [CP]          │
-│                 │     │  kubecluster-41 ── .41  [Worker]      │
-│                 │     │  kubecluster-42 ── .42  [Worker]      │
-│                 │     │                                      │
-└─────────────────┘     └──────────────────────────────────────┘
+┌─────────────────┐       ┌──────────────────────────────────────┐       ┌────────────────┐
+│ LOCAL WORKSTATION│       │          PROXMOX VE (.100)           │       │ NAS SYNOLOGY   │
+│                 │       │                                      │       │ (.93)          │
+│ Caddy proxy     │ ───── │  bastion-60 ──── .60                 │       │ Storage        │
+│ Docker local    │  SSH  │  GitLab Runner (shell), TF, Ansible  │ ───── │ Backups        │
+│ Dev tools       │  TF   │          │                           │  NFS  └────────────────┘
+│                 │       │          │ deploys via TF + Ansible   │
+│                 │       │          ▼                            │
+│                 │       │  dockhost-90 ──── .90                 │
+│                 │       │  Docker, Portainer, GitLab Runner     │
+│                 │       │                                      │
+│                 │       │  kubecluster-40 ── .40  [CP]          │
+│                 │       │  kubecluster-41 ── .41  [Worker]      │
+│                 │       │  kubecluster-42 ── .42  [Worker]      │
+└─────────────────┘       └──────────────────────────────────────┘
 
 Deployment: Terraform (provision) → Ansible (configure)
 Template:   ubuntu-2404-cloudinit-template (ID: 9001)
