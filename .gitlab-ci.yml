@@ -1,4 +1,5 @@
 stages:
+  - renovate
   - lint
   - security
   - deploy
@@ -159,6 +160,24 @@ scan-docker-images:
         trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress "$image" || true
       done
   allow_failure: true
+
+# =============================================================================
+# Renovate — Dependency updates
+# =============================================================================
+renovate:
+  stage: renovate
+  image: renovate/renovate:latest
+  variables:
+    RENOVATE_PLATFORM: gitlab
+    RENOVATE_ENDPOINT: https://gitlab.com/api/v4
+    RENOVATE_TOKEN: $RENOVATE_TOKEN
+    RENOVATE_EXTRA_FLAGS: --autodiscover=false
+    LOG_LEVEL: info
+  script:
+    - renovate "$CI_PROJECT_PATH"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  resource_group: renovate
 
 # =============================================================================
 # Deploy — Sync bastion
