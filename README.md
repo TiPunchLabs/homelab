@@ -60,7 +60,6 @@ Template:   ubuntu-2404-cloudinit-template (ID: 9001)
 |-----------|-------------|
 | `modules/` | Reusable Terraform modules (`proxmox_vm_template`) |
 | `gitlab-terraform/` | GitLab project management via Terraform |
-| `github-terraform/` | GitHub repository management via Terraform |
 | `scripts/` | Shared scripts (Ansible Vault password, pre-commit checks) |
 
 ## Prerequisites
@@ -114,7 +113,6 @@ homelab/
 │   └── proxmox_vm_template/        #   Reusable VM provisioning module
 │
 ├── gitlab-terraform/               # GitLab project management (Terraform)
-├── github-terraform/               # GitHub repo management (Terraform)
 │
 ├── scripts/                        # Shared scripts
 │   ├── ansible-vault-pass.sh       #   Vault password via pass
