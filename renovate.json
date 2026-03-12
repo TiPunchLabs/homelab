@@ -1,0 +1,41 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "schedule:weekly",
+    ":gitlabAutoMerge"
+  ],
+  "labels": ["dependencies"],
+  "schedule": ["every monday"],
+  "timezone": "Europe/Paris",
+  "packageRules": [
+    {
+      "description": "Terraform providers",
+      "matchManagers": ["terraform"],
+      "labels": ["dependencies", "terraform"],
+      "groupName": "terraform",
+      "automerge": false
+    },
+    {
+      "description": "Python dependencies (pip/uv)",
+      "matchManagers": ["pip_requirements", "pip_setup", "pep621"],
+      "labels": ["dependencies", "python"],
+      "groupName": "python-deps",
+      "automerge": false
+    },
+    {
+      "description": "Pre-commit hooks",
+      "matchManagers": ["pre-commit"],
+      "labels": ["dependencies", "ci"],
+      "groupName": "pre-commit-hooks",
+      "automerge": true,
+      "automergeType": "branch"
+    },
+    {
+      "description": "Docker images (pinned by digest in templates)",
+      "matchManagers": ["docker-compose", "dockerfile"],
+      "labels": ["dependencies", "docker"],
+      "automerge": false
+    }
+  ]
+}
