@@ -21,7 +21,7 @@ resource "gitlab_project_mirror" "github" {
   project                 = gitlab_project.project.id
   url                     = "https://${var.github_mirror_owner}:${var.github_mirror_token}@github.com/${var.github_mirror_owner}/${var.project_name}.git"
   keep_divergent_refs     = false
-  only_protected_branches = false
+  only_protected_branches = true
 }
 
 # =============================================================================
