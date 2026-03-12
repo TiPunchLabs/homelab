@@ -1,34 +1,48 @@
-# Documentation Homelab IaC
+# Homelab IaC Documentation
 
-Documentation technique du projet homelab - Infrastructure as Code pour Proxmox VE.
+Technical documentation for the homelab project - Infrastructure as Code for Proxmox VE.
 
-## Sommaire
+## Getting started
 
 | Document | Description |
 |----------|-------------|
-| [01-architecture.md](01-architecture.md) | Architecture globale, VMs, reseau, stack technique |
-| [02-services.md](02-services.md) | Services deployes (bastion, dockhost, kubecluster, proxmox) |
-| [03-commandes.md](03-commandes.md) | Commandes Terraform, Ansible, SSH, qualite du code |
-| [04-troubleshooting.md](04-troubleshooting.md) | Resolution de problemes courants |
+| [00-getting-started.md](00-getting-started.md) | **Full setup guide** — from bare Proxmox to production environment |
+
+## Table of contents
+
+| Document | Description |
+|----------|-------------|
+| [01-architecture.md](01-architecture.md) | Global architecture, VMs, network, tech stack |
+| [02-services.md](02-services.md) | Deployed services (bastion, dockhost, kubecluster, proxmox) |
+| [03-commandes.md](03-commandes.md) | Terraform, Ansible, SSH, code quality commands |
+| [04-troubleshooting.md](04-troubleshooting.md) | Common problem resolution |
 
 ## References
 
 | Document | Description |
 |----------|-------------|
-| [references/ip-addresses.md](references/ip-addresses.md) | Plan d'adressage IP, VMs, ports, config SSH |
+| [references/ip-addresses.md](references/ip-addresses.md) | IP addressing plan, VMs, ports, SSH config |
 
-## Sources de verite
+## ADR (Architecture Decision Records)
 
-La documentation est alignee sur les fichiers de code suivants :
+| Document | Description |
+|----------|-------------|
+| [adr/bastion.md](adr/bastion.md) | Bastion architecture decisions |
+| [adr/proxmox.md](adr/proxmox.md) | Proxmox hypervisor architecture decisions |
 
-| Donnee | Source |
-|--------|--------|
-| Specs VM bastion | `bastion/terraform/main.tf` |
-| Specs VM dockhost | `dockhost/terraform/main.tf` |
-| Specs VM kubecluster | `kubecluster/terraform/main.tf` |
-| Services bastion | `bastion/ansible/deploy.yml` + roles |
-| Services dockhost | `dockhost/ansible/deploy.yml` + roles |
-| Services kubecluster | `kubecluster/ansible/deploy.yml` + roles |
-| CI/CD | `.gitlab-ci.yml` (GitLab CI uniquement) |
-| Config SSH | `~/.ssh/config` |
-| Secrets | `*/ansible/group_vars/*/vault/` |
+## Sources of truth
+
+The documentation is aligned with the following code files:
+
+| Data | Source |
+|------|--------|
+| Bastion VM specs | `bastion/terraform/main.tf` |
+| Dockhost VM specs | `dockhost/terraform/main.tf` |
+| Kubecluster VM specs | `kubecluster/terraform/main.tf` |
+| Bastion services | `bastion/ansible/deploy.yml` + roles |
+| Dockhost services | `dockhost/ansible/deploy.yml` + roles |
+| Kubecluster services | `kubecluster/ansible/deploy.yml` + roles |
+| Proxmox config | `proxmox/ansible/deploy.yml` + roles |
+| CI/CD | `.gitlab-ci.yml` (GitLab CI only) |
+| SSH config | `~/.ssh/config` |
+| Secrets | `*/ansible/group_vars/*/vault/` + `*/ansible/host_vars/*/vault/` |

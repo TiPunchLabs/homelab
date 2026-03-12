@@ -23,6 +23,7 @@ pyvenv.cfg
 # ===== Ansible =====
 *.retry
 .ansible/
+.ansible_fact_cache/
 **/files/*.deb
 **/vars/**/ip_hosts.yml
 **/vars/**/my-git-config-global.yml

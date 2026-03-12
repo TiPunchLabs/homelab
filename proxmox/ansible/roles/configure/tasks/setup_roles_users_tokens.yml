@@ -17,7 +17,35 @@
 - name: Execute setup_roles_users_tokens.sh script
   ansible.builtin.command: /tmp/setup_roles_users_tokens.sh
   register: add_script_result
-  changed_when: >
-    add_script_result.stdout.find('Command succeeded') != -1
+  changed_when: "'TOKEN_CREATED' in add_script_result.stdout"
   environment:
     GEN_PASS: "{{ configure_gen_password }}"
+
+# Extract created tokens and store in pass (local)
+- name: Store created token secrets in pass
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      TOKEN_JSON=$(echo '{{ item }}' | cut -d':' -f4-)
+      TOKEN_SECRET=$(echo "$TOKEN_JSON" | jq -r '.value')
+      TOKEN_NAME=$(echo '{{ item }}' | cut -d':' -f2)
+      TOKEN_UGID=$(echo '{{ item }}' | cut -d':' -f3)
+      TOKEN_FULL_ID="${TOKEN_UGID}!${TOKEN_NAME}"
+      echo "$TOKEN_SECRET" | pass insert -f "proxmox/${TOKEN_NAME}-token-secret" 2>&1
+      echo "$TOKEN_FULL_ID" | pass insert -f "proxmox/${TOKEN_NAME}-token-id" 2>&1
+    executable: /bin/bash
+  delegate_to: localhost
+  become: false
+  loop: "{{ add_script_result.stdout_lines | select('match', '^TOKEN_CREATED:') | list }}"
+  no_log: true
+
+# Clean up temporary files and legacy token files on remote host
+- name: Clean up temporary and legacy token files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/token_setup.json
+    - /tmp/setup_roles_users_tokens.sh
+    - /root/.terraform_token
+    - /root/.ansible_token

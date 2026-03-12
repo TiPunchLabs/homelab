@@ -48,13 +48,34 @@ cd proxmox
 ansible-playbook ansible/deploy.yml
 ```
 
+### Bootstrap initial (premiere execution)
+
+Avant le deploiement de la cle SSH, l'agent SSH local propose trop de cles et le serveur refuse la connexion. Il faut forcer l'authentification par mot de passe :
+
+```bash
+ansible-playbook ansible/deploy.yml -u root --ask-pass --tags "security_ssh_hardening" \
+  -e 'ansible_ssh_extra_args="-o PreferredAuthentications=password -o IdentitiesOnly=yes"'
+```
+
+Une fois le hardening SSH et la cle deployee, la configuration normale (`ansible.cfg`) reprend le dessus.
+
+> ⚠️ **Warning**: Apres le bootstrap, l'acces SSH root est desactive (`PasswordAuthentication no` et aucune cle deployee pour root). Se connecter via le user `ansible` :
+>
+> ```bash
+> ssh -o IdentitiesOnly=yes ansible@192.168.1.100 -i ~/.ssh/proxmox
+> sudo -i  # NOPASSWD via le groupe wheel
+> ```
+
 ### Lancer par tags
 
 ```bash
-# Hardening SSH (premiere execution avec -u root)
-ansible-playbook ansible/deploy.yml -u root --tags "security_ssh_hardening"
+# Packages essentiels (apt sources + packages de base)
+ansible-playbook ansible/deploy.yml --tags "essentials"
 
-# Configuration roles/utilisateurs/tokens
+# Hardening SSH
+ansible-playbook ansible/deploy.yml --tags "security_ssh_hardening"
+
+# Configuration roles/utilisateurs/tokens API
 ansible-playbook ansible/deploy.yml --tags "setup_roles_users_tokens"
 
 # Configuration stockage
@@ -62,7 +83,38 @@ ansible-playbook ansible/deploy.yml --tags "setup_storage"
 
 # Generation template VM
 ansible-playbook ansible/deploy.yml --tags "generate_vm_template"
+
+# Afficher les tokens API existants
+ansible-playbook ansible/deploy.yml --tags "display_token"
 ```
+
+## 🔑 Tokens API Proxmox
+
+Le tag `setup_roles_users_tokens` cree deux tokens API sur le serveur Proxmox :
+
+| Token ID | User | Role | Usage |
+|----------|------|------|-------|
+| `terraform-prov@pve!terraform` | `terraform-prov@pve` | `TerraformProv` | Provisioning VMs via Terraform |
+| `ansible-prov@pve!ansible` | `ansible-prov@pve` | `AnsibleProv` | Gestion VMs via Ansible |
+
+Les secrets des tokens sont automatiquement stockes dans `pass` a la creation :
+
+```
+proxmox/
+├── terraform-token-id       # terraform-prov@pve!terraform
+├── terraform-token-secret
+├── ansible-token-id         # ansible-prov@pve!ansible
+└── ansible-token-secret
+```
+
+Pour utiliser le token Terraform dans les autres sous-projets, configurer dans `.envrc` :
+
+```bash
+export PM_API_TOKEN_ID="$(pass show proxmox/terraform-token-id)"
+export PM_API_TOKEN_SECRET="$(pass show proxmox/terraform-token-secret)"
+```
+
+Voir [Token Workflow](docs/TOKEN_WORKFLOW.md) pour le guide complet.
 
 ## 🔐 Secrets
 

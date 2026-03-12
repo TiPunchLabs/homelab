@@ -2,9 +2,9 @@
 source .venv/bin/activate
 
 # Terraform - Proxmox provider
-export TF_VAR_pm_api_url="https://proxmox.local/api2/json"
-export TF_VAR_pm_api_token_id=$(pass proxmox/api-token-id)
-export TF_VAR_pm_api_token_secret=$(pass proxmox/api-token-secret)
+export TF_VAR_pm_api_url="https://192.168.1.100:8006/api2/json"
+export TF_VAR_pm_api_token_id=$(pass proxmox/terraform-token-id)
+export TF_VAR_pm_api_token_secret=$(pass proxmox/terraform-token-secret)
 
 # Terraform - GitHub provider
 export TF_VAR_github_owner="TiPunchLabs"

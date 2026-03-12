@@ -16,6 +16,23 @@
     mode: '0600'
   no_log: true
 
+- name: Derive VM Proxmox SSH public key from private key
+  ansible.builtin.shell:
+    cmd: ssh-keygen -y -f /home/{{ ssh_keys_user }}/.ssh/id_vm_proxmox_rsa
+    executable: /bin/bash
+  become: true
+  become_user: "{{ ssh_keys_user }}"
+  register: vm_proxmox_pub_key
+  changed_when: false
+
+- name: Deploy VM Proxmox SSH public key
+  ansible.builtin.copy:
+    content: "{{ vm_proxmox_pub_key.stdout }}\n"
+    dest: "/home/{{ ssh_keys_user }}/.ssh/id_vm_proxmox_rsa.pub"
+    owner: "{{ ssh_keys_user }}"
+    group: "{{ ssh_keys_group }}"
+    mode: '0644'
+
 - name: Deploy Proxmox SSH key
   ansible.builtin.copy:
     content: "{{ vault_ssh_key_proxmox }}"

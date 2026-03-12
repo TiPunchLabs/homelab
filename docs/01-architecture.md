@@ -1,17 +1,17 @@
-# Architecture du Homelab
+# Homelab Architecture
 
-## Vue d'ensemble
+## Overview
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────┐
-│                              RESEAU LOCAL (192.168.1.0/24)                        │
+│                              LOCAL NETWORK (192.168.1.0/24)                       │
 ├──────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                  │
 │  ┌─────────────────┐    ┌──────────────────────────────┐    ┌────────────────┐  │
-│  │   POSTE LOCAL   │    │         PROXMOX VE           │    │  NAS SYNOLOGY  │  │
-│  │  192.168.1.x       │    │         192.168.1.26            │    │  192.168.1.93     │  │
+│  │   LOCAL MACHINE │    │         PROXMOX VE           │    │  NAS SYNOLOGY  │  │
+│  │  192.168.1.x       │    │         192.168.1.100            │    │  192.168.1.93     │  │
 │  │                 │    │                              │    │                │  │
-│  │  - Caddy Proxy  │    │  ┌────────────────────────┐  │    │  - Stockage    │  │
+│  │  - Caddy Proxy  │    │  ┌────────────────────────┐  │    │  - Storage     │  │
 │  │  - Docker local │    │  │ bastion-60  192.168.1.60  │  │    │  - Backups     │  │
 │  │  - Dev tools    │    │  │ GitLab Runner (shell)   │  │    │  - Media       │  │
 │  │                 │    │  ├────────────────────────┤  │    └────────────────┘  │
@@ -25,7 +25,7 @@
 │           │             └──────────────────────────────┘                        │
 │           │                                                                      │
 │           │             ┌─────────────────────────────────┐                     │
-│           │             │   RESEAU VAGRANT (192.168.122.0/24)│                     │
+│           │             │   VAGRANT NETWORK (192.168.122.0/24)│                     │
 │           │             │                                 │                     │
 │           └─────────────│  k8s-controlplan  192.168.122.70   │                     │
 │                         │  k8s-node1        192.168.122.71   │                     │
@@ -37,54 +37,54 @@
 
 ---
 
-## Composants principaux
+## Main components
 
-### 1. Proxmox VE (Hyperviseur)
+### 1. Proxmox VE (Hypervisor)
 
-**Adresse**: 192.168.1.26
-**Interface web**: https://192.168.1.26:8006
-**SSH**: `ssh pve` (user: root)
+**Address**: 192.168.1.100
+**Web interface**: https://192.168.1.100:8006
+**SSH**: `ssh pve` (user: ansible)
 
-Proxmox Virtual Environment est l'hyperviseur principal qui heberge toutes les VMs de production.
+Proxmox Virtual Environment is the main hypervisor hosting all production VMs.
 
-**Caracteristiques**:
-- Virtualisation KVM
-- Conteneurs LXC
-- Stockage local et distant
-- API REST pour automatisation (provider Terraform bpg/proxmox)
+**Features**:
+- KVM virtualization
+- LXC containers
+- Local and remote storage
+- REST API for automation (Terraform provider bpg/proxmox)
 
-**Template de base**:
+**Base template**:
 - ID: **9001**
-- Nom: `ubuntu-2404-cloudinit-template`
+- Name: `ubuntu-2404-cloudinit-template`
 - OS: Ubuntu 24.04 Server (cloud-init)
 
 ### 2. NAS Synology
 
-**Adresse**: 192.168.1.93
-**Interface DSM**: http://192.168.1.93:5000
+**Address**: 192.168.1.93
+**DSM interface**: http://192.168.1.93:5000
 **SSH**: `ssh nas` (user: xgueret)
 
-Stockage reseau pour sauvegardes, fichiers partages et media.
+Network storage for backups, shared files, and media.
 
-### 3. Poste local
+### 3. Local machine
 
-Le poste de travail local execute:
-- **Caddy** : Reverse proxy pour les domaines .local
-- **Docker** : Services de developpement
-- **Vagrant/libvirt** : Cluster Kubernetes local
+The local workstation runs:
+- **Caddy**: Reverse proxy for .local domains
+- **Docker**: Development services
+- **Vagrant/libvirt**: Local Kubernetes cluster
 
 ---
 
-## Architecture des VMs Proxmox
+## Proxmox VM architecture
 
-### Schema des VMs
+### VM diagram
 
 ```
-PROXMOX VE (192.168.1.26)
+PROXMOX VE (192.168.1.100)
 │
 ├── Template: ubuntu-2404-cloudinit-template (ID: 9001)
 │
-├── BASTION (Plan de controle)
+├── BASTION (Control plane)
 │   └── bastion-60 (ID: 9060) ─── 192.168.1.60
 │       ├── GitLab Runner (shell executor, systemd)
 │       ├── Terraform + Ansible
@@ -102,9 +102,9 @@ PROXMOX VE (192.168.1.26)
     └── kubecluster-42 (ID: 9042) ─── 192.168.1.42 [Worker 2]
 ```
 
-### Specifications des VMs
+### VM specifications
 
-| VM | vCPU | RAM | Disque | Usage |
+| VM | vCPU | RAM | Disk | Usage |
 |----|------|-----|--------|-------|
 | bastion-60 | 2 | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
 | dockhost-50 | 3 | 10 GB | 100 GB | Docker services (Portainer, GitLab Runner) |
@@ -114,14 +114,14 @@ PROXMOX VE (192.168.1.26)
 
 ---
 
-## Architecture du Reverse Proxy Caddy
+## Caddy reverse proxy architecture
 
-Caddy s'execute en local et route le trafic vers les differents backends.
+Caddy runs locally and routes traffic to the various backends.
 
 ```
                     ┌─────────────────────────────────────┐
                     │         CADDY REVERSE PROXY         │
-                    │      (Docker - mode host network)   │
+                    │      (Docker - host network mode)   │
                     │           Ports 80, 443             │
                     └──────────────────┬──────────────────┘
                                        │
@@ -129,12 +129,12 @@ Caddy s'execute en local et route le trafic vers les differents backends.
         │                              │                              │
         ▼                              ▼                              ▼
 ┌───────────────────┐    ┌─────────────────────────┐    ┌─────────────────────┐
-│  SERVICES DOCKER  │    │   EQUIPEMENTS RESEAU    │    │   CLUSTER K8S       │
+│  DOCKER SERVICES  │    │   NETWORK EQUIPMENT     │    │   K8S CLUSTER       │
 │  (host.docker.    │    │                         │    │   (Vagrant)         │
 │   internal)       │    │                         │    │                     │
 ├───────────────────┤    ├─────────────────────────┤    ├─────────────────────┤
 │ syncthing:8384    │    │ nas: 192.168.1.93:5000  │    │ traefik:30928       │
-│ portainer:9000    │    │ proxmox: 192.168.1.26   │    │ prometheus:30928    │
+│ portainer:9000    │    │ proxmox: 192.168.1.100   │    │ prometheus:30928    │
 │ excalidraw:8082   │    │          :8006 (HTTPS)  │    │ grafana:30928       │
 │ openwebui:8080    │    │                         │    │ alertmanager:30928  │
 │ n8n:5678          │    │                         │    │                     │
@@ -145,13 +145,13 @@ Caddy s'execute en local et route le trafic vers les differents backends.
 
 ---
 
-## Architecture Kubernetes Vagrant
+## Vagrant Kubernetes architecture
 
-Cluster Kubernetes local pour tests et developpement.
+Local Kubernetes cluster for testing and development.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│              RESEAU LIBVIRT (192.168.122.0/24)             │
+│              LIBVIRT NETWORK (192.168.122.0/24)             │
 ├────────────────────────────────────────────────────────────┤
 │                                                            │
 │  ┌────────────────────────────────────────────────────┐   │
@@ -166,74 +166,74 @@ Cluster Kubernetes local pour tests et developpement.
 │  │ Kubelet, Kube-proxy   │  │ Kubelet, Kube-proxy   │    │
 │  │ Containerd            │  │ Containerd            │    │
 │  │                       │  │                       │    │
-│  │ Services exposes:     │  │                       │    │
+│  │ Exposed services:     │  │                       │    │
 │  │ Traefik, Prometheus   │  │                       │    │
 │  │ Grafana, AlertManager │  │                       │    │
 │  └───────────────────────┘  └───────────────────────┘    │
 │                                                            │
 └────────────────────────────────────────────────────────────┘
 
-Emplacement: ~/vagrant-k8s-cluster/
+Location: ~/vagrant-k8s-cluster/
 ```
 
 ---
 
-## Stack technologique
+## Technology stack
 
 ### Infrastructure as Code
 
-| Outil | Usage |
+| Tool | Usage |
 |-------|-------|
-| **Terraform** (>= 1.11.0) | Provisionnement VMs sur Proxmox |
-| **Provider bpg/proxmox** (>= 0.93.0) | API Proxmox |
-| **Ansible** (>= 13.2.0) | Configuration et deploiement services |
-| **Ansible Vault** | Gestion des secrets (via `pass`) |
+| **Terraform** (>= 1.11.0) | VM provisioning on Proxmox |
+| **Provider bpg/proxmox** (>= 0.93.0) | Proxmox API |
+| **Ansible** (>= 13.2.0) | Service configuration and deployment |
+| **Ansible Vault** | Secrets management (via `pass`) |
 
-### Containerisation
+### Containerization
 
-| Outil | Usage |
+| Tool | Usage |
 |-------|-------|
-| **Docker** + **Docker Compose** | Runtime et orchestration (dockhost) |
-| **Kubernetes** (kubeadm) | Orchestration cluster (kubecluster) |
-| **Containerd** | Runtime K8s |
+| **Docker** + **Docker Compose** | Runtime and orchestration (dockhost) |
+| **Kubernetes** (kubeadm) | Cluster orchestration (kubecluster) |
+| **Containerd** | K8s runtime |
 
-### Reseau
+### Networking
 
-| Outil | Usage |
+| Tool | Usage |
 |-------|-------|
-| **Caddy** | Reverse proxy local (.local) |
+| **Caddy** | Local reverse proxy (.local) |
 
 ---
 
-## Structure du projet IaC
+## IaC project structure
 
 ```
 ~/homelab/
 │
 ├── .gitlab-ci.yml               # CI: ansible-lint, terraform, shellcheck, trivy
 ├── .pre-commit-config.yaml      # Pre-commit hooks
-├── pyproject.toml               # Dependances Python (uv)
+├── pyproject.toml               # Python dependencies (uv)
 ├── .envrc                       # direnv: secrets via pass
 │
 ├── modules/
-│   └── proxmox_vm_template/     # Module Terraform partage
+│   └── proxmox_vm_template/     # Shared Terraform module
 │       ├── main.tf              # Resource proxmox_virtual_environment_vm
 │       ├── variables.tf         # 17 variables (vm_*, project_description)
 │       └── outputs.tf
 │
 ├── scripts/
-│   ├── ansible-vault-pass.sh    # Recupere le password vault via pass
-│   └── check_ansible_vault.sh   # Pre-commit: verifie le chiffrement vault
+│   ├── ansible-vault-pass.sh    # Retrieves vault password via pass
+│   └── check_ansible_vault.sh   # Pre-commit: verifies vault encryption
 │
-├── proxmox/                     # Configuration hyperviseur
+├── proxmox/                     # Hypervisor configuration
 │   └── ansible/
 │       ├── deploy.yml           # Tags: security_ssh_hardening, generate_vm_template
 │       └── roles/
 │           ├── configure/       # SSH, tokens, storage, VM templates
-│           └── manage/          # Verification tokens
+│           └── manage/          # Token verification
 │
-├── dockhost/                    # VM Docker services
-│   ├── terraform/               # Provisionnement (1 VM)
+├── dockhost/                    # Docker services VM
+│   ├── terraform/               # Provisioning (1 VM)
 │   └── ansible/
 │       ├── deploy.yml           # Tags: motd, docker, portainer-agent, gitlab-runner
 │       └── roles/
@@ -244,8 +244,8 @@ Emplacement: ~/vagrant-k8s-cluster/
 │           ├── security_hardening/
 │           └── gitlab_runner/
 │
-├── bastion/                     # Bastion VM (plan de controle)
-│   ├── terraform/               # Provisionnement (1 VM)
+├── bastion/                     # Bastion VM (control plane)
+│   ├── terraform/               # Provisioning (1 VM)
 │   └── ansible/
 │       ├── deploy.yml           # Tags: motd, security-hardening, tooling, ssh-keys, gitlab-runner
 │       └── roles/
@@ -255,11 +255,11 @@ Emplacement: ~/vagrant-k8s-cluster/
 │           ├── ssh_keys/
 │           └── gitlab_runner/
 │
-└── kubecluster/                 # Cluster Kubernetes (3 VMs)
-    ├── terraform/               # Provisionnement (1 CP + 2 workers)
+└── kubecluster/                 # Kubernetes cluster (3 VMs)
+    ├── terraform/               # Provisioning (1 CP + 2 workers)
     └── ansible/
         ├── deploy.yml           # 3 plays: all, control_plane, workers
-        └── roles/               # 10 roles ordonnes
+        └── roles/               # 10 ordered roles
             ├── motd/
             ├── cfg_nodes/
             ├── inst_runc/
@@ -274,16 +274,16 @@ Emplacement: ~/vagrant-k8s-cluster/
 
 ---
 
-## Flux de deploiement
+## Deployment workflow
 
-### Pattern two-stage deployment
+### Two-stage deployment pattern
 
 ```
 1. TERRAFORM                    2. ANSIBLE                     3. VERIFICATION
-   (Provisionnement)               (Configuration)                (Tests)
+   (Provisioning)                  (Configuration)                (Tests)
 
 ┌─────────────────────┐       ┌─────────────────────┐       ┌─────────────────────┐
-│ cd <projet>/terraform│       │ cd <projet>          │       │ ssh <vm>            │
+│ cd <project>/terraform│       │ cd <project>          │       │ ssh <vm>            │
 │ terraform init      │  ───► │ ansible-playbook     │  ───► │ docker ps           │
 │ terraform plan      │       │   ansible/deploy.yml │       │ systemctl status    │
 │ terraform apply     │       │                     │       │                     │
@@ -291,17 +291,17 @@ Emplacement: ~/vagrant-k8s-cluster/
 
         │                             │
         ▼                             ▼
-   Cree la VM                    Configure:
-   sur Proxmox                   - Packages
-   avec cloud-init               - Docker / Kubernetes
-   (user ansible +               - Services
-    SSH key)                     - Securite
+   Creates the VM                 Configures:
+   on Proxmox                     - Packages
+   with cloud-init                - Docker / Kubernetes
+   (user ansible +                - Services
+    SSH key)                      - Security
 ```
 
-### Pipeline type (dockhost)
+### Typical pipeline (dockhost)
 
 ```bash
-# 1. Provisionnement
+# 1. Provisioning
 cd dockhost/terraform
 terraform init && terraform plan && terraform apply
 
@@ -316,29 +316,29 @@ docker ps
 
 ---
 
-## Securite
+## Security
 
-### Gestion des secrets
+### Secrets management
 
-| Outil | Usage |
+| Tool | Usage |
 |-------|-------|
-| **pass** (password-store) | Stockage cles, tokens, mots de passe |
-| **Ansible Vault** | Chiffrement des variables sensibles dans le repo |
-| **direnv (.envrc)** | Export des `TF_VAR_*` depuis `pass` |
-| **GitLab CI/CD Variables** | Secrets CI/CD |
+| **pass** (password-store) | Key, token, and password storage |
+| **Ansible Vault** | Encryption of sensitive variables in the repo |
+| **direnv (.envrc)** | Export of `TF_VAR_*` from `pass` |
+| **GitLab CI/CD Variables** | CI/CD secrets |
 
 **Vault password**: `pass show ansible/vault` (via `scripts/ansible-vault-pass.sh`)
 
-### Acces SSH
+### SSH access
 
-- Authentification par cle uniquement
-- Cles separees par service/equipement
-- Configuration centralisee dans `~/.ssh/config`
-- User cloud-init: `ansible` (sudo sans mot de passe)
+- Key-based authentication only
+- Separate keys per service/equipment
+- Centralized configuration in `~/.ssh/config`
+- Cloud-init user: `ansible` (passwordless sudo)
 
 ### CI/CD Security
 
-- Vault files: verification du chiffrement en CI
-- Scan de secrets hardcodes dans le code
-- Scan Trivy des images Docker (severite HIGH+CRITICAL)
-- Images Docker pinnees par digest SHA256
+- Vault files: encryption verification in CI
+- Hardcoded secrets scanning in code
+- Trivy scan of Docker images (severity HIGH+CRITICAL)
+- Docker images pinned by SHA256 digest

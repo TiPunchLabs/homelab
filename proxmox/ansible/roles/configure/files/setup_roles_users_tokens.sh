@@ -78,8 +78,9 @@ for i in $(seq 0 $((nb_token - 1))); do
     echo "Token '$TOKEN_NAME' already exists for user '$UGID'. No action taken."
   else
     echo "Creating token '$TOKEN_NAME' for user '$UGID'."
-    # Create the token
-    run_command "pveum user token add $UGID $TOKEN_NAME -expire $TOKEN_EXPIRE -privsep $TOKEN_PRIVSEP -comment \"$TOKEN_COMMENT\" -o json > /root/.${TOKEN_NAME}_token"
+    # Create the token and output JSON to stdout (captured by Ansible)
+    TOKEN_OUTPUT=$(pveum user token add "$UGID" "$TOKEN_NAME" -expire "$TOKEN_EXPIRE" -privsep "$TOKEN_PRIVSEP" -comment "$TOKEN_COMMENT" -o json)
+    echo "TOKEN_CREATED:${TOKEN_NAME}:${UGID}:${TOKEN_OUTPUT}"
   fi
 
 done

@@ -2,39 +2,39 @@
 
 ## SSH
 
-### Connexion refusee
+### Connection refused
 
 ```bash
-# Verifier que la VM est demarree
+# Check that the VM is running
 ssh pve "qm status 9050"  # dockhost
 ssh pve "qm status 9040"  # kubecluster control plane
 
-# Tester la connectivite reseau
+# Test network connectivity
 ping 192.168.1.50
 
-# Tester SSH avec verbose
+# Test SSH with verbose output
 ssh -vvv dockhost-50
 ```
 
 ### Permission denied (publickey)
 
 ```bash
-# Verifier que la cle est chargee dans l'agent
+# Check that the key is loaded in the agent
 ssh-add -l
 
-# Ajouter la cle manuellement
-ssh-add ~/.ssh/id_proxmox_vms
+# Add the key manually
+ssh-add ~/.ssh/id_vm_proxmox_rsa
 
-# Verifier la config SSH
+# Check SSH config
 cat ~/.ssh/config | grep -A 4 "dockhost"
 ```
 
 ### Host key changed (MITM warning)
 
-Apres re-provisionnement d'une VM, le host key change :
+After re-provisioning a VM, the host key changes:
 
 ```bash
-# Supprimer l'ancien host key
+# Remove the old host key
 ssh-keygen -R 192.168.1.50    # dockhost
 ssh-keygen -R 192.168.1.40    # kubecluster CP
 ```
@@ -43,23 +43,23 @@ ssh-keygen -R 192.168.1.40    # kubecluster CP
 
 ## Terraform
 
-### Erreur provider non trouve
+### Provider not found error
 
 ```bash
-cd <projet>/terraform
+cd <project>/terraform
 terraform init -upgrade
 ```
 
 ### State lock
 
 ```bash
-# Verifier les locks actifs
+# Check active locks
 terraform force-unlock <LOCK_ID>
 ```
 
-### Erreur fichier SSH introuvable en CI
+### SSH file not found in CI
 
-Le fichier `~/.ssh/id_proxmox_vms.pub` n'existe pas sur le runner CI. Le code utilise `fileexists()` pour gerer ce cas :
+The file `~/.ssh/id_proxmox_vms.pub` does not exist on the CI runner. The code uses `fileexists()` to handle this case:
 
 ```hcl
 vm_ssh_keys = fileexists(pathexpand("~/.ssh/id_proxmox_vms.pub")) ? [
@@ -71,95 +71,95 @@ vm_ssh_keys = fileexists(pathexpand("~/.ssh/id_proxmox_vms.pub")) ? [
 
 ## Ansible
 
-### Vault password introuvable
+### Vault password not found
 
 ```bash
-# Verifier que pass est configure
+# Check that pass is configured
 pass show ansible/vault
 
-# Verifier le script
+# Check the script
 bash scripts/ansible-vault-pass.sh
 ```
 
-### Fichier vault non chiffre
+### Unencrypted vault file
 
-Le pre-commit hook `check-ansible-vault` bloque les commits si un fichier vault est en clair :
+The pre-commit hook `check-ansible-vault` blocks commits if a vault file is in plain text:
 
 ```bash
-# Re-chiffrer le fichier
-ansible-vault encrypt <fichier_vault>
+# Re-encrypt the file
+ansible-vault encrypt <vault_file>
 
-# Verifier
-head -1 <fichier_vault>
-# Doit afficher: $ANSIBLE_VAULT;1.1;AES256
+# Verify
+head -1 <vault_file>
+# Should display: $ANSIBLE_VAULT;1.1;AES256
 ```
 
-### Module community.docker non trouve
+### community.docker module not found
 
 ```bash
-# Installer les collections requises
+# Install required collections
 ansible-galaxy collection install -r requirements.yml
 ```
 
 ---
 
-## Docker (sur dockhost-50)
+## Docker (on dockhost-50)
 
-### Container ne demarre pas
+### Container won't start
 
 ```bash
 ssh dockhost-50
 
-# Voir les logs du container
-docker logs github_runner
+# View container logs
+docker logs gitlab_runner
 docker logs portainer_agent
 
-# Verifier les compose files
-docker compose -f /opt/github-runner/docker-compose.yml config
+# Check compose files
+docker compose -f /opt/gitlab-runner/docker-compose.yml config
 docker compose -f /opt/portainer-agent/docker-compose.yml config
 ```
 
-### GitHub Runner ne s'enregistre pas
+### GitLab Runner won't register
 
 ```bash
-# Verifier les logs
-docker logs github_runner
+# Check logs
+docker logs gitlab_runner
 
-# Causes frequentes :
-# 1. PAT expire ou invalide -> regenrer le PAT et mettre a jour le vault
-# 2. Scope insuffisant -> le PAT doit avoir admin:org
-# 3. Runner deja enregistre avec le meme nom -> supprimer dans GitHub Settings
+# Common causes:
+# 1. Expired or invalid token -> regenerate and update the vault
+# 2. Insufficient scope -> the token must have admin:org
+# 3. Runner already registered with the same name -> delete in GitLab Settings
 ```
 
-### Portainer Agent inaccessible
+### Portainer Agent unreachable
 
 ```bash
-# Verifier que le port est ouvert
+# Check that the port is open
 ssh dockhost-50 "ss -tlnp | grep 9001"
 
-# Verifier le firewall
+# Check the firewall
 ssh dockhost-50 "sudo ufw status"
 
-# Le port 9001 doit etre autorise depuis l'IP du manager Portainer
+# Port 9001 must be allowed from the Portainer manager IP
 ```
 
 ---
 
 ## Kubernetes (kubecluster)
 
-### Noeuds en NotReady
+### Nodes in NotReady state
 
 ```bash
 ssh kubecluster-40
 kubectl get nodes
 kubectl describe node <node-name>
 
-# Verifier kubelet
+# Check kubelet
 systemctl status kubelet
 journalctl -u kubelet -f
 ```
 
-### Pods en CrashLoopBackOff
+### Pods in CrashLoopBackOff
 
 ```bash
 kubectl get pods -A
@@ -167,10 +167,10 @@ kubectl describe pod <pod-name> -n <namespace>
 kubectl logs <pod-name> -n <namespace>
 ```
 
-### Token de jointure expire
+### Expired join token
 
 ```bash
-# Sur le control plane (kubecluster-40)
+# On the control plane (kubecluster-40)
 kubeadm token create --print-join-command
 ```
 
@@ -178,28 +178,28 @@ kubeadm token create --print-join-command
 
 ## CI/CD
 
-### Ansible-lint echoue en CI
+### Ansible-lint fails in CI
 
 ```bash
-# Reproduire en local
+# Reproduce locally
 uv run ansible-lint proxmox/ansible/ dockhost/ansible/ kubecluster/ansible/
 ```
 
-### Trivy scan echoue
+### Trivy scan fails
 
 ```bash
-# Lancer un scan local
+# Run a local scan
 docker run --rm aquasec/trivy:0.69.3 image <image:tag>
 ```
 
-### Pre-commit hooks echouent
+### Pre-commit hooks fail
 
 ```bash
-# Lancer tous les hooks
+# Run all hooks
 pre-commit run --all-files
 
-# Corriger automatiquement le formatage
-# trailing-whitespace et end-of-file-fixer se corrigent automatiquement
-# Re-stager les fichiers corriges
-git add <fichiers_corriges>
+# Fix formatting automatically
+# trailing-whitespace and end-of-file-fixer auto-correct
+# Re-stage corrected files
+git add <corrected_files>
 ```
