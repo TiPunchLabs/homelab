@@ -33,6 +33,14 @@ repos:
         language: system
         files: (^|/)vault/.*$
         stages: [pre-commit]
+  - repo: local
+    hooks:
+      - id: gitlab-ci-lint
+        name: GitLab CI Lint
+        entry: glab ci lint
+        language: system
+        files: '\.gitlab-ci\.yml$'
+        pass_filenames: true
   - repo: https://github.com/antonbabenko/pre-commit-terraform
     rev: v1.99.0
     hooks:
