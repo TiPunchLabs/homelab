@@ -22,6 +22,9 @@
       community.docker.docker_network:
         name: db-net
         state: present
+      tags:
+        - postgresql
+        - kandidat
 
   roles:
     - role: motd
