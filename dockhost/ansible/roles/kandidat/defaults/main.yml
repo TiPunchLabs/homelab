@@ -13,3 +13,9 @@ kandidat_port: 8000
 # UID/GID du user kandidat dans le conteneur
 kandidat_uid: 1000
 kandidat_gid: 1000
+
+# PostgreSQL (conteneur existant sur dockhost)
+kandidat_db_container: "postgresql"
+kandidat_db_name: "kandidat"
+kandidat_db_user: "kandidat"
+kandidat_db_superuser: "postgres"

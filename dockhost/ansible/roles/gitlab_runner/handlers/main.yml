@@ -1,6 +1,0 @@
----
-- name: Restart gitlab runner
-  community.docker.docker_compose_v2:
-    project_src: "{{ gitlab_runner_install_dir }}"
-    state: restarted
-  register: gitlab_runner_restart_result

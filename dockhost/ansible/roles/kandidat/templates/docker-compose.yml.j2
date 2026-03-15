@@ -21,8 +21,8 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - vm-docker-90-net
+      - db-net
 
 networks:
-  vm-docker-90-net:
-    driver: bridge
+  db-net:
+    external: true
