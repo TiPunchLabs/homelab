@@ -1,4 +1,44 @@
 ---
+# =============================================================================
+# PostgreSQL — create database and user if they don't exist
+# =============================================================================
+- name: Check if PostgreSQL user exists
+  community.docker.docker_container_exec:
+    container: "{{ kandidat_db_container }}"
+    command: >-
+      psql -U {{ kandidat_db_superuser }} -tAc
+      "SELECT 1 FROM pg_roles WHERE rolname='{{ kandidat_db_user }}'"
+  register: kandidat_pg_user_check
+  changed_when: false
+
+- name: Create PostgreSQL user for kandidat
+  community.docker.docker_container_exec:
+    container: "{{ kandidat_db_container }}"
+    command: >-
+      psql -U {{ kandidat_db_superuser }} -c
+      "CREATE USER {{ kandidat_db_user }} WITH PASSWORD '{{ vault_kandidat_db_password }}';"
+  when: kandidat_pg_user_check.stdout | trim != "1"
+
+- name: Check if PostgreSQL database exists
+  community.docker.docker_container_exec:
+    container: "{{ kandidat_db_container }}"
+    command: >-
+      psql -U {{ kandidat_db_superuser }} -tAc
+      "SELECT 1 FROM pg_database WHERE datname='{{ kandidat_db_name }}'"
+  register: kandidat_pg_db_check
+  changed_when: false
+
+- name: Create PostgreSQL database for kandidat
+  community.docker.docker_container_exec:
+    container: "{{ kandidat_db_container }}"
+    command: >-
+      psql -U {{ kandidat_db_superuser }} -c
+      "CREATE DATABASE {{ kandidat_db_name }} OWNER {{ kandidat_db_user }} ENCODING 'UTF8';"
+  when: kandidat_pg_db_check.stdout | trim != "1"
+
+# =============================================================================
+# Application — deploy kandidat container
+# =============================================================================
 - name: Create directory for docker-compose
   ansible.builtin.file:
     path: "{{ kandidat_install_dir }}"
