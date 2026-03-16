@@ -17,6 +17,8 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 
 ## Architecture
 
+![Homelab Architecture](homelab-sketchnote.jpg)
+
 ```
 LOCAL NETWORK (192.168.1.0/24)
 
