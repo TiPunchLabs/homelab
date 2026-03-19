@@ -38,6 +38,7 @@ ansible-lint:
     - uv run ansible-lint proxmox/ansible/
     - uv run ansible-lint kubecluster/ansible/
     - uv run ansible-lint bastion/ansible/
+    - uv run ansible-lint vpngate/ansible/
 
 # =============================================================================
 # Lint — Terraform
@@ -53,6 +54,7 @@ terraform-lint:
     - cd $CI_PROJECT_DIR/dockhost/terraform && terraform init -backend=false && terraform validate
     - cd $CI_PROJECT_DIR/kubecluster/terraform && terraform init -backend=false && terraform validate
     - cd $CI_PROJECT_DIR/bastion/terraform && terraform init -backend=false && terraform validate
+    - cd $CI_PROJECT_DIR/vpngate/terraform && terraform init -backend=false && terraform validate
 
 # =============================================================================
 # Lint — Shell

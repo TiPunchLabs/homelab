@@ -1,0 +1,18 @@
+---
+- name: Configure vpngate-50
+  become: true
+  hosts:
+    - vpngate
+  roles:
+    - role: motd
+      tags:
+        - motd
+    - role: security_hardening
+      tags:
+        - security-hardening
+    - role: docker
+      tags:
+        - docker
+    - role: wireguard
+      tags:
+        - wireguard

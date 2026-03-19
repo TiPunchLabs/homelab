@@ -41,6 +41,13 @@ LOCAL NETWORK (192.168.1.0/24)
 │                 │       │  │ GitLab Runner    │  │ Kubernetes     │  │
 │                 │       │  └──────────────────┘  └────────────────┘  │
 │                 │       │                                              │
+│                 │       │  ┌──────────────────┐                       │
+│                 │       │  │ VPNGATE          │                       │
+│                 │       │  │ vpngate-50 / .50 │                       │
+│                 │       │  │                  │                       │
+│                 │       │  │ WireGuard VPN    │                       │
+│                 │       │  └──────────────────┘                       │
+│                 │       │                                              │
 └─────────────────┘       └──────────────────────────────────────────────┘
 
 Deployment: Terraform (provision) → Ansible (configure)
@@ -54,6 +61,7 @@ Template:   ubuntu-2404-cloudinit-template (ID: 9001)
 | [`proxmox/`](proxmox/) | Proxmox hypervisor configuration (SSH hardening, users, tokens, VM templates) | Host | Ansible |
 | [`bastion/`](bastion/) | Bastion VM — GitLab Runner (shell), Terraform, Ansible, pass, direnv | 1 | Terraform + Ansible |
 | [`dockhost/`](dockhost/) | Docker-based services VM (Docker, Portainer, GitLab Runner, security hardening) | 1 | Terraform + Ansible |
+| [`vpngate/`](vpngate/) | WireGuard VPN Gateway | 1 | Terraform + Ansible |
 | [`kubecluster/`](kubecluster/) | Kubernetes cluster (kubeadm, containerd, CNI) | 3 (1 CP + 2 workers) | Terraform + Ansible |
 
 ### Shared components
@@ -128,6 +136,10 @@ homelab/
 │   ├── ansible/                    #   Roles: motd, security, tooling, ssh_keys, gitlab_runner
 │   └── terraform/                  #   VM provisioning (1 VM)
 │
+├── vpngate/                        # WireGuard VPN Gateway
+│   ├── ansible/                    #   Roles: motd, security_hardening, wireguard
+│   └── terraform/                  #   VM provisioning (1 VM)
+│
 ├── dockhost/                       # Docker services VM
 │   ├── ansible/                    #   Roles: docker, motd, portainer, security, gitlab_runner
 │   └── terraform/                  #   VM provisioning (1 VM)
@@ -141,6 +153,7 @@ homelab/
 
 | VM | VMID | IP | CPU | RAM | Disk | Purpose |
 |----|------|----|-----|-----|------|---------|
+| vpngate-50 | 9050 | 192.168.1.50 | 1 core | 512 MB | 22 GB | WireGuard VPN Gateway |
 | bastion-60 | 9060 | 192.168.1.60 | 2 cores | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
 | dockhost-90 | 9090 | 192.168.1.90 | 3 cores | 10 GB | 100 GB | Docker services |
 | kubecluster-40 | 9040 | 192.168.1.40 | 2 cores | 4 GB | 35 GB | K8s Control Plane |

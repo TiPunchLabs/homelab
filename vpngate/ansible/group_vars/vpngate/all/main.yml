@@ -1,0 +1,26 @@
+# ============================================================
+# 🔐 Securite - Role security_hardening
+# ============================================================
+security_ssh_hardening: true
+security_allow_users: "ansible"
+security_disable_root_login: true
+
+security_enable_ufw: true
+security_ufw_default_incoming: "deny"
+security_ufw_default_outgoing: "allow"
+
+security_open_ports:
+  - { port: 22, proto: tcp, comment: "SSH access" }
+  - { port: 51820, proto: udp, comment: "WireGuard VPN" }
+  - { port: 51821, proto: tcp, comment: "wg-easy Web UI" }
+
+# ============================================================
+# 🐳 Docker - Role docker
+# ============================================================
+ansible_user: ansible
+
+# ============================================================
+# 🔒 WireGuard - Role wireguard (wg-easy)
+# ============================================================
+wg_easy_host: "{{ vault_public_endpoint }}"
+wg_easy_password_hash: "{{ vault_wg_easy_password_hash }}"

@@ -1,0 +1,25 @@
+{{ ansible_managed | comment }}
+
+services:
+  wg-easy:
+    image: {{ wg_easy_image }}:{{ wg_easy_image_tag }}
+    container_name: wg-easy
+    hostname: wg-easy
+    environment:
+      - WG_HOST={{ wg_easy_host }}
+      - PASSWORD_HASH={{ wg_easy_password_hash }}
+      - WG_PORT={{ wg_easy_port }}
+      - WG_DEFAULT_ADDRESS={{ wg_easy_default_address }}
+      - WG_DEFAULT_DNS={{ wg_easy_default_dns }}
+    volumes:
+      - {{ wg_easy_data_dir }}/data:/etc/wireguard
+    ports:
+      - "{{ wg_easy_port }}:{{ wg_easy_port }}/udp"
+      - "{{ wg_easy_web_port }}:51821/tcp"
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
