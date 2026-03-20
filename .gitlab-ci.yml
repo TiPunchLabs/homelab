@@ -48,6 +48,9 @@ terraform-lint:
   image:
     name: hashicorp/terraform:1.11
     entrypoint: [""]
+  retry:
+    max: 2
+    when: runner_system_failure
   script:
     - terraform fmt -check -recursive
     - mkdir -p ~/.ssh && echo "fake-key-for-ci-validation" > ~/.ssh/id_vm_proxmox_rsa.pub
