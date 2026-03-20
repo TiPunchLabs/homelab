@@ -176,9 +176,8 @@ renovate:
     RENOVATE_PLATFORM: gitlab
     RENOVATE_ENDPOINT: https://gitlab.com/api/v4
     RENOVATE_AUTODISCOVER: "false"
-    LOG_LEVEL: debug
+    LOG_LEVEL: info
   script:
-    - echo "Token length:${#RENOVATE_TOKEN} | Prefix:${RENOVATE_TOKEN:0:8}"
     - renovate "$CI_PROJECT_PATH"
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
