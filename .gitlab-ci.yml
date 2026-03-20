@@ -174,7 +174,7 @@ renovate:
     RENOVATE_ENDPOINT: https://gitlab.com/api/v4
     RENOVATE_TOKEN: $RENOVATE_TOKEN
     RENOVATE_EXTRA_FLAGS: --autodiscover=false
-    LOG_LEVEL: info
+    LOG_LEVEL: debug
   script:
     - renovate "$CI_PROJECT_PATH"
   rules:
