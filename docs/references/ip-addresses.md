@@ -14,6 +14,7 @@
 | VM | VMID | IP | Usage |
 |----|------|-----|-------|
 | bastion-60 | 9060 | 192.168.1.60 | Bastion (GitLab Runner shell, Terraform, Ansible) |
+| vpngate-50 | 9050 | 192.168.1.50 | WireGuard VPN Gateway |
 | dockhost-90 | 9090 | 192.168.1.90 | Docker services (Portainer, GitLab Runner) |
 | kubecluster-40 | 9040 | 192.168.1.40 | K8s Control Plane |
 | kubecluster-41 | 9041 | 192.168.1.41 | K8s Worker |
@@ -24,6 +25,7 @@
 | Service | Port | Protocol |
 |---------|------|-----------|
 | SSH | 22 | TCP |
+| WireGuard VPN | 51820 | UDP |
 | HTTP | 80 | TCP |
 | HTTPS | 443 | TCP |
 | Proxmox Web | 8006 | TCP/HTTPS |
@@ -58,6 +60,7 @@ Convention: `192.168.1.{vm_ip_start}` where `vm_ip_start` is defined in Terrafor
 
 ```
 .40-.49  : kubecluster (Kubernetes)
+.50-.59  : vpngate (VPN gateway)
 .60-.69  : bastion (control plane)
 .90-.99  : dockhost (Docker services)
 ```
@@ -73,6 +76,7 @@ The convention uses the following scheme:
 | ID range | IP range | Usage |
 |----------|----------|-------|
 | 9040-9049 | .40-.49 | kubecluster |
+| 9050-9059 | .50-.59 | vpngate |
 | 9060-9069 | .60-.69 | bastion |
 | 9090-9099 | .90-.99 | dockhost |
 
@@ -90,3 +94,4 @@ SSH aliases are configured in `~/.ssh/config`:
 | `kubecluster-40` | 192.168.1.40 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `kubecluster-41` | 192.168.1.41 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `kubecluster-42` | 192.168.1.42 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
+| `vpngate-50` | 192.168.1.50 | ansible | `~/.ssh/id_vm_proxmox_rsa` |

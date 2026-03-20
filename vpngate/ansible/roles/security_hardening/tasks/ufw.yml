@@ -1,0 +1,32 @@
+---
+- name: Install UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+
+- name: Reset UFW rules
+  community.general.ufw:
+    state: reset
+
+- name: Set default incoming policy to deny
+  community.general.ufw:
+    direction: incoming
+    default: "{{ security_ufw_default_incoming }}"
+
+- name: Set default outgoing policy to allow
+  community.general.ufw:
+    direction: outgoing
+    default: "{{ security_ufw_default_outgoing }}"
+
+- name: Open required ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port | string }}"
+    proto: "{{ item.proto }}"
+    comment: "{{ item.comment }}"
+  loop: "{{ security_open_ports }}"
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled

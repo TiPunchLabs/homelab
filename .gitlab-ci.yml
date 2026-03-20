@@ -38,6 +38,7 @@ ansible-lint:
     - uv run ansible-lint proxmox/ansible/
     - uv run ansible-lint kubecluster/ansible/
     - uv run ansible-lint bastion/ansible/
+    - uv run ansible-lint vpngate/ansible/
 
 # =============================================================================
 # Lint — Terraform
@@ -47,12 +48,16 @@ terraform-lint:
   image:
     name: hashicorp/terraform:1.11
     entrypoint: [""]
+  retry:
+    max: 2
+    when: runner_system_failure
   script:
     - terraform fmt -check -recursive
     - mkdir -p ~/.ssh && echo "fake-key-for-ci-validation" > ~/.ssh/id_vm_proxmox_rsa.pub
     - cd $CI_PROJECT_DIR/dockhost/terraform && terraform init -backend=false && terraform validate
     - cd $CI_PROJECT_DIR/kubecluster/terraform && terraform init -backend=false && terraform validate
     - cd $CI_PROJECT_DIR/bastion/terraform && terraform init -backend=false && terraform validate
+    - cd $CI_PROJECT_DIR/vpngate/terraform && terraform init -backend=false && terraform validate
 
 # =============================================================================
 # Lint — Shell
@@ -172,7 +177,7 @@ renovate:
     RENOVATE_ENDPOINT: https://gitlab.com/api/v4
     RENOVATE_TOKEN: $RENOVATE_TOKEN
     RENOVATE_EXTRA_FLAGS: --autodiscover=false
-    LOG_LEVEL: info
+    LOG_LEVEL: debug
   script:
     - renovate "$CI_PROJECT_PATH"
   rules:

@@ -1,0 +1,5 @@
+---
+- name: Restart wg-easy
+  community.docker.docker_compose_v2:
+    project_src: "{{ wg_easy_data_dir }}"
+    state: restarted

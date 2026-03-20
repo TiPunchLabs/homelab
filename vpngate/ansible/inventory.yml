@@ -1,0 +1,6 @@
+all:
+  children:
+    vpngate:
+      hosts:
+        vpngate-50:
+          ansible_host: vpngate-50
