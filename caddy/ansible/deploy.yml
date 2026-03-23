@@ -1,0 +1,15 @@
+---
+- name: Configure caddy-70
+  become: true
+  hosts:
+    - caddy
+  roles:
+    - role: motd
+      tags:
+        - motd
+    - role: security_hardening
+      tags:
+        - security-hardening
+    - role: caddy
+      tags:
+        - caddy
