@@ -72,6 +72,7 @@ modules/proxmox_lxc_template/
 | `ct_netmask` | string | `"24"` | Subnet mask |
 | `ct_dns_domain` | string | `"local"` | DNS domain |
 | `ct_dns_servers` | list(string) | `["1.1.1.1", "8.8.8.8"]` | DNS servers |
+| `ct_ssh_private_key_path` | string | — | Path to SSH private key for remote-exec provisioner |
 
 **Key differences with `proxmox_vm_template`:**
 
@@ -81,6 +82,8 @@ modules/proxmox_lxc_template/
 - `remote-exec` provisioner creates the `ansible` user post-creation
 - `features.nesting` enabled by default
 - Tags include `lxc` in addition to `terraform` and the name prefix
+- `ct_root_password` is passed to `initialization.user_account.password` (marked `sensitive = true`)
+- No `stop_on_destroy` equivalent — destroying a running container requires `terraform apply` with `ct_started = false` first, or Proxmox handles it gracefully
 
 **Outputs:**
 
@@ -107,7 +110,7 @@ provisioner "remote-exec" {
   connection {
     type     = "ssh"
     user     = "root"
-    host     = self.initialization[0].ip_config[0].ipv4[0].address
+    host     = "${join(".", slice(split(".", var.ct_gateway), 0, 3))}.${var.ct_ip_start + count.index}"
     private_key = file(var.ct_ssh_private_key_path)
   }
 }
@@ -135,9 +138,13 @@ The downloaded template ID is passed to the module as `ct_template_file_id`.
 | Element | KVM VMs (existing) | LXC Containers (new) |
 |---------|--------------------|----------------------|
 | VMID/CTID range | 9000+ | 1000+ |
-| IP range | 192.168.1.40-.90 | 192.168.1.70-.79 |
+| IP range | 192.168.1.40-.69 | 192.168.1.70-.89 |
 | Tags | `terraform`, `<prefix>` | `terraform`, `lxc`, `<prefix>` |
 | Module | `proxmox_vm_template` | `proxmox_lxc_template` |
+
+**ID convention:** CTID = 1000 + last IP octet (e.g., IP .70 → CTID 1070), mirroring the VM convention where VMID = 9000 + last IP octet.
+
+**Provider version:** The module uses the same constraint as the VM module (`>= 0.93.0, < 1.0.0`). Consumer projects pin to `0.96.0` in their `providers.tf`. Both `proxmox_virtual_environment_container` and `proxmox_virtual_environment_download_file` are supported since early versions of the bpg provider.
 
 ### 5. First Consumer — Caddy Project
 
@@ -175,7 +182,8 @@ caddy/
 **Ansible playbook (`deploy.yml`):**
 
 1. Role `motd` — message of the day
-2. Role `caddy` — install and configure Caddy reverse proxy
+2. Role `security_hardening` — SSH hardening and UFW (consistent with other projects, especially important for a reverse proxy)
+3. Role `caddy` — install and configure Caddy reverse proxy
 
 **Terraform (`main.tf`):**
 
@@ -203,7 +211,8 @@ terraform apply
 ansible-playbook -i inventory.yml deploy.yml
   │
   ├─ 1. Role: motd
-  └─ 2. Role: caddy
+  ├─ 2. Role: security_hardening
+  └─ 3. Role: caddy
 ```
 
 ------
@@ -223,6 +232,7 @@ ansible-playbook -i inventory.yml deploy.yml
 | `caddy/ansible/inventory.yml` | Ansible inventory |
 | `caddy/ansible/group_vars/caddy/main.yml` | Caddy variables |
 | `caddy/ansible/roles/motd/` | MOTD role (reuse or symlink) |
+| `caddy/ansible/roles/security_hardening/` | SSH hardening + UFW (reuse from bastion) |
 | `caddy/ansible/roles/caddy/` | Caddy installation role |
 
 ------
@@ -231,7 +241,7 @@ ansible-playbook -i inventory.yml deploy.yml
 
 | Risk | Mitigation |
 |------|------------|
-| `remote-exec` fails if SSH not ready | Add `sleep 5` or retry logic in connection block |
-| IP overlap between VMs and LXC | Dedicated ranges: VMs .40-.90, LXC .70-.79 (overlap at .70-.79 must be avoided — ensure no VM uses this range) |
+| `remote-exec` fails if SSH not ready | Terraform's connection block has a built-in timeout (default 5 min); increase to `timeout = "2m"` if needed |
+| IP collision between VMs and LXC | Non-overlapping ranges enforced: VMs .40-.69, LXC .70-.89 |
 | Provider bug with LXC warnings (issue #2700) | Pin provider version, test with current setup |
 | Unprivileged container limits | Nesting enabled; if specific use cases need privileged, override `ct_unprivileged = false` |
