@@ -35,6 +35,13 @@ Host kubecluster-42
   IdentitiesOnly yes
   StrictHostKeyChecking no
 
+Host caddy-70
+  HostName 192.168.1.70
+  User ansible
+  IdentityFile ~/.ssh/id_vm_proxmox_rsa
+  IdentitiesOnly yes
+  StrictHostKeyChecking no
+
 Host gitlab.com
   HostName gitlab.com
   User git
