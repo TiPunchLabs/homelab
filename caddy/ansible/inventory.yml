@@ -1,0 +1,6 @@
+all:
+  children:
+    caddy:
+      hosts:
+        caddy:
+          ansible_host: caddy-70

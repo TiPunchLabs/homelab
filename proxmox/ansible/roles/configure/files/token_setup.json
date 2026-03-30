@@ -9,6 +9,7 @@
       "privsep": 0,
       "privileges": [
         "Datastore.AllocateSpace",
+        "Datastore.AllocateTemplate",
         "Datastore.Audit",
         "Pool.Allocate",
         "Sys.Audit",

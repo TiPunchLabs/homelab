@@ -1,0 +1,25 @@
+{{ ansible_managed | comment }}
+
+  ██████╗ █████╗ ██████╗ ██████╗ ██╗   ██╗
+ ██╔════╝██╔══██╗██╔══██╗██╔══██╗╚██╗ ██╔╝
+ ██║     ███████║██║  ██║██║  ██║ ╚████╔╝
+ ██║     ██╔══██║██║  ██║██║  ██║  ╚██╔╝
+ ╚██████╗██║  ██║██████╔╝██████╔╝   ██║
+  ╚═════╝╚═╝  ╚═╝╚═════╝ ╚═════╝    ╚═╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Hostname:     {{ ansible_facts["hostname"] }}
+  IP Address:   {{ ansible_facts["default_ipv4"]["address"] | default('N/A') }}
+  OS:           {{ ansible_facts["distribution"] }} {{ ansible_facts["distribution_version"] }}
+  Kernel:       {{ ansible_facts["kernel"] }}
+  Uptime:       {{ ansible_facts["uptime_seconds"] | int // 86400 }}d {{ (ansible_facts["uptime_seconds"] | int % 86400) // 3600 }}h {{ (ansible_facts["uptime_seconds"] | int % 3600) // 60 }}m
+  CPU:          {{ ansible_facts["processor_vcpus"] }} vCPU(s)
+  Memory:       {{ (ansible_facts["memtotal_mb"] / 1024) | round(1) }} GB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Reverse Proxy | Caddy Web Server
+
+  ╭───────────────────────────────────────────────────────────╮
+  │  TiPunchLabs - Homelab Infrastructure                     │
+  │  https://github.com/tipunchlabs                           │
+  ╰───────────────────────────────────────────────────────────╯

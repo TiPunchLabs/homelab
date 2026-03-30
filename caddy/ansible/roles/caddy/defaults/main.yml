@@ -1,0 +1,5 @@
+---
+caddy_config_dir: /etc/caddy
+caddy_data_dir: /var/lib/caddy
+caddy_user: caddy
+caddy_group: caddy
