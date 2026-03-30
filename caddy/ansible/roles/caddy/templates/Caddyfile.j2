@@ -1,14 +1,15 @@
 # {{ ansible_managed }}
 #
 # Caddy reverse proxy configuration
-# HTTP only — LAN prive, transport securise par VPN WireGuard
-
-{
-	auto_https off
-}
+# LAN prive, transport securise par VPN WireGuard
 
 {% for backend in caddy_backends %}
+{% if backend.tls_internal | default(false) %}
+{{ backend.domain }} {
+	tls internal
+{% else %}
 {{ backend.domain }}:80 {
+{% endif %}
 	reverse_proxy {{ backend.upstream }} {
 {% if backend.tls_insecure_skip_verify | default(false) %}
 		transport http {
