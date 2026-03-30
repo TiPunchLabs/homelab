@@ -1,0 +1,15 @@
+---
+- name: Configure dns-71
+  become: true
+  hosts:
+    - pihole
+  roles:
+    - role: motd
+      tags:
+        - motd
+    - role: security_hardening
+      tags:
+        - security-hardening
+    - role: pihole
+      tags:
+        - pihole

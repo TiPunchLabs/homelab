@@ -1,0 +1,4 @@
+{{ ansible_managed | comment(decoration="# ") }}
+{% for record in pihole_local_records %}
+{{ record.ip }} {{ record.domain }}
+{% endfor %}

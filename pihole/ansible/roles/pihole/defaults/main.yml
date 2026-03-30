@@ -1,0 +1,8 @@
+---
+pihole_install_dir: /etc/pihole
+pihole_custom_list: /etc/pihole/custom.list
+pihole_upstream_dns:
+  - "1.1.1.1"
+  - "8.8.8.8"
+pihole_interface: eth0
+pihole_local_records: []

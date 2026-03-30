@@ -25,6 +25,7 @@
 | Container | CTID | IP | Usage |
 |-----------|------|-----|-------|
 | caddy-70 | 1070 | 192.168.1.70 | Caddy reverse proxy |
+| dns-71 | 1071 | 192.168.1.71 | Pi-hole DNS |
 
 ### Important ports
 
@@ -68,7 +69,7 @@ Convention: `192.168.1.{vm_ip_start}` where `vm_ip_start` is defined in Terrafor
 .40-.49  : kubecluster (Kubernetes)
 .50-.59  : vpngate (VPN gateway)
 .60-.69  : bastion (control plane)
-.70-.89  : LXC containers (caddy, ...)
+.70-.89  : LXC containers (caddy, pihole, ...)
 .90-.99  : dockhost (Docker services)
 ```
 
@@ -85,7 +86,7 @@ The convention uses the following scheme:
 | 9040-9049 | .40-.49 | kubecluster |
 | 9050-9059 | .50-.59 | vpngate |
 | 9060-9069 | .60-.69 | bastion |
-| 1070-1089 | .70-.89 | LXC containers (caddy, ...) |
+| 1070-1089 | .70-.89 | LXC containers (caddy, pihole, ...) |
 | 9090-9099 | .90-.99 | dockhost |
 
 ---
@@ -104,3 +105,4 @@ SSH aliases are configured in `~/.ssh/config`:
 | `kubecluster-42` | 192.168.1.42 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `vpngate-50` | 192.168.1.50 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `caddy-70` | 192.168.1.70 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
+| `dns-71` | 192.168.1.71 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
