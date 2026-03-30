@@ -1,8 +1,21 @@
 # {{ ansible_managed }}
 #
 # Caddy reverse proxy configuration
-# Add your site blocks below
+# HTTP only — LAN prive, transport securise par VPN WireGuard
 
-:80 {
-	respond "Caddy is running" 200
+{
+	auto_https off
 }
+
+{% for backend in caddy_backends %}
+{{ backend.domain }}:80 {
+	reverse_proxy {{ backend.upstream }} {
+{% if backend.tls_insecure_skip_verify | default(false) %}
+		transport http {
+			tls_insecure_skip_verify
+		}
+{% endif %}
+	}
+}
+
+{% endfor %}

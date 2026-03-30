@@ -13,3 +13,20 @@ security_open_ports:
   - { port: 22, proto: tcp, comment: "SSH access" }
   - { port: 80, proto: tcp, comment: "HTTP" }
   - { port: 443, proto: tcp, comment: "HTTPS" }
+
+# ============================================================
+# 🔀 Reverse Proxy - Role caddy
+# ============================================================
+caddy_backends:
+  - name: proxmox
+    domain: proxmox.internal
+    upstream: https://192.168.1.100:8006
+    tls_insecure_skip_verify: true
+  - name: kandidat
+    domain: kandidat.internal
+    upstream: http://192.168.1.90:8000
+    tls_insecure_skip_verify: false
+  - name: vpngate
+    domain: vpngate.internal
+    upstream: http://192.168.1.50:51821
+    tls_insecure_skip_verify: false
