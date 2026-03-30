@@ -42,6 +42,8 @@ resource "proxmox_virtual_environment_container" "ct" {
   }
 
   initialization {
+    hostname = "${var.ct_name_prefix}-${var.ct_ip_start + count.index}"
+
     dns {
       domain  = var.ct_dns_domain
       servers = var.ct_dns_servers
