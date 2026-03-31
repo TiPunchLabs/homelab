@@ -48,6 +48,13 @@ LOCAL NETWORK (192.168.1.0/24)
 │                 │       │  │ WireGuard VPN    │                       │
 │                 │       │  └──────────────────┘                       │
 │                 │       │                                              │
+│                 │       │  ┌──────────────────┐  ┌────────────────┐  │
+│                 │       │  │ CADDY (LXC)      │  │ PIHOLE (LXC)   │  │
+│                 │       │  │ caddy-70 / .70   │  │ dns-71 / .71   │  │
+│                 │       │  │                  │  │                │  │
+│                 │       │  │ Reverse Proxy    │  │ Pi-hole DNS    │  │
+│                 │       │  └──────────────────┘  └────────────────┘  │
+│                 │       │                                              │
 └─────────────────┘       └──────────────────────────────────────────────┘
 
 Deployment: Terraform (provision) → Ansible (configure)
@@ -63,12 +70,14 @@ Template:   ubuntu-2404-cloudinit-template (ID: 9001)
 | [`dockhost/`](dockhost/) | Docker-based services VM (Docker, Portainer, GitLab Runner, security hardening) | 1 | Terraform + Ansible |
 | [`vpngate/`](vpngate/) | WireGuard VPN Gateway | 1 | Terraform + Ansible |
 | [`kubecluster/`](kubecluster/) | Kubernetes cluster (kubeadm, containerd, CNI) | 3 (1 CP + 2 workers) | Terraform + Ansible |
+| [`caddy/`](caddy/) | LXC Caddy reverse proxy | 1 LXC | Terraform + Ansible |
+| [`pihole/`](pihole/) | LXC Pi-hole DNS | 1 LXC | Terraform + Ansible |
 
 ### Shared components
 
 | Directory | Description |
 |-----------|-------------|
-| `modules/` | Reusable Terraform modules (`proxmox_vm_template`) |
+| `modules/` | Reusable Terraform modules (`proxmox_vm_template`, `proxmox_lxc_template`) |
 | `gitlab-terraform/` | GitLab project management via Terraform |
 | `scripts/` | Shared scripts (Ansible Vault password, pre-commit checks) |
 
@@ -120,7 +129,8 @@ homelab/
 ├── pyproject.toml                  # Python dependencies (uv)
 │
 ├── modules/                        # Shared Terraform modules
-│   └── proxmox_vm_template/        #   Reusable VM provisioning module
+│   ├── proxmox_vm_template/        #   Reusable VM provisioning module
+│   └── proxmox_lxc_template/       #   Reusable LXC provisioning module
 │
 ├── gitlab-terraform/               # GitLab project management (Terraform)
 │
@@ -144,17 +154,27 @@ homelab/
 │   ├── ansible/                    #   Roles: docker, motd, portainer, security, gitlab_runner
 │   └── terraform/                  #   VM provisioning (1 VM)
 │
-└── kubecluster/                    # Kubernetes cluster
-    ├── ansible/                    #   Roles: kubeadm, containerd, CNI, workers
-    └── terraform/                  #   VM provisioning (3 VMs)
+├── kubecluster/                    # Kubernetes cluster
+│   ├── ansible/                    #   Roles: kubeadm, containerd, CNI, workers
+│   └── terraform/                  #   VM provisioning (3 VMs)
+│
+├── caddy/                          # LXC Caddy reverse proxy
+│   ├── ansible/                    #   Roles: motd, security_hardening, caddy
+│   └── terraform/                  #   LXC provisioning (1 CT)
+│
+└── pihole/                         # LXC Pi-hole DNS
+    ├── ansible/                    #   Roles: pihole
+    └── terraform/                  #   LXC provisioning (1 CT)
 ```
 
-## VM Overview
+## VM / LXC Overview
 
-| VM | VMID | IP | CPU | RAM | Disk | Purpose |
-|----|------|----|-----|-----|------|---------|
+| Name | ID | IP | CPU | RAM | Disk | Purpose |
+|------|----|----|-----|-----|------|---------|
 | vpngate-50 | 9050 | 192.168.1.50 | 1 core | 512 MB | 22 GB | WireGuard VPN Gateway |
 | bastion-60 | 9060 | 192.168.1.60 | 2 cores | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
+| caddy-70 (LXC) | 1070 | 192.168.1.70 | 1 core | 512 MB | 8 GB | Caddy reverse proxy |
+| dns-71 (LXC) | 1071 | 192.168.1.71 | 1 core | 512 MB | 8 GB | Pi-hole DNS |
 | dockhost-90 | 9090 | 192.168.1.90 | 3 cores | 10 GB | 100 GB | Docker services |
 | kubecluster-40 | 9040 | 192.168.1.40 | 2 cores | 4 GB | 35 GB | K8s Control Plane |
 | kubecluster-41 | 9041 | 192.168.1.41 | 1 core | 3.5 GB | 30 GB | K8s Worker |

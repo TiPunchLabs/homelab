@@ -28,7 +28,15 @@ Technical documentation for the homelab project - Infrastructure as Code for Pro
 | Document | Description |
 |----------|-------------|
 | [adr/bastion.md](adr/bastion.md) | Bastion architecture decisions |
+| [adr/caddy.md](adr/caddy.md) | Caddy architecture decisions |
+| [adr/pihole.md](adr/pihole.md) | Pi-hole architecture decisions |
 | [adr/proxmox.md](adr/proxmox.md) | Proxmox hypervisor architecture decisions |
+
+## Guides
+
+| Document | Description |
+|----------|-------------|
+| [guides/guide-wireguard-client-linux.md](guides/guide-wireguard-client-linux.md) | WireGuard client setup on Linux |
 
 ## Sources of truth
 

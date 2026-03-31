@@ -39,6 +39,8 @@ ansible-lint:
     - uv run ansible-lint kubecluster/ansible/
     - uv run ansible-lint bastion/ansible/
     - uv run ansible-lint vpngate/ansible/
+    - uv run ansible-lint caddy/ansible/
+    - uv run ansible-lint pihole/ansible/
 
 # =============================================================================
 # Lint — Terraform
