@@ -2,5 +2,5 @@ all:
   children:
     caddy:
       hosts:
-        caddy:
+        caddy-70:
           ansible_host: caddy-70

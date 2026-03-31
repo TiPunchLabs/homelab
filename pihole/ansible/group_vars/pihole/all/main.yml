@@ -1,0 +1,27 @@
+# ============================================================
+# 🔐 Securite - Role security_hardening
+# ============================================================
+security_ssh_hardening: true
+security_allow_users: "ansible"
+security_disable_root_login: true
+
+security_enable_ufw: true
+security_ufw_default_incoming: "deny"
+security_ufw_default_outgoing: "allow"
+
+security_open_ports:
+  - { port: 22, proto: tcp, comment: "SSH access" }
+  - { port: 53, proto: tcp, comment: "DNS" }
+  - { port: 53, proto: udp, comment: "DNS" }
+  - { port: 80, proto: tcp, comment: "Pi-hole web interface" }
+
+# ============================================================
+# 🌐 DNS - Role pihole
+# ============================================================
+pihole_local_records:
+  - ip: 192.168.1.70
+    domain: proxmox.internal
+  - ip: 192.168.1.70
+    domain: kandidat.internal
+  - ip: 192.168.1.70
+    domain: vpngate.internal

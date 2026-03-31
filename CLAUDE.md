@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Monorepo homelab regroupant l'Infrastructure as Code (IaC) pour un environnement Proxmox VE. Six sous-projets partageant des modules Terraform, des scripts et des conventions communes.
+Monorepo homelab regroupant l'Infrastructure as Code (IaC) pour un environnement Proxmox VE. Sept sous-projets partageant des modules Terraform, des scripts et des conventions communes.
 
 ## Architecture globale
 
@@ -28,7 +28,8 @@ homelab/
 ├── kubecluster/              # Cluster Kubernetes (3 VMs)
 ├── bastion/                  # VM Bastion (Ansible & Terraform executor)
 ├── vpngate/                  # VM VPN Gateway (WireGuard)
-└── caddy/                    # LXC Caddy reverse proxy
+├── caddy/                    # LXC Caddy reverse proxy
+└── pihole/                   # LXC Pi-hole DNS
 ```
 
 ---
@@ -266,6 +267,44 @@ ansible-playbook ansible/deploy.yml
 ansible-playbook ansible/deploy.yml --tags motd
 ansible-playbook ansible/deploy.yml --tags security-hardening
 ansible-playbook ansible/deploy.yml --tags caddy
+```
+
+---
+
+## Sous-projet : pihole/
+
+### Description
+LXC container Pi-hole DNS. Pattern **two-stage deployment** : Terraform pour le provisioning du conteneur LXC (via module `proxmox_lxc_template`), Ansible pour l'installation de Pi-hole. Fournit la resolution DNS `.internal` pour le homelab et le blocage publicitaire pour les clients VPN.
+
+### Structure
+```
+pihole/
+├── ansible/
+│   ├── deploy.yml
+│   ├── inventory.yml
+│   ├── group_vars/pihole/
+│   │   ├── all/main.yml
+│   │   └── vault/pihole.yml       # Mot de passe admin (Ansible Vault)
+│   └── roles/
+│       ├── motd/
+│       ├── security_hardening/    # SSH + UFW (ports 22/tcp, 53/tcp, 53/udp, 80/tcp)
+│       └── pihole/                # Pi-hole natif (script officiel + CLI v6)
+├── terraform/
+│   ├── main.tf, providers.tf, variables.tf, outputs.tf
+└── ansible.cfg
+```
+
+### Specs LXC
+- CPU: 1 core | RAM: 512 MiB | Disk: 8 GB SSD
+- CTID: 1071 | IP: 192.168.1.71 | Unprivileged: yes
+
+### Commandes cles
+```bash
+cd pihole
+ansible-playbook ansible/deploy.yml
+ansible-playbook ansible/deploy.yml --tags motd
+ansible-playbook ansible/deploy.yml --tags security-hardening
+ansible-playbook ansible/deploy.yml --tags pihole
 ```
 
 ---

@@ -42,6 +42,13 @@ Host caddy-70
   IdentitiesOnly yes
   StrictHostKeyChecking no
 
+Host dns-71
+  HostName 192.168.1.71
+  User ansible
+  IdentityFile ~/.ssh/id_vm_proxmox_rsa
+  IdentitiesOnly yes
+  StrictHostKeyChecking no
+
 Host gitlab.com
   HostName gitlab.com
   User git

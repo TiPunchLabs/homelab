@@ -1,0 +1,6 @@
+all:
+  children:
+    pihole:
+      hosts:
+        dns-71:
+          ansible_host: dns-71
