@@ -1,10 +1,3 @@
-resource "proxmox_virtual_environment_download_file" "lxc_template" {
-  content_type = "vztmpl"
-  datastore_id = "local"
-  node_name    = "proxmox"
-  url          = "http://download.proxmox.com/images/system/ubuntu-24.04-standard_24.04-2_amd64.tar.zst"
-}
-
 module "pihole_ct" {
   source = "../../modules/proxmox_lxc_template"
 
@@ -19,7 +12,7 @@ module "pihole_ct" {
   ct_cpu_cores            = 1
   ct_memory               = 512
   ct_disk_size            = 8
-  ct_template_file_id     = proxmox_virtual_environment_download_file.lxc_template.id
+  ct_template_file_id     = "local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst"
   ct_ssh_keys             = [trimspace(file("~/.ssh/id_vm_proxmox_rsa.pub"))]
   ct_root_password        = var.ct_root_password
   ct_ssh_private_key_path = "~/.ssh/id_vm_proxmox_rsa"

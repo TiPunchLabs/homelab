@@ -41,20 +41,22 @@
   when: not pihole_binary.stat.exists
   changed_when: true
 
-- name: Deploy custom DNS records
-  ansible.builtin.template:
-    src: custom.list.j2
-    dest: "{{ pihole_custom_list }}"
-    owner: root
-    group: root
-    mode: '0644'
-  notify: Restart pihole-FTL
-
 - name: Set Pi-hole admin password
   ansible.builtin.command:
-    cmd: pihole -a -p {{ vault_pihole_admin_password }}
+    cmd: pihole setpassword {{ vault_pihole_admin_password }}
   changed_when: true
   no_log: true
+
+- name: Add local DNS A records (Pi-hole v6 CLI)
+  ansible.builtin.command:
+    cmd: pihole a record add {{ item.domain }} {{ item.ip }}
+  loop: "{{ pihole_local_records }}"
+  register: pihole_add_record
+  changed_when: "'already exists' not in pihole_add_record.stdout"
+  failed_when:
+    - pihole_add_record.rc != 0
+    - "'already exists' not in pihole_add_record.stdout"
+  notify: Restart pihole-FTL
 
 - name: Ensure pihole-FTL is enabled and started
   ansible.builtin.systemd:
