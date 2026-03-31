@@ -19,48 +19,6 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 
 ![Homelab Architecture](homelab.jpg)
 
-```
-LOCAL NETWORK (192.168.1.0/24)
-
-┌─────────────────┐       ┌──────────────────────────────────────────────┐
-│ LOCAL WORKSTATION│       │              PROXMOX VE (.100)              │
-│                 │       │                                              │
-│ Caddy proxy     │       │  ┌────────────────────────────────────────┐  │
-│ Docker local    │──SSH──│  │ BASTION (bastion-60 / .60)             │  │
-│ Dev tools       │  TF   │  │ GitLab Runner (shell), TF, Ansible    │  │
-│                 │       │  └──────────────────┬─────────────────────┘  │
-│                 │       │                     │ deploys via TF+Ansible │
-│                 │       │          ┌──────────┴──────────┐            │
-│                 │       │          ▼                     ▼            │
-│                 │       │  ┌──────────────────┐  ┌────────────────┐  │
-│                 │       │  │ DOCKHOST         │  │ KUBECLUSTER    │  │
-│                 │       │  │ dockhost-90 / .90│  │ -40 / .40 [CP]│  │
-│                 │       │  │                  │  │ -41 / .41 [W1]│  │
-│                 │       │  │ Docker           │  │ -42 / .42 [W2]│  │
-│                 │       │  │ Portainer        │  │                │  │
-│                 │       │  │ GitLab Runner    │  │ Kubernetes     │  │
-│                 │       │  └──────────────────┘  └────────────────┘  │
-│                 │       │                                              │
-│                 │       │  ┌──────────────────┐                       │
-│                 │       │  │ VPNGATE          │                       │
-│                 │       │  │ vpngate-50 / .50 │                       │
-│                 │       │  │                  │                       │
-│                 │       │  │ WireGuard VPN    │                       │
-│                 │       │  └──────────────────┘                       │
-│                 │       │                                              │
-│                 │       │  ┌──────────────────┐  ┌────────────────┐  │
-│                 │       │  │ CADDY (LXC)      │  │ PIHOLE (LXC)   │  │
-│                 │       │  │ caddy-70 / .70   │  │ dns-71 / .71   │  │
-│                 │       │  │                  │  │                │  │
-│                 │       │  │ Reverse Proxy    │  │ Pi-hole DNS    │  │
-│                 │       │  └──────────────────┘  └────────────────┘  │
-│                 │       │                                              │
-└─────────────────┘       └──────────────────────────────────────────────┘
-
-Deployment: Terraform (provision) → Ansible (configure)
-Template:   ubuntu-2404-cloudinit-template (ID: 9001)
-```
-
 ## Sub-projects
 
 | Directory | Description | VMs | Stack |
