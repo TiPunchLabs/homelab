@@ -27,3 +27,5 @@ pihole_local_records:
     domain: vpngate.internal
   - ip: 192.168.1.70
     domain: portainer.internal
+  - ip: 192.168.1.70
+    domain: pihole.internal
