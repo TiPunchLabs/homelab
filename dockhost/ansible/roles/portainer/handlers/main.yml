@@ -1,0 +1,6 @@
+---
+- name: Restart portainer
+  community.docker.docker_compose_v2:
+    project_src: "{{ portainer_install_dir }}"
+    state: restarted
+  register: portainer_restart_result
