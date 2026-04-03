@@ -35,3 +35,7 @@ caddy_backends:
     domain: portainer.internal
     upstream: http://192.168.1.90:9000
     tls_insecure_skip_verify: false
+  - name: pihole
+    domain: pihole.internal
+    upstream: http://192.168.1.71:80
+    tls_insecure_skip_verify: false
