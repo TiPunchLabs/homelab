@@ -1,0 +1,16 @@
+services:
+  portainer:
+    image: {{ portainer_image }}:{{ portainer_image_tag }}@{{ portainer_image_digest }}
+    container_name: portainer
+    restart: always
+    ports:
+      - "{{ portainer_bind_address }}:{{ portainer_http_port }}:9000"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "{{ portainer_data_dir }}:/data"
+    networks:
+      - vm-docker-90-net
+
+networks:
+  vm-docker-90-net:
+    driver: bridge
