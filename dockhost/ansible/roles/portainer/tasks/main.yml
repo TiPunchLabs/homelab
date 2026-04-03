@@ -45,7 +45,7 @@
     dest: "{{ portainer_install_dir }}/docker-compose.yml"
     owner: root
     group: root
-    mode: '0644'
+    mode: '0600'
   notify: Restart portainer
 
 - name: Deploy portainer with Docker Compose
@@ -73,7 +73,7 @@
   ansible.builtin.uri:
     url: "{{ portainer_api_url }}/users/admin/check"
     method: GET
-    status_code: [200, 204, 404]
+    status_code: [204, 404]
   register: portainer_admin_check
 
 - name: Create admin user
@@ -85,6 +85,7 @@
       username: "{{ vault_portainer_admin_username }}"
       password: "{{ vault_portainer_admin_password }}"
     status_code: 200
+  no_log: true
   when: portainer_admin_check.status == 404
 
 # ============================================================
@@ -99,6 +100,7 @@
       username: "{{ vault_portainer_admin_username }}"
       password: "{{ vault_portainer_admin_password }}"
     status_code: 200
+  no_log: true
   register: portainer_auth
 
 - name: Get existing endpoints
