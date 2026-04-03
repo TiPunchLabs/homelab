@@ -13,7 +13,7 @@ services:
     networks:
       - vm-docker-90-net
     healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9000/api/status"]
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:{{ portainer_http_port }}/api/status"]
       interval: 30s
       timeout: 5s
       retries: 3

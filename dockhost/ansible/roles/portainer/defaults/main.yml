@@ -12,5 +12,8 @@ portainer_data_dir: "/app/data/portainer"
 portainer_http_port: 9000
 portainer_bind_address: "127.0.0.1"
 
+# Nom de l'endpoint Docker local dans Portainer
+portainer_endpoint_name: "dockhost-90"
+
 # API base URL (utilise par les tasks de bootstrap)
 portainer_api_url: "http://localhost:{{ portainer_http_port }}/api"

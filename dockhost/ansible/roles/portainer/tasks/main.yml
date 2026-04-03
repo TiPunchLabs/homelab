@@ -54,7 +54,6 @@
     state: present
     recreate: auto
     remove_orphans: true
-  register: portainer_deploy
 
 - name: Wait for Portainer API to be ready
   ansible.builtin.uri:
@@ -82,8 +81,8 @@
     method: POST
     body_format: json
     body:
-      username: "{{ vault_portainer_admin_username }}"
-      password: "{{ vault_portainer_admin_password }}"
+      username: "{{ portainer_admin_username }}"
+      password: "{{ portainer_admin_password }}"
     status_code: 200
   no_log: true
   when: portainer_admin_check.status == 404
@@ -97,8 +96,8 @@
     method: POST
     body_format: json
     body:
-      username: "{{ vault_portainer_admin_username }}"
-      password: "{{ vault_portainer_admin_password }}"
+      username: "{{ portainer_admin_username }}"
+      password: "{{ portainer_admin_password }}"
     status_code: 200
   no_log: true
   register: portainer_auth
@@ -120,7 +119,7 @@
       Authorization: "Bearer {{ portainer_auth.json.jwt }}"
     body_format: form-urlencoded
     body:
-      Name: "dockhost-90"
+      Name: "{{ portainer_endpoint_name }}"
       EndpointCreationType: "1"
       URL: "unix:///var/run/docker.sock"
     status_code: 200
