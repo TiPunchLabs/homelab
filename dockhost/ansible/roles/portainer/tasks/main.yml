@@ -1,0 +1,125 @@
+---
+# ============================================================
+# Nettoyage ancien portainer_agent
+# ============================================================
+- name: Check if old portainer agent compose file exists
+  ansible.builtin.stat:
+    path: /opt/portainer/agent/docker-compose.yml
+  register: portainer_agent_compose
+
+- name: Tear down old portainer agent stack
+  community.docker.docker_compose_v2:
+    project_src: /opt/portainer/agent
+    state: absent
+    remove_orphans: true
+  when: portainer_agent_compose.stat.exists
+
+- name: Remove old portainer agent directory
+  ansible.builtin.file:
+    path: /opt/portainer/agent
+    state: absent
+  when: portainer_agent_compose.stat.exists
+
+# ============================================================
+# Deploiement Portainer CE Server
+# ============================================================
+- name: Create install directory
+  ansible.builtin.file:
+    path: "{{ portainer_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create data directory
+  ansible.builtin.file:
+    path: "{{ portainer_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Copy docker compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ portainer_install_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart portainer
+
+- name: Deploy portainer with Docker Compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ portainer_install_dir }}"
+    state: present
+    recreate: auto
+    remove_orphans: true
+  register: portainer_deploy
+
+- name: Wait for Portainer API to be ready
+  ansible.builtin.uri:
+    url: "{{ portainer_api_url }}/status"
+    method: GET
+    status_code: 200
+  register: portainer_status
+  retries: 10
+  delay: 3
+  until: portainer_status.status == 200
+
+# ============================================================
+# Bootstrap API — Admin user
+# ============================================================
+- name: Check if admin user already exists
+  ansible.builtin.uri:
+    url: "{{ portainer_api_url }}/users/admin/check"
+    method: GET
+    status_code: [200, 204, 404]
+  register: portainer_admin_check
+
+- name: Create admin user
+  ansible.builtin.uri:
+    url: "{{ portainer_api_url }}/users/admin/init"
+    method: POST
+    body_format: json
+    body:
+      username: "{{ vault_portainer_admin_username }}"
+      password: "{{ vault_portainer_admin_password }}"
+    status_code: 200
+  when: portainer_admin_check.status == 404
+
+# ============================================================
+# Bootstrap API — Local Docker endpoint
+# ============================================================
+- name: Authenticate to Portainer API
+  ansible.builtin.uri:
+    url: "{{ portainer_api_url }}/auth"
+    method: POST
+    body_format: json
+    body:
+      username: "{{ vault_portainer_admin_username }}"
+      password: "{{ vault_portainer_admin_password }}"
+    status_code: 200
+  register: portainer_auth
+
+- name: Get existing endpoints
+  ansible.builtin.uri:
+    url: "{{ portainer_api_url }}/endpoints"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ portainer_auth.json.jwt }}"
+    status_code: 200
+  register: portainer_endpoints
+
+- name: Register local Docker endpoint
+  ansible.builtin.uri:
+    url: "{{ portainer_api_url }}/endpoints"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ portainer_auth.json.jwt }}"
+    body_format: form-urlencoded
+    body:
+      Name: "dockhost-90"
+      EndpointCreationType: "1"
+      URL: "unix:///var/run/docker.sock"
+    status_code: 200
+  when: portainer_endpoints.json | length == 0
