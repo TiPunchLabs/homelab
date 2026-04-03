@@ -8,9 +8,9 @@ portainer_image_digest: "sha256:e65b9b55c16c32f6abcbd1440a4fff020739973f0e41d6a9
 portainer_install_dir: "/opt/portainer"
 portainer_data_dir: "/app/data/portainer"
 
-# Port HTTP (bind localhost uniquement, Caddy fait le reverse proxy)
+# Port HTTP (accessible depuis le LAN prive, Caddy fait le reverse proxy)
 portainer_http_port: 9000
-portainer_bind_address: "127.0.0.1"
+portainer_bind_address: "0.0.0.0"
 
 # Nom de l'endpoint Docker local dans Portainer
 portainer_endpoint_name: "dockhost-90"
