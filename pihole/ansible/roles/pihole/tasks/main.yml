@@ -47,15 +47,21 @@
   changed_when: true
   no_log: true
 
-- name: Add local DNS A records (Pi-hole v6 CLI)
+- name: Build dns.hosts entries
+  ansible.builtin.set_fact:
+    pihole_dns_hosts: >-
+      [{{ pihole_local_records | map(attribute='ip') | zip(pihole_local_records | map(attribute='domain')) | map('join', ' ') | map('regex_replace', '^(.*)$', '"\1"') | join(', ') }}]
+
+- name: Get current dns.hosts configuration
   ansible.builtin.command:
-    cmd: pihole a record add {{ item.domain }} {{ item.ip }}
-  loop: "{{ pihole_local_records }}"
-  register: pihole_add_record
-  changed_when: "'already exists' not in pihole_add_record.stdout"
-  failed_when:
-    - pihole_add_record.rc != 0
-    - "'already exists' not in pihole_add_record.stdout"
+    cmd: pihole-FTL --config dns.hosts
+  register: pihole_current_hosts
+  changed_when: false
+
+- name: Configure local DNS A records (Pi-hole v6 FTL)
+  ansible.builtin.command:
+    cmd: "pihole-FTL --config dns.hosts '{{ pihole_dns_hosts }}'"
+  when: pihole_current_hosts.stdout != pihole_dns_hosts
   notify: Restart pihole-FTL
 
 - name: Ensure pihole-FTL is enabled and started
