@@ -25,3 +25,5 @@ pihole_local_records:
     domain: kandidat.internal
   - ip: 192.168.1.70
     domain: vpngate.internal
+  - ip: 192.168.1.70
+    domain: portainer.internal
