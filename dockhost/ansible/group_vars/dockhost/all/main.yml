@@ -18,7 +18,8 @@ security_open_ports:
   - { port: 5432, proto: tcp, comment: "PostgreSQL access" }
   - { port: 8000, proto: tcp, comment: "Kandidat web app" }
 
-security_portainer_agent:
-  enabled: true
-  manager_ip: "{{ vault_portainer_manager_ip }}"
-  port: 9001
+# ============================================================
+# 🐳 Portainer CE - Role portainer
+# ============================================================
+portainer_admin_username: "{{ vault_portainer_admin_username }}"
+portainer_admin_password: "{{ vault_portainer_admin_password }}"

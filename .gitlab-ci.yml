@@ -139,32 +139,27 @@ scan-docker-images:
     - apk add --no-cache grep sed curl
   script:
     - |
-      images=$(grep -rh '^\s*image:' --include="*.j2" . \
-        | sed 's/.*image:\s*//' \
-        | sed 's/@sha256:[a-f0-9]*//' \
-        | sed 's/{{[^}]*}}//g' \
-        | tr -d ' "' \
-        | grep -v '^:' \
-        | grep -v '^$' \
-        | sort -u)
+      # Extract Docker images from Ansible role defaults
+      images=""
+      for defaults in $(find . -path '*/ansible/roles/*/defaults/main.yml' -not -path './.venv/*'); do
+        img=$(grep -E '^\w+_image:' "$defaults" | head -1 | sed 's/[^:]*:\s*//;s/"//g' | tr -d ' ' || true)
+        tag=$(grep -E '^\w+_image_tag:' "$defaults" | head -1 | sed 's/[^:]*:\s*//;s/"//g' | tr -d ' ' || true)
+        if [ -n "$img" ] && [ -n "$tag" ]; then
+          images="${images}${img}:${tag}"$'\n'
+        fi
+      done
+      images=$(echo "$images" | sort -u | grep -v '^$' || true)
       echo "Images found:"
-      echo "$images"
+      echo "${images:-none}"
     - |
+      if [ -z "$images" ]; then echo "No images to scan"; exit 0; fi
       curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
-      images=$(grep -rh '^\s*image:' --include="*.j2" . \
-        | sed 's/.*image:\s*//' \
-        | sed 's/@sha256:[a-f0-9]*//' \
-        | sed 's/{{[^}]*}}//g' \
-        | tr -d ' "' \
-        | grep -v '^:' \
-        | grep -v '^$' \
-        | sort -u)
       echo "$images" | while IFS= read -r image; do
         [ -z "$image" ] && continue
         echo "============================================="
-        echo "Scanning: $image"
+        echo "Scanning: ${image}"
         echo "============================================="
-        trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress "$image" || true
+        trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress "${image}" || true
       done
   allow_failure: true
 

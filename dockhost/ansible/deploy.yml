@@ -33,9 +33,9 @@
     - role: docker
       tags:
         - docker
-    - role: portainer_agent
+    - role: portainer
       tags:
-        - portainer-agent
+        - portainer
     - role: postgresql
       tags:
         - postgresql

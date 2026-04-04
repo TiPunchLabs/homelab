@@ -1,0 +1,19 @@
+---
+# Image Docker Portainer CE
+portainer_image: "portainer/portainer-ce"
+portainer_image_tag: "2.27.4"
+portainer_image_digest: "sha256:e65b9b55c16c32f6abcbd1440a4fff020739973f0e41d6a99088d200a6014bfe"
+
+# Repertoires sur l'hote
+portainer_install_dir: "/opt/portainer"
+portainer_data_dir: "/app/data/portainer"
+
+# Port HTTP (accessible depuis le LAN prive, Caddy fait le reverse proxy)
+portainer_http_port: 9000
+portainer_bind_address: "0.0.0.0"
+
+# Nom de l'endpoint Docker local dans Portainer
+portainer_endpoint_name: "dockhost-90"
+
+# API base URL (utilise par les tasks de bootstrap)
+portainer_api_url: "http://localhost:{{ portainer_http_port }}/api"
