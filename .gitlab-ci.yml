@@ -139,32 +139,33 @@ scan-docker-images:
     - apk add --no-cache grep sed curl
   script:
     - |
-      images=$(grep -rh '^\s*image:' --include="*.j2" . \
-        | sed 's/.*image:\s*//' \
-        | sed 's/@sha256:[a-f0-9]*//' \
-        | sed 's/{{[^}]*}}//g' \
-        | tr -d ' "' \
-        | grep -v '^:' \
-        | grep -v '^$' \
-        | sort -u)
+      # Build image list from Ansible defaults (plain YAML, not Jinja)
+      images=""
+      for defaults in $(find . -path '*/roles/*/defaults/main.yml'); do
+        img=$(grep -E '^\w+_image:\s' "$defaults" | head -1 | sed 's/.*:\s*//;s/"//g' | tr -d ' ')
+        tag=$(grep -E '^\w+_image_tag:\s' "$defaults" | head -1 | sed 's/.*:\s*//;s/"//g' | tr -d ' ')
+        if [ -n "$img" ] && [ -n "$tag" ]; then
+          images=$(printf '%s\n%s:%s' "$images" "$img" "$tag")
+        fi
+      done
+      images=$(echo "$images" | grep -v '^$' | sort -u)
       echo "Images found:"
       echo "$images"
+      if [ -z "$images" ]; then
+        echo "No images to scan"
+        exit 0
+      fi
     - |
       curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
-      images=$(grep -rh '^\s*image:' --include="*.j2" . \
-        | sed 's/.*image:\s*//' \
-        | sed 's/@sha256:[a-f0-9]*//' \
-        | sed 's/{{[^}]*}}//g' \
-        | tr -d ' "' \
-        | grep -v '^:' \
-        | grep -v '^$' \
-        | sort -u)
-      echo "$images" | while IFS= read -r image; do
-        [ -z "$image" ] && continue
-        echo "============================================="
-        echo "Scanning: $image"
-        echo "============================================="
-        trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress "$image" || true
+      for defaults in $(find . -path '*/roles/*/defaults/main.yml'); do
+        img=$(grep -E '^\w+_image:\s' "$defaults" | head -1 | sed 's/.*:\s*//;s/"//g' | tr -d ' ')
+        tag=$(grep -E '^\w+_image_tag:\s' "$defaults" | head -1 | sed 's/.*:\s*//;s/"//g' | tr -d ' ')
+        if [ -n "$img" ] && [ -n "$tag" ]; then
+          echo "============================================="
+          echo "Scanning: ${img}:${tag}"
+          echo "============================================="
+          trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress "${img}:${tag}" || true
+        fi
       done
   allow_failure: true
 
