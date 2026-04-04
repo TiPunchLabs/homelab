@@ -139,33 +139,27 @@ scan-docker-images:
     - apk add --no-cache grep sed curl
   script:
     - |
-      # Build image list from Ansible defaults (plain YAML, not Jinja)
+      # Extract Docker images from Ansible role defaults
       images=""
-      for defaults in $(find . -path '*/roles/*/defaults/main.yml'); do
-        img=$(grep -E '^\w+_image:\s' "$defaults" | head -1 | sed 's/.*:\s*//;s/"//g' | tr -d ' ')
-        tag=$(grep -E '^\w+_image_tag:\s' "$defaults" | head -1 | sed 's/.*:\s*//;s/"//g' | tr -d ' ')
+      for defaults in $(find . -path '*/ansible/roles/*/defaults/main.yml' -not -path './.venv/*'); do
+        img=$(grep -E '^\w+_image:' "$defaults" | head -1 | sed 's/[^:]*:\s*//;s/"//g' | tr -d ' ' || true)
+        tag=$(grep -E '^\w+_image_tag:' "$defaults" | head -1 | sed 's/[^:]*:\s*//;s/"//g' | tr -d ' ' || true)
         if [ -n "$img" ] && [ -n "$tag" ]; then
-          images=$(printf '%s\n%s:%s' "$images" "$img" "$tag")
+          images="${images}${img}:${tag}"$'\n'
         fi
       done
-      images=$(echo "$images" | grep -v '^$' | sort -u)
+      images=$(echo "$images" | sort -u | grep -v '^$' || true)
       echo "Images found:"
-      echo "$images"
-      if [ -z "$images" ]; then
-        echo "No images to scan"
-        exit 0
-      fi
+      echo "${images:-none}"
     - |
+      if [ -z "$images" ]; then echo "No images to scan"; exit 0; fi
       curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
-      for defaults in $(find . -path '*/roles/*/defaults/main.yml'); do
-        img=$(grep -E '^\w+_image:\s' "$defaults" | head -1 | sed 's/.*:\s*//;s/"//g' | tr -d ' ')
-        tag=$(grep -E '^\w+_image_tag:\s' "$defaults" | head -1 | sed 's/.*:\s*//;s/"//g' | tr -d ' ')
-        if [ -n "$img" ] && [ -n "$tag" ]; then
-          echo "============================================="
-          echo "Scanning: ${img}:${tag}"
-          echo "============================================="
-          trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress "${img}:${tag}" || true
-        fi
+      echo "$images" | while IFS= read -r image; do
+        [ -z "$image" ] && continue
+        echo "============================================="
+        echo "Scanning: ${image}"
+        echo "============================================="
+        trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress "${image}" || true
       done
   allow_failure: true
 
