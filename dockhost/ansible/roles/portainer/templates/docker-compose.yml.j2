@@ -12,12 +12,6 @@ services:
       - "{{ portainer_data_dir }}:/data"
     networks:
       - vm-docker-90-net
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:{{ portainer_http_port }}/api/status"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
 
 networks:
   vm-docker-90-net:
