@@ -17,9 +17,18 @@ security_open_ports:
   - { port: 22, proto: tcp, comment: "SSH access" }
   - { port: 5432, proto: tcp, comment: "PostgreSQL access" }
   - { port: 8000, proto: tcp, comment: "Kandidat web app" }
+  - { port: 8080, proto: tcp, comment: "Open WebUI" }
 
 # ============================================================
 # 🐳 Portainer CE - Role portainer
 # ============================================================
 portainer_admin_username: "{{ vault_portainer_admin_username }}"
 portainer_admin_password: "{{ vault_portainer_admin_password }}"
+
+# ============================================================
+# 🌐 Open WebUI - Role open_webui
+# ============================================================
+open_webui_ollama_base_url: "http://192.168.1.101:11434"
+open_webui_db_password: "{{ vault_open_webui_db_password }}"
+open_webui_database_url: "{{ vault_open_webui_database_url }}"
+open_webui_secret_key: "{{ vault_open_webui_secret_key }}"

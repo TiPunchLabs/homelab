@@ -25,6 +25,7 @@
       tags:
         - postgresql
         - kandidat
+        - open-webui
 
   roles:
     - role: motd
@@ -42,3 +43,6 @@
     - role: kandidat
       tags:
         - kandidat
+    - role: open_webui
+      tags:
+        - open-webui

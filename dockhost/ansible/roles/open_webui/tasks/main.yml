@@ -1,0 +1,82 @@
+---
+# ============================================================
+# PostgreSQL — creation user et base de donnees
+# ============================================================
+- name: Check if PostgreSQL user exists
+  community.docker.docker_container_exec:
+    container: "{{ open_webui_db_container }}"
+    command: >-
+      psql -U {{ open_webui_db_superuser }} -tAc
+      "SELECT 1 FROM pg_roles WHERE rolname='{{ open_webui_db_user }}'"
+  register: open_webui_pg_user_check
+  changed_when: false
+
+- name: Create PostgreSQL user for open_webui
+  community.docker.docker_container_exec:
+    container: "{{ open_webui_db_container }}"
+    command: >-
+      psql -U {{ open_webui_db_superuser }} -c
+      "CREATE USER {{ open_webui_db_user }} WITH PASSWORD '{{ open_webui_db_password }}';"
+  no_log: true
+  when: open_webui_pg_user_check.stdout | trim != "1"
+
+- name: Check if PostgreSQL database exists
+  community.docker.docker_container_exec:
+    container: "{{ open_webui_db_container }}"
+    command: >-
+      psql -U {{ open_webui_db_superuser }} -tAc
+      "SELECT 1 FROM pg_database WHERE datname='{{ open_webui_db_name }}'"
+  register: open_webui_pg_db_check
+  changed_when: false
+
+- name: Create PostgreSQL database for open_webui
+  community.docker.docker_container_exec:
+    container: "{{ open_webui_db_container }}"
+    command: >-
+      psql -U {{ open_webui_db_superuser }} -c
+      "CREATE DATABASE {{ open_webui_db_name }} OWNER {{ open_webui_db_user }} ENCODING 'UTF8';"
+  when: open_webui_pg_db_check.stdout | trim != "1"
+
+# ============================================================
+# Deploiement Open WebUI
+# ============================================================
+- name: Create install directory
+  ansible.builtin.file:
+    path: "{{ open_webui_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create data directory
+  ansible.builtin.file:
+    path: "{{ open_webui_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Copy docker compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ open_webui_install_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart open-webui
+
+- name: Deploy open-webui with Docker Compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ open_webui_install_dir }}"
+    state: present
+    recreate: auto
+    remove_orphans: true
+
+- name: Wait for Open WebUI to be ready
+  ansible.builtin.uri:
+    url: "http://localhost:{{ open_webui_http_port }}/"
+    status_code: 200
+  register: open_webui_ready
+  retries: 20
+  delay: 10
+  until: open_webui_ready.status == 200
