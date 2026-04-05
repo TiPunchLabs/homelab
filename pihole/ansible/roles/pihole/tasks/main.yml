@@ -53,7 +53,11 @@
 
 - name: Configure local DNS A records (Pi-hole v6 FTL)
   ansible.builtin.command:
-    cmd: "pihole-FTL --config dns.hosts {{ pihole_dns_hosts }}"
+    argv:
+      - pihole-FTL
+      - --config
+      - dns.hosts
+      - "{{ pihole_dns_hosts }}"
   register: pihole_dns_result
   changed_when: "'CHANGED' in pihole_dns_result.stdout or pihole_dns_result.rc == 0"
   notify: Restart pihole-FTL
