@@ -43,3 +43,7 @@ caddy_backends:
     domain: openwebui.internal
     upstream: http://192.168.1.90:8080
     tls_insecure_skip_verify: false
+  - name: excalidraw
+    domain: excalidraw.internal
+    upstream: http://192.168.1.90:8082
+    tls_insecure_skip_verify: false

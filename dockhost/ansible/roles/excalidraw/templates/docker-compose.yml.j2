@@ -1,0 +1,17 @@
+{{ ansible_managed | comment }}
+
+services:
+  excalidraw:
+    image: {{ excalidraw_image }}:{{ excalidraw_image_tag }}@{{ excalidraw_image_digest }}
+    container_name: excalidraw
+    restart: always
+    ports:
+      - "{{ excalidraw_bind_address }}:{{ excalidraw_http_port }}:80"
+    volumes:
+      - "{{ excalidraw_data_dir }}:/opt/excalidraw"
+    networks:
+      - vm-docker-90-net
+
+networks:
+  vm-docker-90-net:
+    driver: bridge

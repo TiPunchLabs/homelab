@@ -46,3 +46,6 @@
     - role: open_webui
       tags:
         - open-webui
+    - role: excalidraw
+      tags:
+        - excalidraw
