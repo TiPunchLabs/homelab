@@ -39,3 +39,7 @@ caddy_backends:
     domain: pihole.internal
     upstream: http://192.168.1.71:80
     tls_insecure_skip_verify: false
+  - name: openwebui
+    domain: openwebui.internal
+    upstream: http://192.168.1.90:8080
+    tls_insecure_skip_verify: false
