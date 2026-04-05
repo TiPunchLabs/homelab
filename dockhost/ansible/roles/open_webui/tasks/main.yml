@@ -16,7 +16,7 @@
     container: "{{ open_webui_db_container }}"
     command: >-
       psql -U {{ open_webui_db_superuser }} -c
-      "CREATE USER {{ open_webui_db_user }} WITH PASSWORD '{{ vault_open_webui_db_password }}';"
+      "CREATE USER {{ open_webui_db_user }} WITH PASSWORD '{{ open_webui_db_password }}';"
   no_log: true
   when: open_webui_pg_user_check.stdout | trim != "1"
 

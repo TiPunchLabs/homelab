@@ -12,9 +12,6 @@ open_webui_data_dir: "/app/data/open-webui"
 open_webui_http_port: 8080
 open_webui_bind_address: "0.0.0.0"
 
-# Ollama backend (poste local sur le LAN)
-open_webui_ollama_base_url: "http://192.168.1.101:11434"
-
 # PostgreSQL (conteneur existant sur dockhost)
 open_webui_db_container: "postgresql"
 open_webui_db_name: "open_webui"
