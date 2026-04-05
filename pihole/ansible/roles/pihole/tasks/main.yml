@@ -51,6 +51,16 @@
   ansible.builtin.set_fact:
     pihole_dns_hosts: "{{ pihole_local_records | map(attribute='ip') | zip(pihole_local_records | map(attribute='domain')) | map('join', ' ') | list | to_json }}"
 
+- name: Read current dns.hosts config
+  ansible.builtin.command:
+    cmd: pihole-FTL --config dns.hosts
+  register: pihole_dns_current
+  changed_when: false
+
+- name: Build expected dns.hosts output
+  ansible.builtin.set_fact:
+    pihole_dns_expected: "[ {{ pihole_local_records | map(attribute='ip') | zip(pihole_local_records | map(attribute='domain')) | map('join', ' ') | join(', ') }} ]"
+
 - name: Configure local DNS A records (Pi-hole v6 FTL)
   ansible.builtin.command:
     argv:
@@ -58,8 +68,8 @@
       - --config
       - dns.hosts
       - "{{ pihole_dns_hosts }}"
-  register: pihole_dns_result
-  changed_when: "'CHANGED' in pihole_dns_result.stdout"
+  when: pihole_dns_current.stdout != pihole_dns_expected
+  changed_when: true
   notify: Restart pihole-FTL
 
 - name: Ensure pihole-FTL is enabled and started

@@ -31,3 +31,5 @@ pihole_local_records:
     domain: pihole.internal
   - ip: 192.168.1.70
     domain: openwebui.internal
+  - ip: 192.168.1.70
+    domain: excalidraw.internal
