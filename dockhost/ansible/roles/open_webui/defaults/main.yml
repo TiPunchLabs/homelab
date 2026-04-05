@@ -1,0 +1,22 @@
+---
+# Image Docker Open WebUI
+open_webui_image: "ghcr.io/open-webui/open-webui"
+open_webui_image_tag: "v0.8.3"
+open_webui_image_digest: "sha256:21c24dc456da582a365751803057cd25de9a24ee99e8ba9715b0184936ba7988"
+
+# Repertoires sur l'hote
+open_webui_install_dir: "/opt/open-webui"
+open_webui_data_dir: "/app/data/open-webui"
+
+# Port HTTP (accessible depuis le LAN prive, Caddy fait le reverse proxy)
+open_webui_http_port: 8080
+open_webui_bind_address: "0.0.0.0"
+
+# Ollama backend (poste local sur le LAN)
+open_webui_ollama_base_url: "http://192.168.1.101:11434"
+
+# PostgreSQL (conteneur existant sur dockhost)
+open_webui_db_container: "postgresql"
+open_webui_db_name: "open_webui"
+open_webui_db_user: "open_webui"
+open_webui_db_superuser: "postgres"
