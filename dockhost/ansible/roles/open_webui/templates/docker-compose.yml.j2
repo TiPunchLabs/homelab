@@ -1,0 +1,21 @@
+{{ ansible_managed | comment }}
+
+services:
+  open-webui:
+    image: {{ open_webui_image }}:{{ open_webui_image_tag }}@{{ open_webui_image_digest }}
+    container_name: open-webui
+    restart: always
+    ports:
+      - "{{ open_webui_bind_address }}:{{ open_webui_http_port }}:8080"
+    environment:
+      OLLAMA_BASE_URL: "{{ open_webui_ollama_base_url }}"
+      DATABASE_URL: "{{ vault_open_webui_database_url }}"
+      WEBUI_SECRET_KEY: "{{ vault_open_webui_secret_key }}"
+    volumes:
+      - "{{ open_webui_data_dir }}:/app/backend/data"
+    networks:
+      - db-net
+
+networks:
+  db-net:
+    external: true
