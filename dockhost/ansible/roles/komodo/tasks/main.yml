@@ -1,0 +1,68 @@
+---
+# =============================================================================
+# Komodo — GitOps-style Docker compose deployer (Core + MongoDB + Periphery)
+# Official compose reference: https://github.com/moghtech/komodo/tree/main/compose
+# =============================================================================
+
+- name: Create install directory
+  ansible.builtin.file:
+    path: "{{ komodo_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create Periphery root directory (stacks + repos live here)
+  ansible.builtin.file:
+    path: "{{ komodo_periphery_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create backups directory
+  ansible.builtin.file:
+    path: "{{ komodo_backups_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Template docker compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ komodo_install_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart komodo
+
+- name: Template compose env file
+  ansible.builtin.template:
+    src: compose.env.j2
+    dest: "{{ komodo_install_dir }}/compose.env"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart komodo
+
+- name: Deploy Komodo stack with Docker Compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ komodo_install_dir }}"
+    env_files:
+      - "{{ komodo_install_dir }}/compose.env"
+    state: present
+    pull: always
+    recreate: auto
+    remove_orphans: true
+  when: not ansible_check_mode
+
+- name: Wait for Komodo Core to be ready
+  ansible.builtin.uri:
+    url: "http://localhost:{{ komodo_core_port }}/"
+    status_code: [200, 301, 302]
+  register: komodo_ready
+  retries: 20
+  delay: 3
+  until: komodo_ready.status in [200, 301, 302]
+  when: not ansible_check_mode

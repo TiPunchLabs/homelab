@@ -1,0 +1,39 @@
+---
+# Komodo images (GitHub Container Registry)
+komodo_image_tag: "2"
+
+# Host paths
+komodo_install_dir: "/opt/komodo"
+komodo_backups_dir: "/etc/komodo/backups"
+komodo_periphery_root: "/etc/komodo"
+
+# Ports
+komodo_core_port: 9120
+
+# URL used by Komodo for OAuth/webhook callbacks + UI suggestion
+# Override in group_vars/dockhost.yml with the actual reachable URL
+komodo_host: "http://192.168.10.90:{{ komodo_core_port }}"
+
+# Timezone
+komodo_tz: "Europe/Paris"
+
+# Initial admin
+komodo_admin_username: "admin"
+
+# First server declared in Komodo (name of the dockhost itself)
+komodo_first_server_name: "dockhost"
+
+# Database credentials (MongoDB)
+komodo_db_username: "komodo"
+
+# Polling intervals (see compose.env reference)
+komodo_monitoring_interval: "15-sec"
+komodo_resource_poll_interval: "1-hr"
+komodo_jwt_ttl: "1-day"
+
+# Feature toggles
+komodo_local_auth: "true"
+komodo_disable_user_registration: "true"
+komodo_enable_new_users: "false"
+komodo_disable_non_admin_create: "false"
+komodo_transparent_mode: "false"

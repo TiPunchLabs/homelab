@@ -33,3 +33,5 @@ pihole_local_records:
     domain: openwebui.internal
   - ip: 192.168.10.70
     domain: excalidraw.internal
+  - ip: 192.168.10.70
+    domain: komodo.internal

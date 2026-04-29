@@ -15,6 +15,10 @@
 
 Monorepo for provisioning and managing a complete homelab infrastructure on **Proxmox VE** using **Terraform** and **Ansible**.
 
+> **Related projects** (see [`../CLAUDE.md`](../CLAUDE.md) for the full ecosystem map):
+> - [`../homelab-gitops/`](../homelab-gitops/) — GitOps manifests deployed by Komodo on the `dockhost` VM created here
+> - [`../terraform/homelab-gitops/`](../terraform/homelab-gitops/) — Terraform module that provisions the GitLab repo consumed by Komodo
+
 ## Architecture
 
 ![Homelab Architecture](homelab.jpg)
