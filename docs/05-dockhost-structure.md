@@ -110,7 +110,7 @@ defaults/main.yml          tasks/main.yml                    templates/
 
 ## Arborescence sur la VM (runtime)
 
-Fichiers deployes sur `dockhost-90` (192.168.1.90) :
+Fichiers deployes sur `dockhost-90` (192.168.10.90) :
 
 ```
 /

@@ -1,7 +1,7 @@
 # 🔐 Guide : Configurer un client WireGuard Linux via wg-easy
 
 > **Prerequis** :
-> - Acces a l'interface web wg-easy (`http://192.168.1.50:51821`)
+> - Acces a l'interface web wg-easy (`http://192.168.10.50:51821`)
 > - Connexion au reseau local ou VPN existant pour acceder a wg-easy
 > - Distribution Linux (Ubuntu, Debian, Fedora, Arch)
 
@@ -17,11 +17,11 @@ Ce guide explique comment configurer un client WireGuard sur Linux a partir du f
 
 ```
 ┌──────────┐                          ┌────────────┐
-│  Laptop  │  ── tunnel WireGuard ──► │ vpngate-50 │ ──► LAN 192.168.1.0/24
+│  Laptop  │  ── tunnel WireGuard ──► │ vpngate-50 │ ──► LAN 192.168.10.0/24
 │ (client) │     UDP :51820           │ (serveur)  │
 └──────────┘                          └────────────┘
      │                                      │
-     │  DNS → 192.168.1.71 (Pi-hole)        │
+     │  DNS → 192.168.10.71 (Pi-hole)        │
      │  IP  → 10.0.0.x (tunnel)             │
      └──────────────────────────────────────-┘
 ```
@@ -59,7 +59,7 @@ sudo pacman -S wireguard-tools
 Ouvrir dans un navigateur :
 
 ```
-http://192.168.1.50:51821
+http://192.168.10.50:51821
 ```
 
 Se connecter avec le mot de passe administrateur.
@@ -81,7 +81,7 @@ Le fichier telecharge ressemble a ceci :
 [Interface]
 PrivateKey = <cle_privee_generee>
 Address = 10.0.0.X/32
-DNS = 192.168.1.71
+DNS = 192.168.10.71
 
 [Peer]
 PublicKey = <cle_publique_serveur>
@@ -90,7 +90,7 @@ AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = <ip_publique>:51820
 ```
 
-> 💡 **Note** : Le champ `DNS` pointe vers `192.168.1.71` (Pi-hole dns-71), qui resout les domaines `.internal` et filtre les publicites.
+> 💡 **Note** : Le champ `DNS` pointe vers `192.168.10.71` (Pi-hole dns-71), qui resout les domaines `.internal` et filtre les publicites.
 
 ------
 
@@ -147,10 +147,10 @@ sudo systemctl status wg-quick@wg0
 
 ```bash
 # Ping vers le serveur VPN
-ping -c 3 192.168.1.50
+ping -c 3 192.168.10.50
 
 # Verifier la resolution DNS .internal
-dig proxmox.internal @192.168.1.71
+dig proxmox.internal @192.168.10.71
 
 # Tester l'acces a un service
 curl -s http://kandidat.internal
@@ -165,8 +165,8 @@ curl -s http://kandidat.internal
 | `RTNETLINK answers: Operation not permitted` | Module kernel manquant | `sudo modprobe wireguard` |
 | DNS ne resout pas `.internal` | Tunnel non actif ou resolvconf manquant | Verifier `wg show` et installer `resolvconf` |
 | `Handshake did not complete` | Endpoint injoignable ou cles incorrectes | Verifier l'IP publique et le port 51820/UDP |
-| Pas d'acces au LAN (192.168.1.x) | `AllowedIPs` mal configure | Verifier que `0.0.0.0/0` est present dans la config |
-| DNS lent ou timeout | Pi-hole dns-71 inaccessible | `ping 192.168.1.71` — verifier que le LXC tourne |
+| Pas d'acces au LAN (192.168.10.x) | `AllowedIPs` mal configure | Verifier que `0.0.0.0/0` est present dans la config |
+| DNS lent ou timeout | Pi-hole dns-71 inaccessible | `ping 192.168.10.71` — verifier que le LXC tourne |
 
 ------
 
