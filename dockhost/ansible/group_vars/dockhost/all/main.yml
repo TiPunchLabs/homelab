@@ -19,12 +19,24 @@ security_open_ports:
   - { port: 8000, proto: tcp, comment: "Kandidat web app" }
   - { port: 8080, proto: tcp, comment: "Open WebUI" }
   - { port: 8082, proto: tcp, comment: "Excalidraw" }
+  - { port: 8090, proto: tcp, comment: "Komodo POC whoami stack" }
+  - { port: 9120, proto: tcp, comment: "Komodo Core UI + webhook listener" }
 
 # ============================================================
 # 🐳 Portainer CE - Role portainer
 # ============================================================
 portainer_admin_username: "{{ vault_portainer_admin_username }}"
 portainer_admin_password: "{{ vault_portainer_admin_password }}"
+
+# ============================================================
+# 🦎 Komodo - Role komodo (GitOps docker-compose reconciler)
+# ============================================================
+komodo_host: "http://komodo.internal"
+# Secrets resolved from vault/config.yml:
+#   vault_komodo_db_password
+#   vault_komodo_admin_password
+#   vault_komodo_webhook_secret
+#   vault_komodo_jwt_secret
 
 # ============================================================
 # 🌐 Open WebUI - Role open_webui

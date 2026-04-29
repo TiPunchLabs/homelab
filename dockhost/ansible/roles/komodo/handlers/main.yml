@@ -1,0 +1,5 @@
+---
+- name: Restart komodo
+  community.docker.docker_compose_v2:
+    project_src: "{{ komodo_install_dir }}"
+    state: restarted

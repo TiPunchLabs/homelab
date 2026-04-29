@@ -37,6 +37,9 @@
     - role: portainer
       tags:
         - portainer
+    - role: komodo
+      tags:
+        - komodo
     - role: postgresql
       tags:
         - postgresql

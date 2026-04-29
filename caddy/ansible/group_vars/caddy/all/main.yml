@@ -47,3 +47,7 @@ caddy_backends:
     domain: excalidraw.internal
     upstream: http://192.168.10.90:8082
     tls_insecure_skip_verify: false
+  - name: komodo
+    domain: komodo.internal
+    upstream: http://192.168.10.90:9120
+    tls_insecure_skip_verify: false

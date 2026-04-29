@@ -1,0 +1,54 @@
+{{ ansible_managed | comment }}
+# Based on official: https://github.com/moghtech/komodo/blob/main/compose/mongo.compose.yaml
+
+services:
+  mongo:
+    image: mongo
+    container_name: komodo-mongo
+    labels:
+      komodo.skip: ""  # Prevent Komodo from stopping itself via StopAllContainers
+    command: --quiet --wiredTigerCacheSizeGB 0.25
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${KOMODO_DATABASE_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${KOMODO_DATABASE_PASSWORD}
+
+  core:
+    image: ghcr.io/moghtech/komodo-core:${COMPOSE_KOMODO_IMAGE_TAG:-2}
+    container_name: komodo-core
+    init: true
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    ports:
+      - "{{ komodo_core_port }}:9120"
+    env_file: ./compose.env
+    environment:
+      KOMODO_DATABASE_ADDRESS: mongo:27017
+    volumes:
+      - keys:/config/keys
+      - {{ komodo_backups_dir }}:/backups
+
+  periphery:
+    image: ghcr.io/moghtech/komodo-periphery:${COMPOSE_KOMODO_IMAGE_TAG:-2}
+    container_name: komodo-periphery
+    init: true
+    restart: unless-stopped
+    depends_on:
+      - core
+    env_file: ./compose.env
+    volumes:
+      - keys:/config/keys
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc:/proc
+      # Periphery root: path must be identical inside and outside the container
+      # (Docker-in-Docker volume mounts), see moghtech/komodo#180
+      - {{ komodo_periphery_root }}:{{ komodo_periphery_root }}
+
+volumes:
+  mongo-data:
+  mongo-config:
+  keys:
