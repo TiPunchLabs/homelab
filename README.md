@@ -133,14 +133,14 @@ homelab/
 
 | Name | ID | IP | CPU | RAM | Disk | Purpose |
 |------|----|----|-----|-----|------|---------|
-| vpngate-50 | 9050 | 192.168.1.50 | 1 core | 512 MB | 22 GB | WireGuard VPN Gateway |
-| bastion-60 | 9060 | 192.168.1.60 | 2 cores | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
-| caddy-70 (LXC) | 1070 | 192.168.1.70 | 1 core | 512 MB | 8 GB | Caddy reverse proxy |
-| dns-71 (LXC) | 1071 | 192.168.1.71 | 1 core | 512 MB | 8 GB | Pi-hole DNS |
-| dockhost-90 | 9090 | 192.168.1.90 | 3 cores | 10 GB | 100 GB | Docker services |
-| kubecluster-40 | 9040 | 192.168.1.40 | 2 cores | 4 GB | 35 GB | K8s Control Plane |
-| kubecluster-41 | 9041 | 192.168.1.41 | 1 core | 3.5 GB | 30 GB | K8s Worker |
-| kubecluster-42 | 9042 | 192.168.1.42 | 1 core | 3.5 GB | 30 GB | K8s Worker |
+| vpngate-50 | 9050 | 192.168.10.50 | 1 core | 512 MB | 22 GB | WireGuard VPN Gateway |
+| bastion-60 | 9060 | 192.168.10.60 | 2 cores | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
+| caddy-70 (LXC) | 1070 | 192.168.10.70 | 1 core | 512 MB | 8 GB | Caddy reverse proxy |
+| dns-71 (LXC) | 1071 | 192.168.10.71 | 1 core | 512 MB | 8 GB | Pi-hole DNS |
+| dockhost-90 | 9090 | 192.168.10.90 | 3 cores | 10 GB | 100 GB | Docker services |
+| kubecluster-40 | 9040 | 192.168.10.40 | 2 cores | 4 GB | 35 GB | K8s Control Plane |
+| kubecluster-41 | 9041 | 192.168.10.41 | 1 core | 3.5 GB | 30 GB | K8s Worker |
+| kubecluster-42 | 9042 | 192.168.10.42 | 1 core | 3.5 GB | 30 GB | K8s Worker |
 
 ## Secrets Management
 

@@ -10,7 +10,7 @@ ssh pve "qm status 9090"  # dockhost
 ssh pve "qm status 9040"  # kubecluster control plane
 
 # Test network connectivity
-ping 192.168.1.90
+ping 192.168.10.90
 
 # Test SSH with verbose output
 ssh -vvv dockhost-90
@@ -35,8 +35,8 @@ After re-provisioning a VM, the host key changes:
 
 ```bash
 # Remove the old host key
-ssh-keygen -R 192.168.1.90    # dockhost
-ssh-keygen -R 192.168.1.40    # kubecluster CP
+ssh-keygen -R 192.168.10.90    # dockhost
+ssh-keygen -R 192.168.10.40    # kubecluster CP
 ```
 
 ---
