@@ -5,4 +5,4 @@ wg_easy_image_tag: "latest"
 wg_easy_port: 51820
 wg_easy_web_port: 51821
 wg_easy_default_address: "10.0.0.x"
-wg_easy_default_dns: "192.168.1.71"
+wg_easy_default_dns: "192.168.10.71"

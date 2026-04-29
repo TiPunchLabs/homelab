@@ -29,7 +29,7 @@ portainer_admin_password: "{{ vault_portainer_admin_password }}"
 # ============================================================
 # 🌐 Open WebUI - Role open_webui
 # ============================================================
-open_webui_ollama_base_url: "http://192.168.1.101:11434"
+open_webui_ollama_base_url: "http://192.168.10.101:11434"
 open_webui_db_password: "{{ vault_open_webui_db_password }}"
 open_webui_database_url: "{{ vault_open_webui_database_url }}"
 open_webui_secret_key: "{{ vault_open_webui_secret_key }}"

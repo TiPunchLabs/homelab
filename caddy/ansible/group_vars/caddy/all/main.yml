@@ -20,30 +20,30 @@ security_open_ports:
 caddy_backends:
   - name: proxmox
     domain: proxmox.internal
-    upstream: https://192.168.1.100:8006
+    upstream: https://192.168.10.100:8006
     tls_insecure_skip_verify: true
     tls_internal: true
   - name: kandidat
     domain: kandidat.internal
-    upstream: http://192.168.1.90:8000
+    upstream: http://192.168.10.90:8000
     tls_insecure_skip_verify: false
   - name: vpngate
     domain: vpngate.internal
-    upstream: http://192.168.1.50:51821
+    upstream: http://192.168.10.50:51821
     tls_insecure_skip_verify: false
   - name: portainer
     domain: portainer.internal
-    upstream: http://192.168.1.90:9000
+    upstream: http://192.168.10.90:9000
     tls_insecure_skip_verify: false
   - name: pihole
     domain: pihole.internal
-    upstream: http://192.168.1.71:80
+    upstream: http://192.168.10.71:80
     tls_insecure_skip_verify: false
   - name: openwebui
     domain: openwebui.internal
-    upstream: http://192.168.1.90:8080
+    upstream: http://192.168.10.90:8080
     tls_insecure_skip_verify: false
   - name: excalidraw
     domain: excalidraw.internal
-    upstream: http://192.168.1.90:8082
+    upstream: http://192.168.10.90:8082
     tls_insecure_skip_verify: false
