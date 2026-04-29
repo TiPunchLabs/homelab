@@ -104,7 +104,7 @@ variable "ct_start_on_boot" {
 variable "ct_gateway" {
   description = "Default gateway"
   type        = string
-  default     = "192.168.1.1"
+  default     = "192.168.10.1"
 }
 
 variable "ct_netmask" {

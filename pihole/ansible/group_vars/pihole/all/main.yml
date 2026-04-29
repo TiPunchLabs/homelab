@@ -19,17 +19,17 @@ security_open_ports:
 # 🌐 DNS - Role pihole
 # ============================================================
 pihole_local_records:
-  - ip: 192.168.1.70
+  - ip: 192.168.10.70
     domain: proxmox.internal
-  - ip: 192.168.1.70
+  - ip: 192.168.10.70
     domain: kandidat.internal
-  - ip: 192.168.1.70
+  - ip: 192.168.10.70
     domain: vpngate.internal
-  - ip: 192.168.1.70
+  - ip: 192.168.10.70
     domain: portainer.internal
-  - ip: 192.168.1.70
+  - ip: 192.168.10.70
     domain: pihole.internal
-  - ip: 192.168.1.70
+  - ip: 192.168.10.70
     domain: openwebui.internal
-  - ip: 192.168.1.70
+  - ip: 192.168.10.70
     domain: excalidraw.internal

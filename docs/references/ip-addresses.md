@@ -1,31 +1,31 @@
 # IP address reference
 
-## Main network (192.168.1.0/24)
+## Main network (192.168.10.0/24)
 
 ### Physical equipment
 
 | Equipment | IP | Description |
 |------------|-----|-------------|
-| **Proxmox VE** | 192.168.1.100 | Main hypervisor |
-| **Gateway** | 192.168.1.254 | Router/Gateway |
+| **Proxmox VE** | 192.168.10.100 | Main hypervisor |
+| **Gateway** | 192.168.10.254 | Router/Gateway |
 
 ### Proxmox VMs
 
 | VM | VMID | IP | Usage |
 |----|------|-----|-------|
-| bastion-60 | 9060 | 192.168.1.60 | Bastion (GitLab Runner shell, Terraform, Ansible) |
-| vpngate-50 | 9050 | 192.168.1.50 | WireGuard VPN Gateway |
-| dockhost-90 | 9090 | 192.168.1.90 | Docker services (Portainer, GitLab Runner) |
-| kubecluster-40 | 9040 | 192.168.1.40 | K8s Control Plane |
-| kubecluster-41 | 9041 | 192.168.1.41 | K8s Worker |
-| kubecluster-42 | 9042 | 192.168.1.42 | K8s Worker |
+| bastion-60 | 9060 | 192.168.10.60 | Bastion (GitLab Runner shell, Terraform, Ansible) |
+| vpngate-50 | 9050 | 192.168.10.50 | WireGuard VPN Gateway |
+| dockhost-90 | 9090 | 192.168.10.90 | Docker services (Portainer, GitLab Runner) |
+| kubecluster-40 | 9040 | 192.168.10.40 | K8s Control Plane |
+| kubecluster-41 | 9041 | 192.168.10.41 | K8s Worker |
+| kubecluster-42 | 9042 | 192.168.10.42 | K8s Worker |
 
 ### Proxmox LXC Containers
 
 | Container | CTID | IP | Usage |
 |-----------|------|-----|-------|
-| caddy-70 | 1070 | 192.168.1.70 | Caddy reverse proxy |
-| dns-71 | 1071 | 192.168.1.71 | Pi-hole DNS |
+| caddy-70 | 1070 | 192.168.10.70 | Caddy reverse proxy |
+| dns-71 | 1071 | 192.168.10.71 | Pi-hole DNS |
 
 ### Important ports
 
@@ -63,7 +63,7 @@
 
 ## VM addressing plan
 
-Convention: `192.168.1.{vm_ip_start}` where `vm_ip_start` is defined in Terraform.
+Convention: `192.168.10.{vm_ip_start}` where `vm_ip_start` is defined in Terraform.
 
 ```
 .40-.49  : kubecluster (Kubernetes)
@@ -79,7 +79,7 @@ Convention: `192.168.1.{vm_ip_start}` where `vm_ip_start` is defined in Terrafor
 
 The convention uses the following scheme:
 - VM ID: `90XX`
-- IP: `192.168.1.XX`
+- IP: `192.168.10.XX`
 
 | ID range | IP range | Usage |
 |----------|----------|-------|
@@ -97,12 +97,12 @@ SSH aliases are configured in `~/.ssh/config`:
 
 | Alias | IP | User | Key |
 |-------|-----|------|-----|
-| `pve` | 192.168.1.100 | ansible | `~/.ssh/proxmox` |
-| `bastion-60` | 192.168.1.60 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
-| `dockhost-90` | 192.168.1.90 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
-| `kubecluster-40` | 192.168.1.40 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
-| `kubecluster-41` | 192.168.1.41 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
-| `kubecluster-42` | 192.168.1.42 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
-| `vpngate-50` | 192.168.1.50 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
-| `caddy-70` | 192.168.1.70 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
-| `dns-71` | 192.168.1.71 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
+| `pve` | 192.168.10.100 | ansible | `~/.ssh/proxmox` |
+| `bastion-60` | 192.168.10.60 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
+| `dockhost-90` | 192.168.10.90 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
+| `kubecluster-40` | 192.168.10.40 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
+| `kubecluster-41` | 192.168.10.41 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
+| `kubecluster-42` | 192.168.10.42 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
+| `vpngate-50` | 192.168.10.50 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
+| `caddy-70` | 192.168.10.70 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
+| `dns-71` | 192.168.10.71 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
