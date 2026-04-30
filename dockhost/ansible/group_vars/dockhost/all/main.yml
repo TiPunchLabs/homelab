@@ -19,7 +19,7 @@ security_open_ports:
   - { port: 8000, proto: tcp, comment: "Kandidat web app" }
   - { port: 8080, proto: tcp, comment: "Open WebUI" }
   - { port: 8082, proto: tcp, comment: "Excalidraw" }
-  - { port: 8090, proto: tcp, comment: "Komodo POC whoami stack" }
+  - { port: 8090, proto: tcp, comment: "Miniboard" }
   - { port: 9120, proto: tcp, comment: "Komodo Core UI + webhook listener" }
 
 # ============================================================

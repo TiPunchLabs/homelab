@@ -1,0 +1,10 @@
+---
+# Image Docker miniboard (GitLab Container Registry)
+miniboard_registry: "registry.gitlab.com/tipunchlabs/miniboard"
+miniboard_image_tag: "main"
+
+# Repertoires sur l'hote
+miniboard_install_dir: "/opt/miniboard"
+
+# Port expose
+miniboard_port: 8090

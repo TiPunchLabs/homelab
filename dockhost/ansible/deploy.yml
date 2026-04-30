@@ -52,3 +52,6 @@
     - role: excalidraw
       tags:
         - excalidraw
+    - role: miniboard
+      tags:
+        - miniboard
