@@ -35,3 +35,5 @@ pihole_local_records:
     domain: excalidraw.internal
   - ip: 192.168.10.70
     domain: komodo.internal
+  - ip: 192.168.10.70
+    domain: miniboard.internal

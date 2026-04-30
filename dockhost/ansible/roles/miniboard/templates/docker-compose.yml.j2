@@ -1,0 +1,21 @@
+{{ ansible_managed | comment }}
+
+services:
+  miniboard:
+    image: {{ miniboard_registry }}:{{ miniboard_image_tag }}
+    container_name: miniboard
+    restart: always
+    ports:
+      - "{{ miniboard_port }}:80"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - vm-docker-90-net
+
+networks:
+  vm-docker-90-net:
+    driver: bridge

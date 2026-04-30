@@ -51,3 +51,7 @@ caddy_backends:
     domain: komodo.internal
     upstream: http://192.168.10.90:9120
     tls_insecure_skip_verify: false
+  - name: miniboard
+    domain: miniboard.internal
+    upstream: http://192.168.10.90:8090
+    tls_insecure_skip_verify: false

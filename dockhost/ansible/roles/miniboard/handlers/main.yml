@@ -1,0 +1,5 @@
+---
+- name: Restart miniboard
+  community.docker.docker_compose_v2:
+    project_src: "{{ miniboard_install_dir }}"
+    state: restarted

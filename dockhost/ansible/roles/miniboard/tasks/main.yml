@@ -1,0 +1,40 @@
+---
+- name: Create directory for docker-compose
+  ansible.builtin.file:
+    path: "{{ miniboard_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Login to GitLab Container Registry
+  community.docker.docker_login:
+    registry_url: "https://registry.gitlab.com"
+    username: "{{ vault_miniboard_registry_user }}"
+    password: "{{ vault_miniboard_registry_password }}"
+
+- name: Copy docker compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ miniboard_install_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart miniboard
+
+- name: Deploy miniboard with Docker Compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ miniboard_install_dir }}"
+    state: present
+    pull: always
+    recreate: auto
+    remove_orphans: true
+
+- name: Wait for miniboard to be ready
+  ansible.builtin.uri:
+    url: "http://localhost:{{ miniboard_port }}/"
+    status_code: 200
+  register: miniboard_ready
+  retries: 10
+  delay: 3
+  until: miniboard_ready.status == 200
