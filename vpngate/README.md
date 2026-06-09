@@ -62,8 +62,8 @@ pm_api_token_secret  = "your-token-secret"
 - Disk: 22 GB SSD
 - Template ID: 9001
 - VM Base ID: 9050
-- IP: 192.168.1.50
-- DNS: 192.168.1.71 (Pi-hole)
+- IP: 192.168.10.50
+- DNS: 192.168.10.71 (Pi-hole)
 
 ### 2. Service Deployment with Ansible
 
@@ -155,6 +155,24 @@ pre-commit install
 │   └── understanding-wireguard-role.md  # WireGuard role documentation
 └── README.md                     # This file
 ```
+
+## External access (Internet)
+
+To reach `wg-easy` (UDP/51820 on `192.168.10.50`) from the Internet, two
+port-forwarding rules must be in place because the homelab sits behind two
+NAT layers (ISP box → mesh router → homelab LAN):
+
+1. **ISP box (Livebox)**: `WAN UDP 51820 → 192.168.1.10:51820` (mesh router WAN IP)
+2. **Mesh router (WERTMESH1800)**: `WAN UDP 51820 → 192.168.10.50:51820` (vpngate)
+
+See [docs/references/ip-addresses.md → External access topology](../docs/references/ip-addresses.md#external-access-topology)
+for the full diagram.
+
+> ⚠️ **Generated client `.conf` quirk** — peers created via the wg-easy UI inherit
+> the `WG_DEFAULT_DNS` value of the moment. Older peers may still ship with
+> `DNS = 1.1.1.1, 8.8.8.8` instead of `DNS = 192.168.10.71` (Pi-hole). The
+> tunnel will work, but `.internal` domains won't resolve. Fix by editing
+> the client `wg0.conf` or regenerating the peer.
 
 ## Documentation
 
