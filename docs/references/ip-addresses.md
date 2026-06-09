@@ -61,6 +61,52 @@
 
 ---
 
+## External access topology
+
+The homelab LAN (`192.168.10.0/24`) is **not directly connected to the Internet**.
+Traffic from Internet → homelab traverses two NAT layers:
+
+```
+INTERNET  (public IP ~ 90.36.x.x, Orange — dynamic)
+   │
+   ▼
+┌──────────────────────────────────────┐
+│  ISP box (Livebox)                   │
+│  LAN: 192.168.1.0/24                 │
+│  Admin: http://192.168.1.1           │
+└──────────────────────────────────────┘
+   │
+   ▼  (WAN of mesh router = 192.168.1.10, DHCP — should be reserved by MAC)
+┌──────────────────────────────────────┐
+│  Mesh router (WERTMESH1800)          │
+│  LAN: 192.168.10.0/24                │
+│  Admin: http://192.168.10.1          │
+└──────────────────────────────────────┘
+   │
+   ▼
+   Homelab LAN (vpngate-50, dockhost-90, kubecluster, caddy-70, dns-71, ...)
+```
+
+### Port forwarding chain
+
+To expose a service to the Internet, **two redirects** are required:
+
+| Layer | From | To |
+|-------|------|-----|
+| Livebox | `WAN <proto> <port>` | `192.168.1.10:<port>` (mesh router) |
+| Mesh router | `WAN <proto> <port>` | `192.168.10.X:<port>` (target host) |
+
+**Current rules in production:**
+
+| Service | Public port | Proto | Final destination |
+|---------|-------------|-------|-------------------|
+| WireGuard (wg-easy) | 51820 | UDP | `192.168.10.50:51820` (vpngate) |
+
+A missing rule on either layer = silent drop. Symptom client-side:
+`wg show` reports `0 B received, X B sent`.
+
+---
+
 ## VM addressing plan
 
 Convention: `192.168.10.{vm_ip_start}` where `vm_ip_start` is defined in Terraform.
