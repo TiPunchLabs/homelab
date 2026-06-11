@@ -19,14 +19,31 @@ The project deploys a complete containerized infrastructure with the following s
 
 ### Deployed Services
 
-- **Portainer Agent** - Docker container management interface
+Each service is its own Ansible role, deployed in this order by `deploy.yml`:
+
+| Service | Role / tag | Description |
+|---------|-----------|-------------|
+| MOTD | `motd` | Custom login banner (ASCII art) |
+| Docker | `docker` | Docker Engine + Compose plugin |
+| Portainer CE | `portainer` | Docker management UI (`portainer/portainer-ce`) |
+| Komodo Periphery | `komodo` | GitOps agent — reconciles the `homelab-gitops` repo into running containers |
+| PostgreSQL | `postgresql` | Shared database, on the `db-net` Docker network |
+| kandidat | `kandidat` | App `kandidat` (image from the GitLab registry, on `db-net`) |
+| Open WebUI | `open-webui` | LLM frontend; backend Ollama reached via `ollama.internal`, state in PostgreSQL |
+| Excalidraw | `excalidraw` | Self-hosted virtual whiteboard |
+| miniboard | `miniboard` | Dashboard (image from the GitLab registry) |
+
+> ℹ️ The `security_hardening` role exists but is an **empty placeholder** (not wired
+> into `deploy.yml` yet) — see the homelab root `CLAUDE.md` backlog.
 
 ### Infrastructure Stack
 
 1. **Terraform**: VM provisioning on Proxmox
 2. **Ansible**: Service installation and configuration
-3. **Docker**: Containerization platform
-4. **Traefik**: Service mesh and reverse proxy
+3. **Docker**: Containerization platform (services run as Compose stacks)
+4. **Caddy** (LXC `caddy-70`) + **Pi-hole** (`dns-71`): reverse proxy and `.internal`
+   DNS in front of these services — not part of this VM, see
+   [`../caddy/`](../caddy/) and [`../pihole/`](../pihole/)
 
 ## 📋 Prerequisites
 
@@ -83,14 +100,22 @@ pm_api_token_secret  = "your-token-secret"
    ansible-playbook deploy.yml --tags motd
 
    # Deploy multiple services
-   ansible-playbook deploy.yml --tags "docker,portainer-agent"
+   ansible-playbook deploy.yml --tags "docker,portainer"
    ```
 
 ### 🔑 Available Ansible Tags
 
-- `motd` - Deploy custom MOTD with ASCII art banner
-- `docker` - Install Docker and Docker Compose
-- `portainer-agent` - Deploy Portainer Agent
+| Tag | Action |
+|-----|--------|
+| `motd` | Custom MOTD with ASCII art banner |
+| `docker` | Install Docker Engine and Compose |
+| `portainer` | Deploy Portainer CE |
+| `komodo` | Deploy Komodo Periphery (GitOps agent) |
+| `postgresql` | Deploy PostgreSQL (`db-net`) |
+| `kandidat` | Deploy the `kandidat` app |
+| `open-webui` | Deploy Open WebUI (note the hyphen, not `open_webui`) |
+| `excalidraw` | Deploy Excalidraw |
+| `miniboard` | Deploy miniboard |
 
 ## 🔒 Security
 
@@ -130,10 +155,15 @@ pre-commit install
 │   │       └── vault/            # Encrypted variables
 │   └── roles/                    # Ansible roles
 │       ├── motd/                 # Custom MOTD banner
-│       ├── docker/               # Docker installation
-│       ├── security_hardening/   # Security hardening
-│       ├── portainer_agent/      # Portainer Agent
-│       └── github_runner/        # GitHub Actions Runner
+│       ├── docker/               # Docker Engine + Compose
+│       ├── portainer/            # Portainer CE
+│       ├── komodo/               # Komodo Periphery (GitOps agent)
+│       ├── postgresql/           # PostgreSQL (db-net)
+│       ├── kandidat/             # kandidat app
+│       ├── open_webui/           # Open WebUI (LLM frontend)
+│       ├── excalidraw/           # Excalidraw whiteboard
+│       ├── miniboard/            # miniboard dashboard
+│       └── security_hardening/   # Placeholder (empty, not in deploy.yml)
 ├── terraform/
 │   ├── main.tf                   # Terraform main configuration
 │   ├── variables.tf              # Variable definitions
