@@ -37,3 +37,7 @@ pihole_local_records:
     domain: komodo.internal
   - ip: 192.168.10.70
     domain: miniboard.internal
+  # Resolution directe vers l'hote Ollama (pas via Caddy) : consomme par
+  # Open WebUI (OLLAMA_BASE_URL) pour decoupler la conf de l'IP physique
+  - ip: 192.168.10.217
+    domain: ollama.internal

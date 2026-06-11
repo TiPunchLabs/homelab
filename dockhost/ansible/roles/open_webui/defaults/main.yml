@@ -12,6 +12,11 @@ open_webui_data_dir: "/app/data/open-webui"
 open_webui_http_port: 8080
 open_webui_bind_address: "0.0.0.0"
 
+# Resolveur DNS du conteneur : Pi-hole, pour resoudre les noms .internal
+# (ex. ollama.internal). Sans ca le conteneur herite du DNS de l'hote qui
+# ne pointe pas vers Pi-hole.
+open_webui_dns: "192.168.10.71"
+
 # PostgreSQL (conteneur existant sur dockhost)
 open_webui_db_container: "postgresql"
 open_webui_db_name: "open_webui"
