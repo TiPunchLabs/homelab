@@ -27,6 +27,14 @@
 | caddy-70 | 1070 | 192.168.10.70 | Caddy reverse proxy |
 | dns-71 | 1071 | 192.168.10.71 | Pi-hole DNS |
 
+### External services on the LAN
+
+Hosts not provisioned by this repo but consumed by homelab services.
+
+| Host | IP | Description |
+|------|-----|-------------|
+| Ollama (workstation) | 192.168.10.217 | LLM backend for Open WebUI. Reached via `ollama.internal` (Pi-hole record), **not** by hard-coded IP — see [Local DNS records](#local-dns-records-internal). May change IP / be offline (laptop). |
+
 ### Important ports
 
 | Service | Port | Protocol |
@@ -152,3 +160,33 @@ SSH aliases are configured in `~/.ssh/config`:
 | `vpngate-50` | 192.168.10.50 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `caddy-70` | 192.168.10.70 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `dns-71` | 192.168.10.71 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
+
+---
+
+## Local DNS records (`.internal`)
+
+Resolved by Pi-hole (`192.168.10.71`). Source of truth:
+`pihole/ansible/group_vars/pihole/all/main.yml` (`pihole_local_records`).
+
+Two kinds of records:
+
+- **Reverse-proxied services** → point to **Caddy** (`192.168.10.70`), which routes by `Host` header to the right backend.
+- **Direct records** → point straight at a host (no reverse proxy in between).
+
+| Name | Target | Kind |
+|------|--------|------|
+| `proxmox.internal` | 192.168.10.70 | via Caddy |
+| `kandidat.internal` | 192.168.10.70 | via Caddy |
+| `vpngate.internal` | 192.168.10.70 | via Caddy |
+| `portainer.internal` | 192.168.10.70 | via Caddy |
+| `pihole.internal` | 192.168.10.70 | via Caddy |
+| `openwebui.internal` | 192.168.10.70 | via Caddy |
+| `excalidraw.internal` | 192.168.10.70 | via Caddy |
+| `komodo.internal` | 192.168.10.70 | via Caddy |
+| `miniboard.internal` | 192.168.10.70 | via Caddy |
+| `ollama.internal` | 192.168.10.217 | direct (LLM backend, consumed by Open WebUI) |
+
+> 💡 **Note**: Docker containers do **not** inherit `.internal` resolution from the
+> dockhost — its `/etc/resolv.conf` points to `systemd-resolved`, not Pi-hole. A
+> container that must resolve `.internal` (e.g. `open-webui` → `ollama.internal`)
+> needs an explicit `dns:` entry pointing to Pi-hole in its compose file.
