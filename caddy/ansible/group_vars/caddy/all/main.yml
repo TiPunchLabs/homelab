@@ -27,6 +27,14 @@ caddy_backends:
     domain: kandidat.internal
     upstream: http://192.168.10.90:8000
     tls_insecure_skip_verify: false
+  - name: portail-client
+    domain: portail-client.internal
+    upstream: http://192.168.10.90:8091
+    # tls internal: Caddy serves HTTPS with its internal CA so the app's Secure
+    # session cookie works over the LAN (magic-link login). Trust Caddy's root CA
+    # on client machines to avoid a TLS warning.
+    tls_internal: true
+    tls_insecure_skip_verify: false
   - name: vpngate
     domain: vpngate.internal
     upstream: http://192.168.10.50:51821
