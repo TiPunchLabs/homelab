@@ -1,0 +1,10 @@
+---
+# portail-client is deployed and reconciled by Komodo (GitOps), not by Ansible:
+# Komodo pulls the private image (group registry account) and runs `docker compose up`.
+# Ansible's only job here is host preparation — create the SQLite bind-mount dir with
+# the ownership the non-root container expects, so it can open/write its database file.
+portail_client_data_dir: "/app/data/portail-client"
+
+# Must match the image's runtime user (Dockerfile: ARG UID/GID default 1000, USER portail).
+portail_client_uid: 1000
+portail_client_gid: 1000

@@ -46,6 +46,9 @@
     - role: kandidat
       tags:
         - kandidat
+    - role: portail_client
+      tags:
+        - portail-client
     - role: open_webui
       tags:
         - open-webui

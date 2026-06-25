@@ -1,0 +1,11 @@
+---
+# Host prep only — Komodo owns the deploy (image pull + compose up). We deliberately
+# do NOT docker_login here (Komodo authenticates via its group registry account) and
+# do NOT run docker compose (Komodo reconciles the stack from homelab-gitops).
+- name: Create portail-client data directory (writable by the container UID)
+  ansible.builtin.file:
+    path: "{{ portail_client_data_dir }}"
+    state: directory
+    owner: "{{ portail_client_uid }}"
+    group: "{{ portail_client_gid }}"
+    mode: '0755'
