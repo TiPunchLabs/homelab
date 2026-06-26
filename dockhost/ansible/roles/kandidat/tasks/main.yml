@@ -1,6 +1,6 @@
 ---
 # =============================================================================
-# PostgreSQL — create database and user if they don't exist
+# PostgreSQL — create database and user if they don't exist (Komodo does not do this)
 # =============================================================================
 - name: Check if PostgreSQL user exists
   community.docker.docker_container_exec:
@@ -37,53 +37,15 @@
   when: kandidat_pg_db_check.stdout | trim != "1"
 
 # =============================================================================
-# Application — deploy kandidat container
+# Host prep only — Komodo owns the deploy (image pull via group registry account +
+# compose up reconciled from homelab-gitops). We deliberately do NOT docker_login here
+# and do NOT run docker compose. Ansible just creates the bind-mount data dir with the
+# ownership the non-root container expects.
 # =============================================================================
-- name: Create directory for docker-compose
-  ansible.builtin.file:
-    path: "{{ kandidat_install_dir }}"
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
-
-- name: Create data directory
+- name: Create kandidat data directory (writable by the container UID)
   ansible.builtin.file:
     path: "{{ kandidat_data_dir }}"
     state: directory
     owner: "{{ kandidat_uid }}"
     group: "{{ kandidat_gid }}"
     mode: '0755'
-
-- name: Login to GitLab Container Registry
-  community.docker.docker_login:
-    registry_url: "https://registry.gitlab.com"
-    username: "{{ vault_kandidat_registry_user }}"
-    password: "{{ vault_kandidat_registry_password }}"
-
-- name: Copy docker compose file
-  ansible.builtin.template:
-    src: docker-compose.yml.j2
-    dest: "{{ kandidat_install_dir }}/docker-compose.yml"
-    owner: root
-    group: root
-    mode: '0600'
-  notify: Restart kandidat
-
-- name: Deploy kandidat with Docker Compose
-  community.docker.docker_compose_v2:
-    project_src: "{{ kandidat_install_dir }}"
-    state: present
-    pull: always
-    recreate: auto
-    remove_orphans: true
-  register: kandidat_deploy
-
-- name: Wait for kandidat to be ready
-  ansible.builtin.uri:
-    url: "http://localhost:{{ kandidat_port }}/"
-    status_code: 200
-  register: kandidat_ready
-  retries: 10
-  delay: 3
-  until: kandidat_ready.status == 200
