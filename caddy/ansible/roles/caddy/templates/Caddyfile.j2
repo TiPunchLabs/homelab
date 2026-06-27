@@ -4,7 +4,20 @@
 # LAN prive, transport securise par VPN WireGuard
 
 {% for backend in caddy_backends %}
-{% if backend.tls_internal | default(false) %}
+{% if backend.tls_public | default(false) %}
+{{ backend.domain }} {
+	# Public vhost: real Let's Encrypt cert via DNS-01 (OVH). The challenge needs
+	# no inbound :80, so only :443 is port-forwarded from the box. Creds come from
+	# /etc/caddy/ovh.env (systemd EnvironmentFile), never inlined in the Caddyfile.
+	tls {
+		dns ovh {
+			endpoint {{ caddy_ovh_endpoint | default('ovh-eu') }}
+			application_key {env.OVH_APPLICATION_KEY}
+			application_secret {env.OVH_APPLICATION_SECRET}
+			consumer_key {env.OVH_CONSUMER_KEY}
+		}
+	}
+{% elif backend.tls_internal | default(false) %}
 {{ backend.domain }} {
 	tls internal
 {% else %}

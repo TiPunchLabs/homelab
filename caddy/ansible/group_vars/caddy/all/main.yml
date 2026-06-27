@@ -17,6 +17,13 @@ security_open_ports:
 # ============================================================
 # 🔀 Reverse Proxy - Role caddy
 # ============================================================
+# OVH API creds for the DNS-01 challenge of public vhosts (tls_public).
+# Real values live in the ansible-vault file group_vars/caddy/vault/config.yml.
+caddy_ovh_endpoint: "ovh-eu"
+caddy_ovh_application_key: "{{ vault_ovh_application_key }}"
+caddy_ovh_application_secret: "{{ vault_ovh_application_secret }}"
+caddy_ovh_consumer_key: "{{ vault_ovh_consumer_key }}"
+
 caddy_backends:
   - name: proxmox
     domain: proxmox.internal
@@ -34,6 +41,14 @@ caddy_backends:
     # session cookie works over the LAN (magic-link login). Trust Caddy's root CA
     # on client machines to avoid a TLS warning.
     tls_internal: true
+    tls_insecure_skip_verify: false
+  # Public exposure of the portal: portail-client.tipunchlabs.fr -> same upstream.
+  # Real Let's Encrypt cert via DNS-01 (OVH). The internal vhost above stays for
+  # LAN/VPN access; this one is reachable from the Internet (box :443 forward).
+  - name: portail-client-public
+    domain: portail-client.tipunchlabs.fr
+    upstream: http://192.168.10.90:8091
+    tls_public: true
     tls_insecure_skip_verify: false
   - name: vpngate
     domain: vpngate.internal

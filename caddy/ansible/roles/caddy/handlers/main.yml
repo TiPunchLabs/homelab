@@ -3,3 +3,10 @@
   ansible.builtin.systemd:
     name: caddy
     state: reloaded
+
+# Used when the binary or its environment changes (plugin add, EnvironmentFile,
+# systemd drop-in) — a reload would not pick those up.
+- name: Restart caddy
+  ansible.builtin.systemd:
+    name: caddy
+    state: restarted
