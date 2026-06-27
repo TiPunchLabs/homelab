@@ -14,6 +14,18 @@ TF_VAR_github_token=$(pass github/terraform-token)
 export TF_VAR_github_token
 export TF_VAR_github_owner="your-github-owner"
 
+# OVH API (ovh-dns/ — token scope /domain/zone/tipunchlabs.fr/*)
+TF_VAR_ovh_application_key=$(pass tipunchlabs/ovh/application_key)
+export TF_VAR_ovh_application_key
+TF_VAR_ovh_application_secret=$(pass tipunchlabs/ovh/application_secret)
+export TF_VAR_ovh_application_secret
+TF_VAR_ovh_consumer_key=$(pass tipunchlabs/ovh/consumer_key)
+export TF_VAR_ovh_consumer_key
+TF_VAR_dynhost_password=$(pass tipunchlabs/ovh/dynhost_password)
+export TF_VAR_dynhost_password
+TF_VAR_portail_current_ip=$(pass tipunchlabs/ovh/portail_public_ip)
+export TF_VAR_portail_current_ip
+
 # Ansible Vault password
 ANSIBLE_VAULT_PASSWORD=$(pass ansible/vault)
 export ANSIBLE_VAULT_PASSWORD

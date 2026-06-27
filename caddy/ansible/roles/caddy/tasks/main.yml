@@ -27,6 +27,50 @@
     state: present
     update_cache: true
 
+# DNS-01 ACME for the public vhost needs the OVH DNS provider, absent from the
+# stock apt binary. `caddy add-package` swaps /usr/bin/caddy for a pre-built
+# binary bundling the plugin (no Go toolchain needed). Gated on the module list
+# so it only runs once.
+- name: Check installed Caddy modules
+  ansible.builtin.command: caddy list-modules
+  register: caddy_modules
+  changed_when: false
+
+- name: Add the OVH DNS plugin to Caddy (DNS-01 ACME)
+  ansible.builtin.command: caddy add-package github.com/caddy-dns/ovh
+  when: "'dns.providers.ovh' not in caddy_modules.stdout"
+  notify: Restart caddy
+
+- name: Deploy OVH API credentials for DNS-01 (EnvironmentFile)
+  ansible.builtin.template:
+    src: ovh.env.j2
+    dest: "{{ caddy_config_dir }}/ovh.env"
+    owner: "{{ caddy_user }}"
+    group: "{{ caddy_group }}"
+    mode: '0600'
+  notify: Restart caddy
+
+- name: Ensure the caddy systemd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/caddy.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Load the OVH EnvironmentFile into the caddy service
+  ansible.builtin.template:
+    src: caddy-ovh-env.conf.j2
+    dest: /etc/systemd/system/caddy.service.d/ovh-env.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart caddy
+
+- name: Reload systemd to pick up the caddy drop-in
+  ansible.builtin.systemd:
+    daemon_reload: true
+
 - name: Deploy Caddyfile
   ansible.builtin.template:
     src: Caddyfile.j2
@@ -35,7 +79,11 @@
     group: "{{ caddy_group }}"
     mode: '0644'
     validate: "caddy validate --config %s --adapter caddyfile"
-  notify: Reload caddy
+  # Restart (not Reload): a reload runs in the process's current environment, so
+  # on the first deploy the public vhost would load before the OVH_* env vars
+  # (drop-in) are present and DNS-01 would fail. A restart guarantees the env is
+  # loaded before the config. Handlers dedupe, so this fires once at the end.
+  notify: Restart caddy
 
 - name: Ensure Caddy is enabled and started
   ansible.builtin.systemd:

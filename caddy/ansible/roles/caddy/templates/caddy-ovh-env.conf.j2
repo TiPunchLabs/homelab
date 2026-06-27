@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# systemd drop-in for the caddy service.
+[Service]
+# Load the OVH API credentials so the DNS-01 ACME challenge (caddy-dns/ovh) can
+# read them via {env.*} in the Caddyfile.
+EnvironmentFile={{ caddy_config_dir }}/ovh.env
+
+# Override ExecStart to drop the stock unit's `--environ` flag: it prints the
+# whole process environment (incl. the OVH_* secrets) to the journal at startup.
+# The empty assignment resets the inherited ExecStart before redefining it.
+ExecStart=
+ExecStart=/usr/bin/caddy run --config {{ caddy_config_dir }}/Caddyfile
