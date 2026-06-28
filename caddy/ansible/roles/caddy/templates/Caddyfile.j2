@@ -23,6 +23,17 @@
 {% else %}
 {{ backend.domain }}:80 {
 {% endif %}
+{% if backend.restrict_admin_lan | default(false) %}
+	# Defense in depth for the admin API: /api/admin* is allowed only from
+	# private (LAN/VPN) ranges; any other source gets 403. The app's Bearer
+	# token is the second layer. `respond` is ordered before `reverse_proxy`,
+	# so a matched request never reaches the upstream.
+	@admin_wan {
+		path /api/admin*
+		not remote_ip 192.168.0.0/16 10.0.0.0/8 172.16.0.0/12 127.0.0.0/8 ::1
+	}
+	respond @admin_wan "Forbidden" 403
+{% endif %}
 	reverse_proxy {{ backend.upstream }} {
 {% if backend.tls_insecure_skip_verify | default(false) %}
 		transport http {
