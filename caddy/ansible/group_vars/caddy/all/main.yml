@@ -42,6 +42,8 @@ caddy_backends:
     # on client machines to avoid a TLS warning.
     tls_internal: true
     tls_insecure_skip_verify: false
+    # Admin API (/api/admin*) reachable only from private ranges; WAN -> 403.
+    restrict_admin_lan: true
   # Public exposure of the portal: portail-client.tipunchlabs.fr -> same upstream.
   # Real Let's Encrypt cert via DNS-01 (OVH). The internal vhost above stays for
   # LAN/VPN access; this one is reachable from the Internet (box :443 forward).
@@ -50,6 +52,9 @@ caddy_backends:
     upstream: http://192.168.10.90:8091
     tls_public: true
     tls_insecure_skip_verify: false
+    # Defense in depth: the admin API must never be reachable from the Internet.
+    # Bearer token is layer 2; this LAN restriction is layer 1.
+    restrict_admin_lan: true
   - name: vpngate
     domain: vpngate.internal
     upstream: http://192.168.10.50:51821
