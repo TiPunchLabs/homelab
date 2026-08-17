@@ -23,6 +23,22 @@ The project deploys a Caddy reverse proxy that handles traffic for internal serv
 - **kandidat.internal** - Kandidat application (http://192.168.1.90:8000)
 - **vpngate.internal** - WireGuard VPN management interface (http://192.168.1.50:51821)
 
+### Per-Backend Flags
+
+Each entry of `caddy_backends` (in `ansible/group_vars/caddy/all/main.yml`) accepts
+the following optional flags:
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `tls_internal` | `false` | Serve the vhost on `:443` with Caddy's internal CA |
+| `tls_public` | `false` | Serve the vhost on `:443` with a real Let's Encrypt cert (DNS-01 / OVH) |
+| `tls_insecure_skip_verify` | `false` | Skip certificate validation on the **upstream** connection (self-signed backends) |
+| `restrict_admin_lan` | `false` | Serve `/api/admin*` only from RFC 1918 / loopback ranges; any other source gets a `403` before reaching the upstream |
+
+`restrict_admin_lan` is defense in depth for the publicly exposed portal: the
+application's Bearer token is layer 2, this IP restriction is layer 1. See
+[ADR-005](../docs/adr/caddy.md#adr-005--restriction-de-lapi-admin-aux-reseaux-prives).
+
 ### Infrastructure Stack
 
 1. **Terraform**: LXC container provisioning on Proxmox

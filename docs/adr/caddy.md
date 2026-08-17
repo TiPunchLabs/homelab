@@ -11,6 +11,7 @@
 - [ADR-002 : Domaines .internal au lieu de .local](#adr-002--domaines-internal-au-lieu-de-local)
 - [ADR-003 : tls_insecure_skip_verify pour Proxmox](#adr-003--tls_insecure_skip_verify-pour-proxmox)
 - [ADR-004 : IPs backends en clair dans group_vars](#adr-004--ips-backends-en-clair-dans-group_vars)
+- [ADR-005 : Restriction de l'API admin aux reseaux prives](#adr-005--restriction-de-lapi-admin-aux-reseaux-prives)
 
 ------
 
@@ -148,6 +149,56 @@ Les adresses IP des backends (Proxmox, Kandidat, VPNGate) doivent etre configure
 - Les IPs sont visibles dans le repo Git (public sur GitHub mirror).
 - Aucun risque de securite : les IPs privees (RFC 1918) ne sont pas routables depuis Internet.
 - Les secrets reels (tokens API, mots de passe) restent dans Vault.
+
+------
+
+## ADR-005 : Restriction de l'API admin aux reseaux prives
+
+| | |
+|---|---|
+| **Date** | 2026-06-27 |
+| **Statut** | Accepte |
+| **Decideurs** | xgueret |
+
+### Contexte
+
+Depuis l'exposition publique de `portail-client.tipunchlabs.fr` (vhost ACME DNS-01 OVH), les routes `/api/admin*` de l'application sont joignables depuis Internet. L'application protege ces routes par un Bearer token, mais cette protection est la seule barriere : une regression applicative, un token fuite ou une route oubliee suffit a exposer l'administration au monde entier.
+
+Le vhost interne `portail-client.internal` pose la meme question, meme si sa surface est limitee au LAN et au VPN.
+
+### Decision
+
+**Ajouter un flag opt-in `restrict_admin_lan` par backend. Quand il est actif, le Caddyfile ne sert `/api/admin*` que depuis les plages RFC 1918 et la loopback ; toute autre source recoit un 403 avant d'atteindre l'upstream.**
+
+Le flag est active sur les deux vhosts `portail-client` (interne et public).
+
+### Justification
+
+```
+Internet ──► Livebox :443 ──► Caddy-70 ──┬─ /api/admin*  + IP publique ──► 403 (Caddy)
+                                          │
+LAN / VPN ──────────────────────────────► ├─ /api/admin*  + RFC1918   ──► upstream ──► Bearer token
+                                          │
+                                          └─ tout le reste            ──► upstream
+```
+
+| Critere | Filtrage `remote_ip` dans Caddy (choisi) | Bearer token seul | Regle UFW / firewall |
+|---------|------------------------------------------|-------------------|----------------------|
+| Granularite | Par chemin (`/api/admin*`) | Par chemin, cote applicatif | Par port uniquement — impossible de distinguer les routes |
+| Resistance a une regression applicative | Le 403 tombe avant l'upstream | Aucune — une route oubliee est exposee | N/A |
+| Couplage au code applicatif | Aucun | Total | Aucun |
+| Cout | Un matcher par vhost | Deja en place | Ne repond pas au besoin |
+
+Le filtrage est une **couche 1** : il ne remplace pas le Bearer token (couche 2), il fait en sorte qu'une defaillance de la couche 2 ne soit pas immediatement exploitable depuis Internet.
+
+L'ordre des directives Caddy place `respond` avant `reverse_proxy`, donc une requete bloquee ne touche jamais le backend.
+
+### Consequences
+
+- Le flag est **opt-in** (`default(false)`) : les backends existants (`proxmox`, `vpngate`, `kandidat`) ne changent pas de comportement.
+- L'administration du portail n'est plus possible depuis Internet — il faut passer par le VPN WireGuard. C'est le comportement voulu.
+- Le filtrage repose sur l'IP source vue par Caddy. Il reste correct tant que le port forwarding de la box fait du DNAT sans proxy intermediaire. Si un CDN ou un proxy amont etait ajoute devant Caddy, toutes les requetes arriveraient avec l'IP du proxy et il faudrait basculer sur `trusted_proxies` + `X-Forwarded-For`.
+- Le test depuis le LAN ne valide que le cas passant ; verifier le 403 demande une source publique reelle (4G, host externe).
 
 ------
 
