@@ -31,6 +31,7 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 | [`bastion/`](bastion/) | Bastion VM — GitLab Runner (shell), Terraform, Ansible, pass, direnv | 1 | Terraform + Ansible |
 | [`dockhost/`](dockhost/) | Docker-based services VM (Docker, Portainer, GitLab Runner, security hardening) | 1 | Terraform + Ansible |
 | [`vpngate/`](vpngate/) | WireGuard VPN Gateway | 1 | Terraform + Ansible |
+| [`hermes/`](hermes/) | Hermes AI agent host | 1 | Terraform + Ansible |
 | [`kubecluster/`](kubecluster/) | Kubernetes cluster (kubeadm, containerd, CNI) | 3 (1 CP + 2 workers) | Terraform + Ansible |
 | [`caddy/`](caddy/) | LXC Caddy reverse proxy | 1 LXC | Terraform + Ansible |
 | [`pihole/`](pihole/) | LXC Pi-hole DNS | 1 LXC | Terraform + Ansible |
@@ -109,6 +110,7 @@ homelab/
 │   └── terraform/                  #   VM provisioning (1 VM)
 │
 ├── vpngate/                        # WireGuard VPN Gateway
+├── hermes/                         # Hermes AI agent host
 │   ├── ansible/                    #   Roles: motd, security_hardening, wireguard
 │   └── terraform/                  #   VM provisioning (1 VM)
 │
@@ -134,6 +136,7 @@ homelab/
 | Name | ID | IP | CPU | RAM | Disk | Purpose |
 |------|----|----|-----|-----|------|---------|
 | vpngate-50 | 9050 | 192.168.10.50 | 1 core | 512 MB | 22 GB | WireGuard VPN Gateway |
+| hermes-30 | 9030 | 192.168.10.30 | 4 cores | 8192 MB | 32 GB | Hermes AI agent host |
 | bastion-60 | 9060 | 192.168.10.60 | 2 cores | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
 | caddy-70 (LXC) | 1070 | 192.168.10.70 | 1 core | 512 MB | 8 GB | Caddy reverse proxy |
 | dns-71 (LXC) | 1071 | 192.168.10.71 | 1 core | 512 MB | 8 GB | Pi-hole DNS |

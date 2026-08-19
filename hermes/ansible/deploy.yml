@@ -1,0 +1,30 @@
+---
+- name: Configure hermes-30
+  become: true
+  hosts:
+    - hermes
+  pre_tasks:
+    # Hermes planifie ses taches en heure locale : le fuseau ne doit pas
+    # dependre d'un geste manuel non rejoue.
+    - name: Recuperer le fuseau horaire courant
+      ansible.builtin.command: timedatectl show -p Timezone --value
+      register: hermes_current_timezone
+      changed_when: false
+      tags:
+        - motd
+        - security-hardening
+
+    - name: Definir le fuseau horaire sur {{ hermes_timezone }}
+      ansible.builtin.command: timedatectl set-timezone {{ hermes_timezone }}
+      when: hermes_current_timezone.stdout != hermes_timezone
+      changed_when: true
+      tags:
+        - motd
+        - security-hardening
+  roles:
+    - role: motd
+      tags:
+        - motd
+    - role: security_hardening
+      tags:
+        - security-hardening

@@ -1,0 +1,6 @@
+all:
+  children:
+    hermes:
+      hosts:
+        hermes-30:
+          ansible_host: hermes-30

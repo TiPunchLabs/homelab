@@ -1,0 +1,8 @@
+---
+- name: Include SSH hardening tasks
+  ansible.builtin.include_tasks: ssh.yml
+  when: security_ssh_hardening | default(false)
+
+- name: Include UFW firewall tasks
+  ansible.builtin.include_tasks: ufw.yml
+  when: security_enable_ufw | default(false)

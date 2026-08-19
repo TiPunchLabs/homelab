@@ -28,6 +28,7 @@ homelab/
 ├── kubecluster/              # Cluster Kubernetes (3 VMs)
 ├── bastion/                  # VM Bastion (Ansible & Terraform executor)
 ├── vpngate/                  # VM VPN Gateway (WireGuard)
+├── hermes/                   # VM Hermes AI agent
 ├── caddy/                    # LXC Caddy reverse proxy
 └── pihole/                   # LXC Pi-hole DNS
 ```
@@ -230,6 +231,46 @@ ansible-playbook ansible/deploy.yml
 ansible-playbook ansible/deploy.yml --tags motd
 ansible-playbook ansible/deploy.yml --tags security-hardening
 ansible-playbook ansible/deploy.yml --tags wireguard
+```
+
+---
+
+## Sous-projet : hermes/
+
+### Description
+VM hebergeant l'agent Hermes AI. Pattern **two-stage deployment** : Terraform pour le provisioning VM (via module `proxmox_vm_template`), Ansible pour la configuration. L'inference est deportee chez DeepSeek en HTTPS : pas de GPU, pas de passthrough.
+
+### Structure
+```
+hermes/
+├── ansible/
+│   ├── deploy.yml                 # pre_tasks: fuseau America/Guadeloupe
+│   ├── inventory.yml
+│   ├── group_vars/hermes/
+│   │   └── all/main.yml
+│   └── roles/
+│       ├── motd/
+│       └── security_hardening/    # SSH + UFW (port 22/tcp entrant)
+├── terraform/
+│   ├── main.tf, providers.tf, variables.tf, outputs.tf
+└── ansible.cfg
+```
+
+### Specs VM
+- CPU: 4 cores (type host) | RAM: 8192 MB (ballooning min 2048) | Disk: 32 GB SSD
+- Template ID: 9001 | VMID: 9030 | IP: 192.168.10.30
+- Disque: `discard=on`, `ssd=1`, `iothread=1` avec controleur `virtio-scsi-single`
+- Demarrage automatique au boot du noeud (`on_boot`, startup order 10 / up 30 / down 60)
+
+> ⚠️ Ubuntu 24.04 restreint les user namespaces non privilegies (AppArmor). Si les
+> sous-agents Hermes en conteneur echouent, poser `kernel.apparmor_restrict_unprivileged_userns=0`.
+
+### Commandes cles
+```bash
+cd hermes
+ansible-playbook ansible/deploy.yml
+ansible-playbook ansible/deploy.yml --tags motd
+ansible-playbook ansible/deploy.yml --tags security-hardening
 ```
 
 ---
