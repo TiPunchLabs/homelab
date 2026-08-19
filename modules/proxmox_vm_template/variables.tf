@@ -65,7 +65,7 @@ variable "vm_gateway" {
 }
 
 variable "vm_disk0_size" {
-  description = "Size of the primary disk (e.g., '30G')"
+  description = "Size of the primary disk, in GiB (number, e.g. 30)"
   type        = number
 }
 
@@ -102,4 +102,65 @@ variable "vm_ssh_user" {
 variable "vm_ssh_keys" {
   description = "List of SSH public keys for cloud-init user"
   type        = list(string)
+}
+
+# -----------------------------------------------------------------------------
+# Options avancees. Chaque defaut reproduit le comportement anterieur du module :
+# ne rien fournir laisse la VM strictement identique a ce qu'elle etait.
+# -----------------------------------------------------------------------------
+
+variable "vm_memory_floating" {
+  description = "Minimum memory in MiB when ballooning is enabled (0 = ballooning disabled)"
+  type        = number
+  default     = 0
+}
+
+variable "vm_disk0_discard" {
+  description = "Pass discard/TRIM requests to the underlying storage ('on' or 'ignore')"
+  type        = string
+  default     = "ignore"
+}
+
+variable "vm_disk0_ssd" {
+  description = "Expose the primary disk to the guest as an SSD"
+  type        = bool
+  default     = false
+}
+
+variable "vm_disk0_iothread" {
+  description = "Use a dedicated iothread for the primary disk. Proxmox n'applique ce flag qu'avec un controleur virtio-scsi-single : positionner aussi vm_scsi_hardware"
+  type        = bool
+  default     = false
+}
+
+variable "vm_scsi_hardware" {
+  description = "SCSI controller model (e.g. 'virtio-scsi-single'). null conserve celui herite du template"
+  type        = string
+  default     = null
+}
+
+variable "vm_on_boot" {
+  description = "Start the VM automatically when the Proxmox node boots. null conserve le defaut du provider"
+  type        = bool
+  default     = null
+}
+
+variable "vm_startup" {
+  description = "Startup order and delays on node boot. null laisse la VM hors de la sequence de demarrage"
+  type = object({
+    order      = number
+    up_delay   = number
+    down_delay = number
+  })
+  default = null
+}
+
+variable "vm_network_devices" {
+  description = "Network interfaces to manage explicitly. Liste vide = interfaces heritees du clone (comportement anterieur)"
+  type = list(object({
+    bridge   = string
+    model    = optional(string, "virtio")
+    firewall = optional(bool, false)
+  }))
+  default = []
 }

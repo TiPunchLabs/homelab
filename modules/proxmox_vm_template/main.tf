@@ -16,6 +16,10 @@ resource "proxmox_virtual_environment_vm" "vm" {
   vm_id       = var.vm_baseid + count.index
   tags        = ["terraform", var.vm_name_prefix]
   started     = var.vm_started
+  on_boot     = var.vm_on_boot
+
+  # null => controleur herite du template
+  scsi_hardware = var.vm_scsi_hardware
 
   # Cleanup options (v0.87.0+)
   stop_on_destroy = true
@@ -38,6 +42,7 @@ resource "proxmox_virtual_environment_vm" "vm" {
 
   memory {
     dedicated = var.vm_memory
+    floating  = var.vm_memory_floating
   }
 
   disk {
@@ -45,6 +50,29 @@ resource "proxmox_virtual_environment_vm" "vm" {
     interface    = "scsi0"
     size         = var.vm_disk0_size
     file_format  = "raw"
+    discard      = var.vm_disk0_discard
+    ssd          = var.vm_disk0_ssd
+    iothread     = var.vm_disk0_iothread
+  }
+
+  # Liste vide => aucun bloc emis, les interfaces du clone sont conservees.
+  dynamic "network_device" {
+    for_each = var.vm_network_devices
+    content {
+      bridge   = network_device.value.bridge
+      model    = network_device.value.model
+      firewall = network_device.value.firewall
+    }
+  }
+
+  # null => aucun bloc emis, la VM reste hors sequence de demarrage du noeud.
+  dynamic "startup" {
+    for_each = var.vm_startup == null ? [] : [var.vm_startup]
+    content {
+      order      = startup.value.order
+      up_delay   = startup.value.up_delay
+      down_delay = startup.value.down_delay
+    }
   }
 
   initialization {
