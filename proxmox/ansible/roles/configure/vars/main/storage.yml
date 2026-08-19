@@ -11,17 +11,37 @@ configure_storage_name: hdd-storage
 configure_storage_mount_point: /mnt/pve/hdd-storage
 
 # Filesystem type (ext4, xfs, vfat)
-configure_storage_filesystem_type: vfat
+# vfat est inadapte : limite de 4 GiB par fichier (vzdump echoue) et pas de
+# permissions POSIX (contenu "images" inexploitable).
+configure_storage_filesystem_type: ext4
+
+# Mount options. `nofail` evite qu'un disque absent bloque le boot de l'hyperviseur.
+configure_storage_mount_opts: defaults,nofail
+
+# Champs `dump` et `passno` de la ligne fstab.
+# passno=2 : fsck au boot pour un filesystem non-racine. A declarer explicitement,
+# car ansible.posix.mount vaut 0 par defaut et desactiverait le controle.
+configure_storage_mount_dump: "0"
+configure_storage_mount_passno: "2"
 
 # Storage type in Proxmox (dir, lvm, lvmthin, zfspool)
 configure_storage_type: dir
 
+# Refuse d'utiliser le storage si le chemin n'est pas un point de montage.
+# Sans ce garde-fou, un disque non monte fait ecrire Proxmox sur la racine.
+configure_storage_is_mountpoint: true
+
 # Content types allowed on this storage
 # Options: images, rootdir, vztmpl, backup, iso, snippets
-# For directory storage, common combinations:
-#   - "backup,iso,vztmpl" for backups and templates
-#   - "images,rootdir" for VM disks and containers
-configure_storage_content: backup,iso,vztmpl
+#
+# `images` et `rootdir` sont volontairement exclus : ce storage est un disque
+# mecanique, les disques de VM et de LXC restent sur `local-lvm` (SSD). Ne pas
+# les rajouter sans avoir mesure l'impact I/O sur les invites.
+#
+# Attention : le role n'applique `content` qu'a la CREATION du storage
+# (`pvesm add`). Sur un storage deja declare, ajuster a la main :
+#   pvesm set hdd-storage --content snippets,backup,vztmpl,iso
+configure_storage_content: snippets,backup,vztmpl,iso
 
 # Force format the disk (WARNING: destroys all data!)
 configure_storage_force_format: false

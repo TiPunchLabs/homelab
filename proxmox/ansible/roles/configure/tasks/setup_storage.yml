@@ -36,6 +36,25 @@
   tags:
     - setup_storage
 
+# Le montage se fait par UUID : le nom de device (/dev/sdb) peut changer d'un
+# boot a l'autre selon l'ordre de detection des disques.
+- name: Get filesystem UUID of the HDD partition
+  ansible.builtin.command: blkid -s UUID -o value {{ configure_storage_disk_device }}1
+  register: hdd_partition_uuid
+  changed_when: false
+  tags:
+    - setup_storage
+
+- name: Fail if the HDD partition has no filesystem UUID
+  ansible.builtin.assert:
+    that:
+      - hdd_partition_uuid.stdout | length > 0
+    fail_msg: >-
+      Aucun UUID sur {{ configure_storage_disk_device }}1 : la partition n'est pas
+      formatee. Relancer avec configure_storage_force_format=true si le disque est vierge.
+  tags:
+    - setup_storage
+
 - name: Create mount point directory
   ansible.builtin.file:
     path: "{{ configure_storage_mount_point }}"
@@ -47,10 +66,18 @@
 - name: Mount HDD partition
   ansible.posix.mount:
     path: "{{ configure_storage_mount_point }}"
-    src: "{{ configure_storage_disk_device }}1"
+    src: "UUID={{ hdd_partition_uuid.stdout }}"
     fstype: "{{ configure_storage_filesystem_type }}"
-    opts: defaults
+    opts: "{{ configure_storage_mount_opts }}"
+    dump: "{{ configure_storage_mount_dump }}"
+    passno: "{{ configure_storage_mount_passno }}"
     state: mounted
+  tags:
+    - setup_storage
+
+- name: Verify the storage path is really a mount point
+  ansible.builtin.command: mountpoint -q {{ configure_storage_mount_point }}
+  changed_when: false
   tags:
     - setup_storage
 
@@ -67,7 +94,31 @@
     pvesm add {{ configure_storage_type }} {{ configure_storage_name }}
     --path {{ configure_storage_mount_point }}
     --content {{ configure_storage_content }}
+    --is_mountpoint {{ configure_storage_is_mountpoint | ternary(1, 0) }}
   when: pvesm_check.rc != 0
+  tags:
+    - setup_storage
+
+# Storage deja declare : on force is_mountpoint, sinon un disque non monte fait
+# silencieusement ecrire Proxmox sur la racine de l'hyperviseur.
+- name: Read current Proxmox storage configuration
+  ansible.builtin.command: >
+    pvesh get /storage/{{ configure_storage_name }} --output-format json
+  register: pvesm_config
+  changed_when: false
+  when: pvesm_check.rc == 0
+  tags:
+    - setup_storage
+
+- name: Enforce is_mountpoint on the existing Proxmox storage
+  ansible.builtin.command: >
+    pvesm set {{ configure_storage_name }}
+    --is_mountpoint {{ configure_storage_is_mountpoint | ternary(1, 0) }}
+  when:
+    - pvesm_check.rc == 0
+    - configure_storage_is_mountpoint | bool
+    - (pvesm_config.stdout | from_json).is_mountpoint | default('0') | string != '1'
+  changed_when: true
   tags:
     - setup_storage
 
@@ -75,8 +126,9 @@
   ansible.builtin.debug:
     msg: |
       Storage '{{ configure_storage_name }}' configured successfully!
-      - Device: {{ configure_storage_disk_device }}
+      - Device: {{ configure_storage_disk_device }} (UUID={{ hdd_partition_uuid.stdout }})
       - Mount point: {{ configure_storage_mount_point }}
+      - Mount options: {{ configure_storage_mount_opts }}
       - Type: {{ configure_storage_type }}
       - Filesystem: {{ configure_storage_filesystem_type }}
       - Content types: {{ configure_storage_content }}
