@@ -8,11 +8,18 @@ Les variables de configuration se trouvent dans `roles/configure/vars/main/stora
 configure_storage_disk_device: /dev/sdb        # Disque à utiliser
 configure_storage_name: hdd-storage            # Nom du storage dans Proxmox
 configure_storage_mount_point: /mnt/pve/hdd-storage
-configure_storage_filesystem_type: ext4        # ext4 ou xfs
+configure_storage_filesystem_type: ext4        # ext4 ou xfs — jamais vfat (voir ci-dessous)
+configure_storage_mount_opts: defaults,nofail  # nofail : un disque absent ne bloque pas le boot
 configure_storage_type: dir                    # dir, lvm, lvmthin, zfspool
-configure_storage_content: backup,iso,vztmpl   # Types de contenu autorisés
+configure_storage_is_mountpoint: true          # refuse le storage si rien n'est monté
+configure_storage_content: images,snippets,backup,vztmpl,iso
 configure_storage_force_format: false          # ⚠️ true = efface toutes les données
 ```
+
+> ⚠️ **Ne jamais utiliser vfat** : la limite de 4 GiB par fichier fait échouer tout
+> `vzdump` un peu gros, et l'absence de permissions POSIX rend le contenu `images`
+> inexploitable. Le montage se fait **par UUID**, pas par `/dev/sdX` — le nom de
+> device peut changer d'un boot à l'autre selon l'ordre de détection des disques.
 
 ## Types de contenu Proxmox
 
@@ -102,3 +109,39 @@ Si le storage existe déjà, le playbook ne le recrée pas (idempotence).
 ```bash
 pvesm set hdd-storage --content backup,iso,images
 ```
+
+### Le storage affiche la même taille que `local`
+
+Symptôme : `pvesm status` donne des chiffres **identiques** pour le storage HDD et
+pour `local`.
+
+```
+hdd-storage   dir  active   67169672   5464232   58247600   8.13%
+local         dir  active   67169672   5464232   58247600   8.13%
+```
+
+Cause : rien n'est monté sur le point de montage. Proxmox écrit alors dans le
+répertoire tel qu'il existe **sur la racine**, et remplit `/` au premier backup.
+
+Diagnostic :
+
+```bash
+findmnt /mnt/pve/hdd-storage      # vide = rien n'est monté
+lsblk -f /dev/sdb                 # type de filesystem réel
+grep hdd /etc/fstab               # lignes en conflit ? placeholder non substitué ?
+journalctl -b -p err | grep -i mount
+```
+
+Correction :
+
+```bash
+cp /etc/fstab /etc/fstab.bak-$(date +%F)
+# garder UNE seule ligne, par UUID, avec nofail
+blkid -s UUID -o value /dev/sdb1
+systemctl daemon-reload && mount -a
+pvesm set hdd-storage --is_mountpoint 1
+```
+
+`is_mountpoint 1` est le garde-fou : Proxmox refuse d'utiliser le storage tant que
+le chemin n'est pas un vrai point de montage, au lieu d'écrire silencieusement sur
+la racine. Le rôle Ansible le force désormais à chaque exécution.
