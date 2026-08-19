@@ -13,6 +13,7 @@
 
 | VM | VMID | IP | Usage |
 |----|------|-----|-------|
+| hermes-30 | 9030 | 192.168.10.30 | Hermes AI agent host |
 | bastion-60 | 9060 | 192.168.10.60 | Bastion (GitLab Runner shell, Terraform, Ansible) |
 | vpngate-50 | 9050 | 192.168.10.50 | WireGuard VPN Gateway |
 | dockhost-90 | 9090 | 192.168.10.90 | Docker services (Portainer, GitLab Runner) |
@@ -33,6 +34,7 @@ Hosts not provisioned by this repo but consumed by homelab services.
 
 | Host | IP | Description |
 |------|-----|-------------|
+| kemax01 | 192.168.10.35 | Standalone host, own SSH key (`~/.ssh/ansible_id`). **Occupe une IP de la plage `.30-.39`** — en tenir compte avant d'y placer une nouvelle VM. |
 | Ollama (workstation) | 192.168.10.217 | LLM backend for Open WebUI. Reached via `ollama.internal` (Pi-hole record), **not** by hard-coded IP — see [Local DNS records](#local-dns-records-internal). May change IP / be offline (laptop). |
 
 ### Important ports
@@ -120,6 +122,7 @@ A missing rule on either layer = silent drop. Symptom client-side:
 Convention: `192.168.10.{vm_ip_start}` where `vm_ip_start` is defined in Terraform.
 
 ```
+.30-.39  : hermes (AI agent host)   -- sauf .35, pris par kemax01 (hors repo)
 .40-.49  : kubecluster (Kubernetes)
 .50-.59  : vpngate (VPN gateway)
 .60-.69  : bastion (control plane)
@@ -137,6 +140,7 @@ The convention uses the following scheme:
 
 | ID range | IP range | Usage |
 |----------|----------|-------|
+| 9030-9039 | .30-.39 | hermes (`.35` occupe par kemax01, hors repo) |
 | 9040-9049 | .40-.49 | kubecluster |
 | 9050-9059 | .50-.59 | vpngate |
 | 9060-9069 | .60-.69 | bastion |
@@ -152,6 +156,7 @@ SSH aliases are configured in `~/.ssh/config`:
 | Alias | IP | User | Key |
 |-------|-----|------|-----|
 | `pve` | 192.168.10.100 | ansible | `~/.ssh/proxmox` |
+| `hermes-30` | 192.168.10.30 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `bastion-60` | 192.168.10.60 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `dockhost-90` | 192.168.10.90 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `kubecluster-40` | 192.168.10.40 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
