@@ -19,3 +19,17 @@ security_ufw_default_outgoing: "allow"
 
 security_open_ports:
   - { port: 22, proto: tcp, comment: "SSH access" }
+
+# ============================================================
+# 🐳 Docker - Role docker
+# ============================================================
+# Rotation des journaux : le driver json-file par defaut ne borne ni la taille
+# ni le nombre de fichiers. Hermes tourne 24/7 avec sessions et sous-agents ;
+# sans plafond, / se remplit sans le moindre avertissement.
+# 10m x 3 = 30 Mo au maximum par conteneur.
+docker_log_max_size: "10m"
+docker_log_max_file: "3"
+
+# Pas de cle "dns" dans daemon.json : la stack Hermes tourne en
+# network_mode: host (docker-compose.yml amont), donc les conteneurs partagent
+# la pile reseau de l'hote et resolvent .internal via son propre resolveur.

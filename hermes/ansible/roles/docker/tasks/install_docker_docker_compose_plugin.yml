@@ -1,0 +1,64 @@
+---
+- name: Install necessary packages
+  ansible.builtin.apt:
+    pkg:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - software-properties-common
+    state: present
+
+- name: Remove conflicting Docker packages
+  ansible.builtin.apt:
+    pkg:
+      - docker.io
+      - docker-doc
+      - docker-compose
+      - docker-compose-v2
+      - podman-docker
+      - containerd
+      - runc
+    state: absent
+
+- name: Check if the key file exists for Docker
+  ansible.builtin.stat:
+    path: "{{ docker_gpg.path }}"
+  register: docker_key_exists
+
+- name: Download Docker's official GPG key
+  ansible.builtin.get_url:
+    url: "{{ docker_gpg.url }}"
+    dest: "{{ docker_gpg.tmp_path }}"
+    mode: '0644'
+  when: docker_gpg.url is defined and not docker_key_exists.stat.exists
+
+- name: Add GPG key for Docker
+  ansible.builtin.command: >
+    gpg --dearmor -o {{ docker_gpg.path }} {{ docker_gpg.tmp_path }}
+  when: docker_gpg.url is defined and not docker_key_exists.stat.exists
+
+- name: Set up the Docker repository
+  ansible.builtin.apt_repository:
+    repo: "{{ docker_gpg.repo }}"
+    filename: "docker"
+    state: present
+    update_cache: true
+
+- name: Install Docker Engine
+  ansible.builtin.apt:
+    pkg:
+      - docker-ce
+      - docker-compose-plugin
+    state: present
+
+- name: Add user to the Docker group
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: true
+
+- name: Start and enable Docker service
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true

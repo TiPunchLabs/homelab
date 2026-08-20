@@ -13,6 +13,7 @@
       tags:
         - motd
         - security-hardening
+        - docker
 
     - name: Definir le fuseau horaire sur {{ hermes_timezone }}
       ansible.builtin.command: timedatectl set-timezone {{ hermes_timezone }}
@@ -21,6 +22,7 @@
       tags:
         - motd
         - security-hardening
+        - docker
   roles:
     - role: motd
       tags:
@@ -28,3 +30,6 @@
     - role: security_hardening
       tags:
         - security-hardening
+    - role: docker
+      tags:
+        - docker

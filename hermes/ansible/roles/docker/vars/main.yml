@@ -1,0 +1,9 @@
+---
+# distribution_release plutot que lsb.codename : meme valeur ("noble"), mais
+# sans dependance au binaire lsb_release. Le prefixe ansible_ nu est deprecie
+# (INJECT_FACTS_AS_VARS, retire en ansible-core 2.24).
+docker_gpg:
+  path: /usr/share/keyrings/docker-archive-keyring.gpg
+  tmp_path: "/tmp/docker-archive-keyring.gpg"
+  url: https://download.docker.com/linux/ubuntu/gpg
+  repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu {{ ansible_facts['distribution_release'] }} stable"
