@@ -34,6 +34,16 @@ module "hermes_vm" {
     }
   ]
 
+  # DNS : Pi-hole (dns-71) sert la zone .internal du homelab, indispensable si
+  # l'agent joint des services par leur nom. 1.1.1.1 en repli : le basculement
+  # n'a lieu que sur timeout/SERVFAIL, jamais sur NXDOMAIN, donc .internal reste
+  # correct tant que Pi-hole repond. Pi-hole forwarde lui-meme le trafic public.
+  vm_dns_servers = ["192.168.10.71", "1.1.1.1"]
+
+  # "internal" plutot que le defaut "local", reserve au mDNS (RFC 6762).
+  # Autorise les noms courts : `ping komodo` -> komodo.internal.
+  vm_dns_domain = "internal"
+
   # L'agent tourne 24/7 : demarrage automatique au boot du noeud.
   vm_on_boot = true
   vm_startup = {
