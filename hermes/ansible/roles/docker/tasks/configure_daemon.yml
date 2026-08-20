@@ -1,0 +1,19 @@
+---
+# Le driver json-file par defaut ne borne ni la taille ni le nombre de fichiers.
+# Hermes tourne 24/7 : sans plafond, les journaux remplissent / sans avertir.
+- name: Create the Docker configuration directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy the Docker daemon configuration
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart Docker
