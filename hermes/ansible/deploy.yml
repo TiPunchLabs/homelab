@@ -14,6 +14,7 @@
         - motd
         - security-hardening
         - docker
+        - hermes
 
     - name: Definir le fuseau horaire sur {{ hermes_timezone }}
       ansible.builtin.command: timedatectl set-timezone {{ hermes_timezone }}
@@ -23,6 +24,7 @@
         - motd
         - security-hardening
         - docker
+        - hermes
   roles:
     - role: motd
       tags:
@@ -33,3 +35,8 @@
     - role: docker
       tags:
         - docker
+    # Apres security_hardening : la regle UFW du dashboard doit exister avant
+    # que Caddy tente de le joindre.
+    - role: hermes_agent
+      tags:
+        - hermes

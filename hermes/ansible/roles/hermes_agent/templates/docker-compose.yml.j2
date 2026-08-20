@@ -1,0 +1,52 @@
+{{ ansible_managed | comment }}
+# Base sur le docker-compose.yml amont, avec l'image publiee au lieu de `build: .`
+# et le dashboard lie a 0.0.0.0 (joignable par le seul reverse proxy, cf. UFW).
+
+services:
+  gateway:
+    image: {{ hermes_image }}:{{ hermes_image_tag }}
+    container_name: hermes
+    restart: unless-stopped
+    # network_mode: host — aucune regle NAT Docker n'est creee, donc UFW
+    # s'applique normalement et les conteneurs resolvent .internal via le
+    # resolveur de l'hote. En bridge + `ports:`, Docker court-circuiterait UFW.
+    network_mode: host
+    volumes:
+      - {{ hermes_data_dir }}:/opt/data
+    environment:
+      - PUID={{ hermes_puid }}
+      - PGID={{ hermes_pgid }}
+    command: ["gateway", "run"]
+    deploy:
+      resources:
+        limits:
+          memory: {{ hermes_memory_limit }}
+          cpus: "{{ hermes_cpu_limit }}"
+
+  dashboard:
+    image: {{ hermes_image }}:{{ hermes_image_tag }}
+    container_name: hermes-dashboard
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    network_mode: host
+    volumes:
+      - {{ hermes_data_dir }}:/opt/data
+    environment:
+      - PUID={{ hermes_puid }}
+      - PGID={{ hermes_pgid }}
+    # Le bind non-loopback engage la porte d'authentification : Hermes refuse
+    # de demarrer si aucun fournisseur d'auth n'est configure. Les identifiants
+    # arrivent par .env.
+    command:
+      - "dashboard"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "{{ hermes_dashboard_port }}"
+      - "--no-open"
+    deploy:
+      resources:
+        limits:
+          memory: {{ hermes_memory_limit }}
+          cpus: "{{ hermes_cpu_limit }}"

@@ -17,8 +17,12 @@ security_ufw_default_incoming: "deny"
 # aucune regle sortante dediee n'est necessaire.
 security_ufw_default_outgoing: "allow"
 
+# `src` restreint la regle a une source unique. Le dashboard Hermes n'est
+# joignable que par le reverse proxy : l'ouvrir a tout le LAN annulerait
+# l'interet de passer par Caddy (TLS + authentification centralisee).
 security_open_ports:
   - { port: 22, proto: tcp, comment: "SSH access" }
+  - { port: 9119, proto: tcp, src: "{{ hermes_caddy_ip }}", comment: "Hermes dashboard via Caddy" }
 
 # ============================================================
 # 🐳 Docker - Role docker
@@ -33,3 +37,22 @@ docker_log_max_file: "3"
 # Pas de cle "dns" dans daemon.json : la stack Hermes tourne en
 # network_mode: host (docker-compose.yml amont), donc les conteneurs partagent
 # la pile reseau de l'hote et resolvent .internal via son propre resolveur.
+
+# ============================================================
+# 🤖 Hermes Agent - Role hermes_agent
+# ============================================================
+# Reverse proxy autorise a joindre le dashboard (LXC caddy-70).
+hermes_caddy_ip: "192.168.10.70"
+
+# Modele de depart : `deepseek-v4-flash` plutot que `deepseek-v4-pro`. On ne
+# sait pas encore ce que cet agent fait reellement — volume d'appels, longueur
+# des chaines d'outils, qualite suffisante ou non. `flash` donne une ligne de
+# base ; basculer ensuite ne coute qu'un replay du playbook, sans nouvelle cle
+# ni nouvelle image.
+hermes_model_default: "deepseek-v4-flash"
+
+# Secrets — valeurs reelles dans group_vars/hermes/vault/config.yml
+hermes_deepseek_api_key: "{{ vault_hermes_deepseek_api_key }}"
+hermes_api_server_key: "{{ vault_hermes_api_server_key }}"
+hermes_dashboard_password: "{{ vault_hermes_dashboard_password }}"
+hermes_dashboard_secret: "{{ vault_hermes_dashboard_secret }}"

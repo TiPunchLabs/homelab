@@ -79,6 +79,14 @@ caddy_backends:
     domain: komodo.internal
     upstream: http://192.168.10.90:9120
     tls_insecure_skip_verify: false
+  # Dashboard de l'agent Hermes. tls internal comme portail-client : le
+  # dashboard demande des identifiants, ils ne doivent pas traverser le LAN en
+  # clair depuis le navigateur. Cote hermes-30, UFW n'ouvre 9119 qu'a cette IP.
+  - name: hermes
+    domain: hermes.internal
+    upstream: http://192.168.10.30:9119
+    tls_internal: true
+    tls_insecure_skip_verify: false
   - name: miniboard
     domain: miniboard.internal
     upstream: http://192.168.10.90:8090
