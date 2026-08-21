@@ -1,7 +1,7 @@
 # 🔐 Runbook — Passer les URLs `.internal` en HTTPS
 
 > **Objectif** : basculer un ou plusieurs backends Caddy de HTTP vers HTTPS (CA interne Caddy), de façon idempotente via Ansible.
-> **Prérequis** : accès SSH au LXC `caddy-70` (192.168.1.70), repo `homelab/` à jour, VPN WireGuard actif.
+> **Prérequis** : accès SSH au LXC `caddy-70` (192.168.10.70), repo `homelab/` à jour, VPN WireGuard actif.
 > **Durée** : ~5 min config + 1 import de CA root par machine cliente.
 
 ------
@@ -37,18 +37,18 @@ Ajouter `tls_internal: true` au(x) backend(s) voulu(s). Exemple pour tout bascul
 
 ```yaml
 caddy_backends:
-  - name: kandidat
-    domain: kandidat.internal
-    upstream: http://192.168.10.90:8000
-    tls_internal: true          # <— ajouter cette ligne
   - name: portainer
     domain: portainer.internal
     upstream: http://192.168.10.90:9000
+    tls_internal: true          # <— ajouter cette ligne
+  - name: openwebui
+    domain: openwebui.internal
+    upstream: http://192.168.10.90:8080
     tls_internal: true          # <— idem sur chaque backend
   # ... etc
 ```
 
-> ⚠️ **Warning** : les backends `proxmox` et `portail-client` sont **déjà** en `tls_internal: true`. Ne pas les dupliquer.
+> ⚠️ **Warning** : les backends `proxmox`, `portail-client`, `hermes` et `kandidat` sont **déjà** en `tls_internal: true`. Ne pas les dupliquer.
 
 ------
 
@@ -71,11 +71,11 @@ Sans ça : avertissement TLS dans le navigateur (cert signé par une CA inconnue
 
 ```bash
 # Depuis ton poste (VPN actif)
-scp ansible@192.168.1.70:/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt ./caddy-root.crt
+scp ansible@192.168.10.70:/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt ./caddy-root.crt
 ```
 
 > 💡 Le chemin exact peut varier selon la version/installation. Vérifier au besoin :
-> `ssh ansible@192.168.1.70 'find /var/lib/caddy -name root.crt'`
+> `ssh ansible@192.168.10.70 'find /var/lib/caddy -name root.crt'`
 
 ### 3.2 Importer dans le magasin de confiance
 
@@ -125,8 +125,14 @@ Import-Certificate -FilePath .\caddy-root.crt -CertStoreLocation Cert:\LocalMach
 
 Stratégie actuelle : **HTTP par défaut, HTTPS seulement si requis**. Le transport est déjà chiffré par le VPN WireGuard (vpngate-50) sur un LAN privé. `tls_internal` n'est activé que là où l'app l'**exige** fonctionnellement (ex. `portail-client` : cookie de session `Secure` pour le login magic-link). Passer tout en HTTPS est cosmétique/défense-en-profondeur, pas une nécessité réseau.
 
+> 💡 **Exception assumée — `kandidat` (2026-08-21)** : bascule en `tls_internal` **sans** exigence
+> fonctionnelle de l'app (pas de login, pas de cookie `Secure`). Motif : elle expose des CV, des
+> contacts et une API LLM ; le chiffrement s'arrêtait au VPN, il va maintenant jusqu'au navigateur.
+> C'est de la défense en profondeur choisie, pas une nécessité réseau — la règle par défaut ci-dessus
+> reste valable pour les autres backends.
+
 ------
 
 > **Document créé le** : 2026-06-22
 > **Auteur** : Xavier Gueret
-> **Version** : 1.0
+> **Version** : 1.1 — 2026-08-21 : kandidat bascule en tls_internal, IP LXC corrigees (192.168.10.70)
