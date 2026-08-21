@@ -19,9 +19,9 @@ The project deploys a Caddy reverse proxy that handles traffic for internal serv
 
 ### Reverse Proxy Backends
 
-- **proxmox.internal** - Proxmox VE web interface (https://192.168.1.100:8006)
-- **kandidat.internal** - Kandidat application (http://192.168.1.90:8000)
-- **vpngate.internal** - WireGuard VPN management interface (http://192.168.1.50:51821)
+- **proxmox.internal** - Proxmox VE web interface (https://192.168.10.100:8006) — served over HTTPS (`tls_internal`)
+- **kandidat.internal** - Kandidat application (http://192.168.10.90:8000) — served over HTTPS (`tls_internal`)
+- **vpngate.internal** - WireGuard VPN management interface (http://192.168.10.50:51821)
 
 ### Per-Backend Flags
 

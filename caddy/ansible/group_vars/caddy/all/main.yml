@@ -30,9 +30,14 @@ caddy_backends:
     upstream: https://192.168.10.100:8006
     tls_insecure_skip_verify: true
     tls_internal: true
+  # tls internal: defense en profondeur. Pas d'exigence fonctionnelle de l'app
+  # (aucun login, aucun cookie Secure), mais elle expose des CV, des contacts et
+  # une API LLM : le chiffrement s'arrete au VPN, on le prolonge jusqu'au navigateur.
+  # Choix assume contre la strategie « HTTP par defaut » du runbook TLS interne.
   - name: kandidat
     domain: kandidat.internal
     upstream: http://192.168.10.90:8000
+    tls_internal: true
     tls_insecure_skip_verify: false
   - name: portail-client
     domain: portail-client.internal
