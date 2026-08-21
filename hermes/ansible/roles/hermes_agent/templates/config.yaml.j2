@@ -1,9 +1,13 @@
 {{ ansible_managed | comment }}
-# Fichier de CONFIGURATION uniquement — reecrit a chaque execution du playbook.
-# Les secrets vivent dans .env, jamais ici.
+# COUCHE MANAGED — deployee dans {{ hermes_managed_dir }}, montee en lecture
+# seule sur /etc/hermes. Hermes fusionne ces cles PAR-DESSUS celles du
+# config.yaml du volume de donnees, et elles gagnent a la feuille.
 #
-# ⚠️ Ansible n'ecrit que ce fichier et .env dans {{ hermes_data_dir }}.
-# memories/, skills/, sessions/, cron/ et SOUL.md appartiennent a l'agent.
+# ⚠️ Ne declarer ici que ce qu'Ansible doit epingler. Toute cle ajoutee devient
+# inviolable pour l'agent — y compris celles qu'un assistant `hermes ... setup`
+# voudrait legitimement gerer de son cote (`platforms:` en particulier).
+#
+# Les secrets vivent dans .env, jamais ici.
 
 # Fournisseur declare explicitement : endpoint compatible OpenAI de DeepSeek.
 # `key_env` ne porte que le NOM de la variable ; le resolveur la lit depuis
