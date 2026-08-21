@@ -31,7 +31,7 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 | [`bastion/`](bastion/) | Bastion VM — GitLab Runner (shell), Terraform, Ansible, pass, direnv | 1 | Terraform + Ansible |
 | [`dockhost/`](dockhost/) | Docker-based services VM (Docker, Portainer, GitLab Runner, security hardening) | 1 | Terraform + Ansible |
 | [`vpngate/`](vpngate/) | WireGuard VPN Gateway | 1 | Terraform + Ansible |
-| [`hermes/`](hermes/) | Hermes AI agent host | 1 | Terraform + Ansible |
+| [`hermes/`](hermes/) | Hermes AI agent host (Docker + Hermes Agent stack, DeepSeek inference) | 1 | Terraform + Ansible |
 | [`kubecluster/`](kubecluster/) | Kubernetes cluster (kubeadm, containerd, CNI) | 3 (1 CP + 2 workers) | Terraform + Ansible |
 | [`caddy/`](caddy/) | LXC Caddy reverse proxy | 1 LXC | Terraform + Ansible |
 | [`pihole/`](pihole/) | LXC Pi-hole DNS | 1 LXC | Terraform + Ansible |
@@ -110,8 +110,11 @@ homelab/
 │   └── terraform/                  #   VM provisioning (1 VM)
 │
 ├── vpngate/                        # WireGuard VPN Gateway
-├── hermes/                         # Hermes AI agent host
 │   ├── ansible/                    #   Roles: motd, security_hardening, wireguard
+│   └── terraform/                  #   VM provisioning (1 VM)
+│
+├── hermes/                         # Hermes AI agent host
+│   ├── ansible/                    #   Roles: motd, security_hardening, docker, hermes_agent
 │   └── terraform/                  #   VM provisioning (1 VM)
 │
 ├── dockhost/                       # Docker services VM
