@@ -140,3 +140,25 @@
   ansible.builtin.debug:
     var: hermes_managed_scope.stdout
   when: not ansible_check_mode
+
+# =============================================================================
+# Retrait du filet de migration.
+#
+# Cette tache est volontairement la DERNIERE du role, apres l'assertion. Le
+# .env du volume est ce sur quoi l'agent retombe si la couche managed n'est pas
+# appliquee : le supprimer plus haut reviendrait a retirer le filet avant de
+# savoir si le trapeze tient. Ici, l'assertion a deja fait echouer le playbook
+# en cas de probleme, et la condition sur `rc` rend cette dependance explicite
+# plutot qu'implicite dans l'ordre des taches.
+#
+# Seul .env est supprime. config.yaml du volume ne porte aucun secret et
+# appartient desormais a l'agent, qui peut legitimement le reecrire : le
+# supprimer empieterait sur son domaine, l'inverse de ce que ce role etablit.
+# =============================================================================
+- name: Remove the superseded secrets file from the data volume
+  ansible.builtin.file:
+    path: "{{ hermes_data_dir }}/.env"
+    state: absent
+  when:
+    - not ansible_check_mode
+    - hermes_managed_scope.rc | default(1) == 0

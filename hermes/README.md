@@ -172,6 +172,13 @@ and win **at the leaf**.
 | `/opt/hermes/managed/{config.yaml,.env}` | Ansible | `root:1000`, mode `0640`, mounted `:ro` |
 | `/opt/hermes/data/**` | the agent | writable by UID 1000 |
 
+The role removes the superseded `/opt/hermes/data/.env` — but only as its **last
+task**, gated on the managed-scope assertion having passed. That file is what the
+agent falls back on if the managed layer is not applied; removing it any earlier
+would take the safety net away before knowing the trapeze holds. `config.yaml` in
+the volume is deliberately kept: it carries no secret and now belongs to the
+agent.
+
 The earlier design drew the boundary **per file** — Ansible owned all of
 `config.yaml`. That worked as long as the only other writers (`hermes setup`,
 `hermes model`) touched the *same* keys, where overwriting is the correct
@@ -240,6 +247,21 @@ ssh hermes-30 'sudo docker exec hermes hermes status'
 #   Provider:  DeepSeek
 #   DeepSeek   ✓ sk-d...
 ```
+
+### `hermes status` reports `.env file: ✗ not found`
+
+**Expected — not a fault.** That line reports the *user-scope* `.env`, which the
+role deliberately removed: the secrets live in the managed layer now. What
+matters is the two lines below it:
+
+```
+  .env file:    ✗ not found        <- normal
+  Model:        deepseek-v4-flash
+  Provider:     DeepSeek           <- this is what proves the key resolved
+```
+
+A genuine problem looks different: `Provider` falling back to `auto`, or the
+DeepSeek line showing `✗ (not set)` under **API Keys**.
 
 ### The dashboard container refuses to start
 
