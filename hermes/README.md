@@ -22,9 +22,11 @@ This project automates the deployment of [Hermes Agent](https://github.com/nousr
    caddy-70 ──────────────────┼─► hermes-dashboard   0.0.0.0:9119    │
    https://hermes.internal    │   hermes (gateway)   127.0.0.1:8642  │
    (internal CA, basic auth)  │        │                             │
-                              │        └── /opt/hermes/data          │
-   dns-71 ────────────────────┤             ├── config.yaml  ← Ansible
-   hermes.internal → .70      │             ├── .env         ← Ansible (Vault)
+                              │        ├── /opt/hermes/managed  → /etc/hermes:ro
+   dns-71 ────────────────────┤        │    ├── config.yaml  ← Ansible (root)
+   hermes.internal → .70      │        │    └── .env         ← Ansible (Vault)
+                              │        └── /opt/hermes/data   → /opt/data
+                              │             ├── config.yaml  ← agent
                               │             └── memories/ skills/ sessions/
                               └──────────────────┬───────────────────┘
                                                  │ HTTPS
@@ -141,7 +143,7 @@ cd ../caddy  && ansible-playbook ansible/deploy.yml --tags caddy    # vhost → 
 | Firewall | UFW default deny in — `22/tcp` (any) + `9119/tcp` (**from `192.168.10.70` only**) |
 | Gateway API | Binds `127.0.0.1:8642`; `API_SERVER_KEY` as defense in depth |
 | Dashboard | Username/password, session-signing secret, TLS terminated by Caddy |
-| Secrets | Ansible Vault → `.env` (mode `0600`), never in `config.yaml` |
+| Secrets | Ansible Vault → managed `.env` (`0640 root:1000`, read-only mount) — the agent can read it, **not rewrite it**; never in `config.yaml` |
 | Logs | Hermes redacts secrets in `logs/`; Docker caps them at 10 MB × 3 |
 
 ### 🌐 Why host networking
@@ -158,16 +160,43 @@ Docker inserts its DNAT rules **before** UFW's in the netfilter chain. Publishin
 `9119` with `ports:` would expose it to the whole LAN while `ufw status` kept
 displaying `deny` — a green light that lies. Hence `network_mode: host`.
 
-### 🚧 The Ansible / agent boundary
+### 🚧 The Ansible / agent boundary — per **key**, not per file
 
-Ansible writes **exactly two files** into the data volume: `config.yaml` and `.env`.
+Ansible writes **nothing** into the data volume. Its configuration goes to
+`/opt/hermes/managed`, mounted read-only on `/etc/hermes` — Hermes' *managed
+scope* layer. Its keys are deep-merged **on top** of the volume's `config.yaml`
+and win **at the leaf**.
 
-`memories/`, `skills/`, `sessions/`, `cron/` and `SOUL.md` belong to the agent.
-Templating them would wipe its memory on every playbook run.
+| | Owner | Enforcement |
+|---|---|---|
+| `/opt/hermes/managed/{config.yaml,.env}` | Ansible | `root:1000`, mode `0640`, mounted `:ro` |
+| `/opt/hermes/data/**` | the agent | writable by UID 1000 |
 
-> 💡 This is also why the interactive `hermes setup` wizard is bypassed: it only
-> writes those same two files. Templating them directly is replayable, versioned,
-> and keeps the secret in Vault.
+The earlier design drew the boundary **per file** — Ansible owned all of
+`config.yaml`. That worked as long as the only other writers (`hermes setup`,
+`hermes model`) touched the *same* keys, where overwriting is the correct
+behaviour. It broke on the first writer to add a *different* key:
+`hermes gateway setup` writes `platforms:`, which the next playbook run erased
+without a word.
+
+Verified on the pinned version — pinning `model.provider` while the agent owns
+the rest:
+
+```
+model.provider  : deepseek                          ← pinned by Ansible
+model.default   : modele-utilisateur                ← user value survives
+platforms       : {"telegram": {"enabled": true}}   ← survives untouched
+```
+
+> ⚠️ **The directory mode is the critical parameter.** If the agent cannot
+> traverse `/etc/hermes`, `stat()` raises and Hermes returns `None`, commented
+> `# absent` — no log, no error, policy simply not applied. An *unreadable file*
+> logs loudly; an *untraversable directory* is silent. The role asserts the layer
+> is really applied after every deployment for exactly this reason.
+
+> 💡 Adding a key to the managed layer makes it **unoverridable**. Declare only
+> what Ansible must own — leave `platforms:` and anything a `hermes ... setup`
+> wizard legitimately manages to the agent.
 
 ## 📂 File Structure
 
@@ -190,8 +219,8 @@ Templating them would wipe its memory on every playbook run.
 │           ├── handlers/main.yml
 │           └── templates/
 │               ├── docker-compose.yml.j2
-│               ├── config.yaml.j2              # Configuration — no secrets
-│               └── hermes.env.j2               # Secrets — mode 0600
+│               ├── config.yaml.j2              # Managed layer — no secrets
+│               └── hermes.env.j2               # Managed layer — secrets, 0640
 ├── terraform/
 │   ├── main.tf, providers.tf, variables.tf, outputs.tf
 ├── ansible.cfg

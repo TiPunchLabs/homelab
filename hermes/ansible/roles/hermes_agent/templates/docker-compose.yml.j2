@@ -13,6 +13,10 @@ services:
     network_mode: host
     volumes:
       - {{ hermes_data_dir }}:/opt/data
+      # Couche managed en LECTURE SEULE, root sur l'hote : l'agent la lit,
+      # ne peut pas la reecrire. La frontiere devient une propriete du
+      # systeme de fichiers au lieu d'une convention documentee.
+      - {{ hermes_managed_dir }}:/etc/hermes:ro
     environment:
       - PUID={{ hermes_puid }}
       - PGID={{ hermes_pgid }}
@@ -32,6 +36,10 @@ services:
     network_mode: host
     volumes:
       - {{ hermes_data_dir }}:/opt/data
+      # Couche managed en LECTURE SEULE, root sur l'hote : l'agent la lit,
+      # ne peut pas la reecrire. La frontiere devient une propriete du
+      # systeme de fichiers au lieu d'une convention documentee.
+      - {{ hermes_managed_dir }}:/etc/hermes:ro
     environment:
       - PUID={{ hermes_puid }}
       - PGID={{ hermes_pgid }}

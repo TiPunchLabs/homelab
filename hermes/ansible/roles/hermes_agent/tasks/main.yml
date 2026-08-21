@@ -2,9 +2,17 @@
 # =============================================================================
 # Hermes Agent — stack Docker Compose deployee et rejouable depuis Ansible.
 #
-# Ansible ecrit exactement deux fichiers dans le volume de donnees :
-# config.yaml et .env. Tout le reste (memories/, skills/, sessions/, cron/,
-# SOUL.md) appartient a l'agent : y toucher effacerait sa memoire a chaque run.
+# FRONTIERE PAR CLE, PAS PAR FICHIER.
+#
+# Ansible n'ecrit plus rien dans le volume de donnees. Il pose sa configuration
+# dans {{ hermes_managed_dir }}, monte en lecture seule sur /etc/hermes : la
+# couche "managed scope" de Hermes. Ses valeurs sont fusionnees par-dessus
+# celles du volume et gagnent a la feuille.
+#
+# Consequence : `hermes gateway setup` peut ecrire `platforms:` dans le
+# config.yaml du volume sans qu'un playbook ulterieur ne l'efface, tandis que
+# `model.provider` reste inviolable — l'agent tourne en {{ hermes_puid }} et
+# la couche managed appartient a root en lecture seule.
 # =============================================================================
 
 - name: Create the install directory
@@ -16,31 +24,54 @@
     mode: '0755'
 
 # Proprietaire = PUID/PGID : le conteneur ecrit dans ce volume en tant que
-# {{ hermes_puid }} apres remap s6-overlay.
+# {{ hermes_puid }} apres remap s6-overlay. Ansible n'y ecrit rien — la tache
+# ne sert qu'a garantir l'existence et le proprietaire avant le premier
+# demarrage, sans quoi Docker creerait le point de montage en root.
+#
+# 0700 et non 0750 : l'agent resserre ce repertoire lui-meme au premier
+# demarrage. Exiger 0750 le rouvrirait a chaque playbook, et le rapport
+# afficherait un `changed` perpetuel pour une permission qu'on relache.
 - name: Create the data directory
   ansible.builtin.file:
     path: "{{ hermes_data_dir }}"
     state: directory
     owner: "{{ hermes_puid }}"
     group: "{{ hermes_pgid }}"
+    mode: '0700'
+
+# root:PGID en 0750 — traversable par le groupe de l'agent, ecrivable par lui
+# seul. Le mode du REPERTOIRE est critique : si l'agent ne peut pas le
+# traverser, `stat()` echoue et Hermes retourne `None` en le commentant
+# `# absent`. Aucun journal, aucune erreur : la politique n'est simplement plus
+# appliquee. Un fichier illisible, lui, produit un avertissement bruyant.
+- name: Create the managed scope directory
+  ansible.builtin.file:
+    path: "{{ hermes_managed_dir }}"
+    state: directory
+    owner: root
+    group: "{{ hermes_pgid }}"
     mode: '0750'
 
-- name: Deploy the Hermes configuration
+- name: Deploy the managed Hermes configuration
   ansible.builtin.template:
     src: config.yaml.j2
-    dest: "{{ hermes_data_dir }}/config.yaml"
-    owner: "{{ hermes_puid }}"
+    dest: "{{ hermes_managed_dir }}/config.yaml"
+    owner: root
     group: "{{ hermes_pgid }}"
     mode: '0640'
   notify: Restart hermes
 
-- name: Deploy the Hermes secrets file
+# 0640 root:PGID plutot que le 0644 de la documentation amont : Hermes ne
+# controle aucun mode ("v1 enforcement is filesystem permissions only"), seul
+# l'OS decide. L'agent lit par le groupe et ne peut plus reecrire ce fichier —
+# c'est plus strict que le 0600 precedent, qui lui appartenait.
+- name: Deploy the managed Hermes secrets file
   ansible.builtin.template:
     src: hermes.env.j2
-    dest: "{{ hermes_data_dir }}/.env"
-    owner: "{{ hermes_puid }}"
+    dest: "{{ hermes_managed_dir }}/.env"
+    owner: root
     group: "{{ hermes_pgid }}"
-    mode: '0600'
+    mode: '0640'
   no_log: true
   notify: Restart hermes
 
@@ -76,4 +107,36 @@
     host: 127.0.0.1
     port: "{{ hermes_dashboard_port }}"
     timeout: 120
+  when: not ansible_check_mode
+
+# Garde-fou contre le mode d'echec silencieux decrit plus haut. Sans cette
+# assertion, un repertoire mal permissionne laisserait un playbook entierement
+# vert alors que la configuration d'Ansible n'est plus appliquee du tout.
+# `argv` evite toute gymnastique de quoting shell autour du one-liner Python.
+- name: Verify that the managed scope layer is actually applied
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - |
+        from hermes_cli import managed_scope as ms
+        ms.invalidate_managed_cache()
+        keys = ms.managed_config_keys()
+        if "model.provider" not in keys:
+            raise SystemExit(
+                f"managed scope NOT applied - pinned keys: {sorted(keys)}"
+            )
+        print(f"managed scope applied - pinned keys: {sorted(keys)}")
+  register: hermes_managed_scope
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Report the pinned managed scope keys
+  ansible.builtin.debug:
+    var: hermes_managed_scope.stdout
   when: not ansible_check_mode

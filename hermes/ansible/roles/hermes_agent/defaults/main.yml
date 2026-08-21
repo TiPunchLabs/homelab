@@ -8,6 +8,16 @@ hermes_image_tag: "v2026.8.18"
 hermes_install_dir: "/opt/hermes"
 hermes_data_dir: "/opt/hermes/data"
 
+# Couche "managed scope" de Hermes, montee sur /etc/hermes dans le conteneur.
+# Ses cles sont fusionnees PAR-DESSUS celles du volume de donnees et gagnent a
+# la FEUILLE : Ansible epingle `model.provider` sans toucher a `model.default`
+# ni a `platforms` que l'agent ou ses assistants ecrivent de leur cote.
+#
+# C'est ce qui donne a Ansible une frontiere par CLE et non par fichier. Avec
+# une frontiere par fichier, tout ce qu'un autre ecrivain deposait dans
+# config.yaml etait detruit au playbook suivant.
+hermes_managed_dir: "/opt/hermes/managed"
+
 # Le conteneur tourne en utilisateur `hermes` (UID 10000) via s6-overlay.
 # PUID/PGID le remappent sur le proprietaire du volume cote hote, sans quoi
 # les fichiers ecrits par l'agent seraient illisibles depuis la VM.
