@@ -16,11 +16,16 @@ security_open_ports:
 # 🛠️ Tooling - Role tooling
 # ============================================================
 tooling_terraform_version: "1.11.4"
-tooling_homelab_repo: "https://gitlab.com/tipunchlabs/homelab.git"
+# SSH et non HTTPS : Cloudflare, devant gitlab.com, refuse les POST vers
+# git-upload-pack depuis certaines IP. Comme tout clone ou fetch reel exige ce
+# POST, git-over-HTTPS devient inutilisable sans preavis et sans qu'aucune
+# configuration locale n'ait change. SSH n'emprunte pas ce chemin.
+tooling_homelab_repo: "git@gitlab.com:tipunchlabs/homelab.git"
 tooling_user: "ansible"
 
 # ============================================================
 # 🔑 SSH Keys - Role ssh_keys
 # ============================================================
+ssh_keys_known_host: "gitlab.com"
 ssh_keys_user: "ansible"
 ssh_keys_group: "ansible"

@@ -49,3 +49,38 @@
     owner: "{{ ssh_keys_user }}"
     group: "{{ ssh_keys_group }}"
     mode: '0600'
+
+# Sans les cles d'hote, toute operation git en SSH echoue sur
+# "Host key verification failed" — y compris le clone du depot par le role
+# tooling et le `git fetch` du job CI sync-bastion.
+- name: Scan the SSH host keys of the Git forge
+  ansible.builtin.command:
+    cmd: ssh-keyscan -T 10 -t rsa,ecdsa,ed25519 {{ ssh_keys_known_host }}
+  register: ssh_keys_scanned
+  changed_when: false
+  check_mode: false
+
+- name: Fail when the Git forge returned no host key
+  ansible.builtin.assert:
+    that:
+      - ssh_keys_scanned.stdout_lines | reject('match', '^#') | list | length > 0
+    fail_msg: >-
+      ssh-keyscan n'a renvoye aucune cle pour {{ ssh_keys_known_host }}.
+      Poser un known_hosts vide donnerait un role vert et un git casse.
+
+- name: Trust the SSH host keys of the Git forge
+  ansible.builtin.known_hosts:
+    name: "{{ ssh_keys_known_host }}"
+    key: "{{ item }}"
+    path: "/home/{{ ssh_keys_user }}/.ssh/known_hosts"
+    state: present
+  loop: "{{ ssh_keys_scanned.stdout_lines | reject('match', '^#') | list }}"
+
+# Le module known_hosts cree le fichier sous l'utilisateur du play (root) :
+# sans cette tache, l'utilisateur {{ ssh_keys_user }} ne pourrait pas le lire.
+- name: Ensure the known_hosts file belongs to the SSH user
+  ansible.builtin.file:
+    path: "/home/{{ ssh_keys_user }}/.ssh/known_hosts"
+    owner: "{{ ssh_keys_user }}"
+    group: "{{ ssh_keys_group }}"
+    mode: '0600'

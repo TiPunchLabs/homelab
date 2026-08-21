@@ -10,12 +10,15 @@
     - role: security_hardening
       tags:
         - security-hardening
-    - role: tooling
-      tags:
-        - tooling
+    # ssh_keys AVANT tooling : le clone du depot passe desormais par SSH, il a
+    # donc besoin de la cle privee et des cles d'hote de gitlab.com. L'ordre
+    # inverse fonctionnait tant que le clone etait en HTTPS anonyme.
     - role: ssh_keys
       tags:
         - ssh-keys
+    - role: tooling
+      tags:
+        - tooling
     - role: gitlab_runner
       tags:
         - gitlab-runner
