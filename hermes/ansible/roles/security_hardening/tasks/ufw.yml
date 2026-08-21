@@ -19,11 +19,15 @@
     direction: outgoing
     default: "{{ security_ufw_default_outgoing }}"
 
+# `src` est optionnel : sans lui, la regle reste ouverte a tous (`any`), soit
+# le comportement anterieur. Avec, elle est restreinte a une source unique —
+# indispensable pour le dashboard Hermes, joignable par le seul reverse proxy.
 - name: Open required ports
   community.general.ufw:
     rule: allow
     port: "{{ item.port | string }}"
     proto: "{{ item.proto }}"
+    from_ip: "{{ item.src | default('any') }}"
     comment: "{{ item.comment }}"
   loop: "{{ security_open_ports }}"
 

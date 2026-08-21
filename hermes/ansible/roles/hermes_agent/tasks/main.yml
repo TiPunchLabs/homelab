@@ -1,0 +1,79 @@
+---
+# =============================================================================
+# Hermes Agent — stack Docker Compose deployee et rejouable depuis Ansible.
+#
+# Ansible ecrit exactement deux fichiers dans le volume de donnees :
+# config.yaml et .env. Tout le reste (memories/, skills/, sessions/, cron/,
+# SOUL.md) appartient a l'agent : y toucher effacerait sa memoire a chaque run.
+# =============================================================================
+
+- name: Create the install directory
+  ansible.builtin.file:
+    path: "{{ hermes_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+# Proprietaire = PUID/PGID : le conteneur ecrit dans ce volume en tant que
+# {{ hermes_puid }} apres remap s6-overlay.
+- name: Create the data directory
+  ansible.builtin.file:
+    path: "{{ hermes_data_dir }}"
+    state: directory
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0750'
+
+- name: Deploy the Hermes configuration
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ hermes_data_dir }}/config.yaml"
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0640'
+  notify: Restart hermes
+
+- name: Deploy the Hermes secrets file
+  ansible.builtin.template:
+    src: hermes.env.j2
+    dest: "{{ hermes_data_dir }}/.env"
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0600'
+  no_log: true
+  notify: Restart hermes
+
+- name: Deploy the Docker Compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ hermes_install_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart hermes
+
+- name: Deploy the Hermes stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ hermes_install_dir }}"
+    state: present
+    pull: missing
+    recreate: auto
+    remove_orphans: true
+  when: not ansible_check_mode
+
+# wait_for plutot qu'un appel HTTP : le chemin exact du health endpoint n'est
+# pas garanti d'une version a l'autre, alors que l'ecoute du port l'est.
+- name: Wait for the gateway to listen
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ hermes_gateway_port }}"
+    timeout: 120
+  when: not ansible_check_mode
+
+- name: Wait for the dashboard to listen
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ hermes_dashboard_port }}"
+    timeout: 120
+  when: not ansible_check_mode

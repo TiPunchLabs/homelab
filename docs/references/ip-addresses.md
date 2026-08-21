@@ -189,6 +189,7 @@ Two kinds of records:
 | `excalidraw.internal` | 192.168.10.70 | via Caddy |
 | `komodo.internal` | 192.168.10.70 | via Caddy |
 | `miniboard.internal` | 192.168.10.70 | via Caddy |
+| `hermes.internal` | 192.168.10.70 | via Caddy (dashboard Hermes Agent) |
 | `ollama.internal` | 192.168.10.217 | direct (LLM backend, consumed by Open WebUI) |
 
 > 💡 **Note**: Docker containers do **not** inherit `.internal` resolution from the

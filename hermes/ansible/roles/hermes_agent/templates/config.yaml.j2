@@ -1,0 +1,25 @@
+{{ ansible_managed | comment }}
+# Fichier de CONFIGURATION uniquement — reecrit a chaque execution du playbook.
+# Les secrets vivent dans .env, jamais ici.
+#
+# ⚠️ Ansible n'ecrit que ce fichier et .env dans {{ hermes_data_dir }}.
+# memories/, skills/, sessions/, cron/ et SOUL.md appartiennent a l'agent.
+
+# Fournisseur declare explicitement : endpoint compatible OpenAI de DeepSeek.
+# `key_env` ne porte que le NOM de la variable ; le resolveur la lit depuis
+# .env, charge dans os.environ au demarrage.
+providers:
+  {{ hermes_provider_name }}:
+    name: {{ hermes_provider_display_name }}
+    base_url: {{ hermes_provider_base_url }}
+    key_env: {{ hermes_provider_key_env }}
+    default_model: {{ hermes_model_default }}
+
+model:
+  provider: {{ hermes_provider_name }}
+  default: {{ hermes_model_default }}
+
+dashboard:
+  # Derriere Caddy : les callbacks et redirections doivent pointer sur l'URL
+  # publique, pas sur l'adresse d'ecoute reelle.
+  public_url: "{{ hermes_dashboard_public_url }}"

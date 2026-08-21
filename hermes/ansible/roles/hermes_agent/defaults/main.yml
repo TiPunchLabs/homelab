@@ -1,0 +1,34 @@
+---
+# Image publiee sur Docker Hub. Le docker-compose.yml du depot amont utilise
+# `build: .` parce que c'est le depot source : la doc de deploiement, elle,
+# documente l'image publiee. Aucun outillage de build n'est necessaire ici.
+hermes_image: "nousresearch/hermes-agent"
+hermes_image_tag: "v2026.8.18"
+
+hermes_install_dir: "/opt/hermes"
+hermes_data_dir: "/opt/hermes/data"
+
+# Le conteneur tourne en utilisateur `hermes` (UID 10000) via s6-overlay.
+# PUID/PGID le remappent sur le proprietaire du volume cote hote, sans quoi
+# les fichiers ecrits par l'agent seraient illisibles depuis la VM.
+hermes_puid: 1000
+hermes_pgid: 1000
+
+hermes_gateway_port: 8642
+hermes_dashboard_port: 9119
+
+# Fournisseur d'inference : DeepSeek en direct, via son endpoint compatible
+# OpenAI. `key_env` ne porte que le *nom* de la variable — la valeur vit dans
+# .env, jamais dans config.yaml.
+hermes_provider_name: "deepseek"
+hermes_provider_display_name: "DeepSeek"
+hermes_provider_base_url: "https://api.deepseek.com/v1"
+hermes_provider_key_env: "DEEPSEEK_API_KEY"
+hermes_model_default: "deepseek-v4-flash"
+
+hermes_dashboard_username: "admin"
+hermes_dashboard_public_url: "https://hermes.internal"
+
+# Plafonds de ressources : un agent parti en boucle ne doit pas emporter la VM.
+hermes_memory_limit: "4G"
+hermes_cpu_limit: "2.0"
