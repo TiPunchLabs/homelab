@@ -193,9 +193,19 @@ sync-bastion:
   tags:
     - bastion
   interruptible: false
+  # GIT_STRATEGY: none — le job ne travaille que dans ~/homelab, il n'a jamais
+  # eu besoin du checkout que le runner clonait pour lui. C'est ce clone inutile
+  # qui echouait : le runner le fait en HTTPS avec CI_JOB_TOKEN, et Cloudflare
+  # refuse les POST vers git-upload-pack depuis notre IP publique.
+  variables:
+    GIT_STRATEGY: none
   rules:
     - if: $CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE != "merge_request_event"
   script:
     - cd ~/homelab
     - git fetch origin main
     - git reset --hard origin/main
+    # Garde-fou : sans elle, un fetch silencieusement inoperant laisserait le
+    # bastion derriver derriere main sans que le job vire au rouge.
+    - 'test "$(git rev-parse HEAD)" = "$CI_COMMIT_SHA" || { echo "ERROR: bastion sur $(git rev-parse HEAD), attendu $CI_COMMIT_SHA"; exit 1; }'
+    - 'echo "OK: bastion synchronise sur $CI_COMMIT_SHA"'
