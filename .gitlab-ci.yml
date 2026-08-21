@@ -78,26 +78,48 @@ shell-lint:
 security-check:
   stage: security
   image: alpine:3.21
+  before_script:
+    # BusyBox grep ne connait ni --include ni --exclude-dir : il sortait en code 2
+    # sans rien examiner, et le 2>/dev/null des controles masquait l'erreur. Les
+    # controles 2, 3 et 4 affichaient donc "OK" sans avoir rien verifie. On
+    # installe le vrai GNU grep.
+    - apk add --no-cache grep
+    # Canari : un faux secret plante hors du depot, que le controle 3 doit trouver.
+    # Si grep redevient un jour inerte, le job vire au rouge ici au lieu de mentir.
+    #
+    # Le mot-cle est reconstitue a l'execution : ecrit en clair, il ferait matcher
+    # le controle 3 sur ce fichier meme, et le job echouerait sur son propre appat.
+    - |
+      echo "=== Canary: proving the grep controls actually match ==="
+      canary_dir=$(mktemp -d)
+      kw="pass""word"
+      printf '%s: "canary-Sup3rS3cret-9876"\n' "$kw" > "$canary_dir/canary.yml"
+      if ! grep -rE "(password|secret|api.?key|token)[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}['\"]" \
+        --include="*.yml" --exclude-dir=".git" "$canary_dir" > /dev/null; then
+        echo "ERROR: canary not detected — the grep controls are inert, this job verifies nothing"
+        exit 1
+      fi
+      echo "OK: canary detected, the grep controls are operational"
   script:
     # 1. Vault files must be encrypted
     - |
       echo "=== Checking vault file encryption ==="
       failed=0
-      for f in $(find . -path "*/vault/*" -name "*.yml" 2>/dev/null); do
+      for f in $(find . -path "*/vault/*" -name "*.yml"); do
         if ! head -1 "$f" | grep -q '^\$ANSIBLE_VAULT'; then
           echo "ERROR: Unencrypted vault file: $f"
           failed=1
         fi
       done
-      [ "$failed" -eq 0 ] && echo "OK: All vault files are encrypted"
       [ "$failed" -eq 1 ] && exit 1
+      echo "OK: All vault files are encrypted"
     # 2. No private keys in plaintext
     - |
       echo "=== Checking for private keys ==="
       if grep -rl "BEGIN \(RSA \|OPENSSH \|EC \|DSA \|PGP \)\?PRIVATE KEY" \
         --include="*.yml" --include="*.yaml" --include="*.tf" \
         --include="*.j2" --include="*.sh" --include="*.cfg" --include="*.toml" \
-        --exclude-dir=".git" --exclude-dir=".venv" . 2>/dev/null | \
+        --exclude-dir=".git" --exclude-dir=".venv" . | \
         grep -v "vault/" ; then
         echo "ERROR: Private key found in plaintext (outside vault)"
         exit 1
@@ -106,14 +128,15 @@ security-check:
     # 3. No hardcoded secrets (passwords, tokens, API keys)
     - |
       echo "=== Checking for hardcoded secrets ==="
-      if grep -rE "(password|secret|api.?key|token)\s*[:=]\s*['\"][^'\"]{8,}['\"]" \
+      if grep -rE "(password|secret|api.?key|token)[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}['\"]" \
         --include="*.tf" --include="*.yml" --include="*.yaml" \
         --include="*.j2" --include="*.sh" --include="*.cfg" --include="*.toml" \
-        --exclude-dir=".git" --exclude-dir=".venv" . 2>/dev/null | \
+        --exclude-dir=".git" --exclude-dir=".venv" . | \
         grep -v "your-" | grep -v "example" | grep -v "placeholder" | \
         grep -v "fake-key" | \
         grep -v '\${var\.' | grep -v 'var\.' | \
-        grep -v 'vault/' ; then
+        grep -v 'vault/' | \
+        grep -vE '[:=][[:space:]]*["'"'"'][[:space:]]*\{\{[^}]*\}\}[[:space:]]*["'"'"']' ; then
         echo "ERROR: Potential secrets found in code"
         exit 1
       fi
@@ -121,10 +144,10 @@ security-check:
     # 4. No known token patterns (GitHub PAT, GitLab tokens, AWS keys)
     - |
       echo "=== Checking for known token patterns ==="
-      if grep -rE "(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{80,}|glpat-[a-zA-Z0-9\-_]{20,}|AKIA[0-9A-Z]{16}|Bearer\s+[a-zA-Z0-9\-._~+/]{20,})" \
+      if grep -rE "(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{80,}|glpat-[a-zA-Z0-9_-]{20,}|AKIA[0-9A-Z]{16}|Bearer[[:space:]]+[a-zA-Z0-9._~+/-]{20,})" \
         --include="*.tf" --include="*.yml" --include="*.yaml" \
         --include="*.j2" --include="*.sh" --include="*.cfg" --include="*.toml" \
-        --exclude-dir=".git" --exclude-dir=".venv" . 2>/dev/null | \
+        --exclude-dir=".git" --exclude-dir=".venv" . | \
         grep -v 'vault/' ; then
         echo "ERROR: Known token pattern found in plaintext"
         exit 1
