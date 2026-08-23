@@ -1,6 +1,17 @@
 ---
 # Komodo images (GitHub Container Registry)
-komodo_image_tag: "2"
+#
+# Version EXPLICITE, pas le tag majeur flottant `2`. Komodo publie `:2`,
+# `:2.0` et `:2.0.0` ; `:2` ne protege que d'un saut de major et laisse
+# derriver minor et patch. Avec un tag flottant, la version reellement
+# deployee est decidee par la DATE DU DERNIER RUN et non par le depot :
+# dockhost est reste sur v2.1.2 (avril) pendant que hermes-30, provisionne en
+# aout, recevait v2.3.2 — meme fichier, meme tag, deux binaires.
+#
+# ⚠️ Doit rester aligne avec `komodo_periphery_image_tag` du role
+# `hermes/ansible/roles/komodo_periphery`. Un Core plus ancien que ses agents
+# est le mauvais sens : l'UI affiche VERSION MISMATCH sur le Server concerne.
+komodo_image_tag: "2.3.2"
 
 # Host paths
 komodo_install_dir: "/opt/komodo"
