@@ -3,6 +3,7 @@
 # `build: .` parce que c'est le depot source : la doc de deploiement, elle,
 # documente l'image publiee. Aucun outillage de build n'est necessaire ici.
 hermes_image: "nousresearch/hermes-agent"
+# renovate: datasource=docker depName=nousresearch/hermes-agent
 hermes_image_tag: "v2026.8.18"
 
 hermes_install_dir: "/opt/hermes"

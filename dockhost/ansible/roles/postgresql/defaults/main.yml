@@ -1,6 +1,7 @@
 ---
 # Image Docker PostgreSQL
 postgresql_image: "postgres"
+# renovate: datasource=docker depName=postgres
 postgresql_image_tag: "17.4"
 postgresql_image_digest: "sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad"
 
