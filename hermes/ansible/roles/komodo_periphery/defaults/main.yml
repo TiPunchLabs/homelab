@@ -1,0 +1,47 @@
+---
+# =============================================================================
+# Agent Komodo (Periphery) — hermes-30 rejoint le Core deja deploye sur
+# dockhost-90, en OBSERVATEUR.
+#
+# Le socket Docker est monte en lecture seule : Komodo voit la stack Hermes,
+# il ne peut pas la piloter. Le deploiement reste la propriete exclusive du
+# role `hermes_agent`, et cette frontiere est une propriete du systeme de
+# fichiers, pas une convention documentee.
+# =============================================================================
+
+komodo_periphery_image: "ghcr.io/moghtech/komodo-periphery"
+
+# Version EXPLICITE, pas le tag majeur flottant `2` — voir le commentaire du
+# role `dockhost/ansible/roles/komodo`.
+#
+# ⚠️ Doit rester aligne avec `komodo_image_tag` (Core, sur dockhost-90). Core
+# plus ancien que Periphery est le mauvais sens : monter Core d'abord.
+komodo_periphery_image_tag: "2.3.2"
+
+komodo_periphery_install_dir: "/opt/komodo-periphery"
+
+# Chemin identique dedans et dehors du conteneur : Periphery transmet ce
+# chemin tel quel au demon Docker de l'hote lorsqu'il monte des volumes.
+# Voir moghtech/komodo#180.
+komodo_periphery_root: "/etc/komodo"
+
+# `ws://` en clair vers l'IP de dockhost plutot que `https://komodo.internal` :
+# Caddy sert ce vhost avec une CA interne que le conteneur Periphery
+# n'embarque pas. Inutile de l'y installer — le canal Core<->Periphery est
+# chiffre par un handshake Noise, independant de TLS. Le LAN ne voit passer
+# aucun contenu lisible.
+komodo_core_address: "ws://192.168.10.90:9120"
+
+# Nom du Server tel qu'il apparait dans l'UI Komodo.
+komodo_connect_as: "hermes-30"
+
+# "ro" fait de « observer seulement » une propriete du systeme et non une
+# discipline. Passer a "rw" rendrait a Komodo le pouvoir d'arreter ou de
+# detruire la stack qu'Ansible possede — deux controleurs sur la meme stack.
+komodo_periphery_docker_socket_mode: "ro"
+
+# Fenetre laissee a l'agent avant le controle de stabilite. Un echec
+# d'authentification ne se manifeste pas par un conteneur absent mais par un
+# redemarrage : il faut lui laisser le temps de boucler au moins une fois
+# pour que le controle ait un sens.
+komodo_periphery_settle_seconds: 20

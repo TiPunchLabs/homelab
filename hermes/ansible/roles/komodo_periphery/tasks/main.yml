@@ -1,0 +1,122 @@
+---
+# =============================================================================
+# Komodo Periphery — hermes-30 rejoint le Core de dockhost-90 en OBSERVATEUR.
+#
+# UN `docker compose up` REUSSI NE PROUVE RIEN ICI.
+#
+# La cle d'onboarding est a usage unique : Core l'echange au premier contact
+# contre la cle publique que Periphery genere, puis la jette. La cle privee
+# vit ensuite dans le volume nomme `keys`. Si ce volume disparait (`down -v`,
+# VM recreee) alors que la cle du vault est deja consommee, Periphery demarre,
+# echoue au handshake, et boucle en `restart: unless-stopped`. Conteneur
+# present, Server deconnecte dans l'UI, playbook entierement vert.
+#
+# C'est le meme mode de defaillance silencieuse que l'assertion `managed
+# scope` neutralise dans le role `hermes_agent`. D'ou le controle de stabilite
+# en fin de role : `running` ne suffit pas, le compteur de redemarrages ne
+# doit pas bouger pendant la fenetre d'observation.
+# =============================================================================
+
+- name: Create the Periphery install directory
+  ansible.builtin.file:
+    path: "{{ komodo_periphery_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+
+# Periphery ecrit ici les stacks qu'il gere. hermes-30 n'en heberge aucune —
+# le repertoire n'existe que parce que l'agent refuse de demarrer sans sa
+# racine. Il doit rester vide : une stack qui y apparaitrait signalerait que
+# quelqu'un a franchi la frontiere « observer seulement ».
+- name: Create the Periphery root directory
+  ansible.builtin.file:
+    path: "{{ komodo_periphery_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy the Periphery Docker Compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ komodo_periphery_install_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart komodo periphery
+
+- name: Deploy the Periphery environment file
+  ansible.builtin.template:
+    src: periphery.env.j2
+    dest: "{{ komodo_periphery_install_dir }}/periphery.env"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  notify: Restart komodo periphery
+
+- name: Deploy the Periphery stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ komodo_periphery_install_dir }}"
+    state: present
+    pull: missing
+    recreate: auto
+    remove_orphans: true
+  when: not ansible_check_mode
+
+# Les handlers ne se declenchent qu'en fin de play : sans ce flush, le
+# controle de stabilite observerait le conteneur d'avant le changement de
+# configuration et validerait un etat perime.
+- name: Apply any pending restart before verifying
+  ansible.builtin.meta: flush_handlers
+
+# On compare le compteur AVANT / APRES plutot que de l'exiger a zero : un
+# redemarrage isole survenu il y a trois semaines ne doit pas faire echouer un
+# playbook rejoue. Seule une boucle en cours — le symptome d'un handshake
+# refuse — fait bouger le compteur pendant la fenetre.
+- name: Read the agent state before the settle window
+  ansible.builtin.command:
+    argv:
+      - docker
+      - inspect
+      - komodo-periphery
+      - --format
+      - "{% raw %}{{.State.Running}} {{.RestartCount}}{% endraw %}"
+  register: komodo_periphery_before
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Let the agent attempt its handshake
+  ansible.builtin.wait_for:
+    timeout: "{{ komodo_periphery_settle_seconds }}"
+  when: not ansible_check_mode
+
+- name: Read the agent state after the settle window
+  ansible.builtin.command:
+    argv:
+      - docker
+      - inspect
+      - komodo-periphery
+      - --format
+      - "{% raw %}{{.State.Running}} {{.RestartCount}}{% endraw %}"
+  register: komodo_periphery_after
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify that the agent is running and not crash-looping
+  ansible.builtin.assert:
+    that:
+      - komodo_periphery_after.stdout.split()[0] == "true"
+      - komodo_periphery_after.stdout.split()[1] == komodo_periphery_before.stdout.split()[1]
+    fail_msg: >-
+      komodo-periphery ne tient pas : etat="{{ komodo_periphery_after.stdout }}"
+      (avant : "{{ komodo_periphery_before.stdout }}"). Cause la plus probable —
+      la cle d'onboarding du vault est deja consommee et le volume `keys` a ete
+      detruit. Inspecter `docker logs komodo-periphery`, puis suivre la
+      procedure de re-onboarding du README de ce role.
+    success_msg: >-
+      komodo-periphery stable ({{ komodo_periphery_settle_seconds }}s sans
+      redemarrage) — verifier que le Server "{{ komodo_connect_as }}" est vert
+      dans l'UI Komodo.
+  when: not ansible_check_mode

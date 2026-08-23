@@ -56,3 +56,20 @@ hermes_deepseek_api_key: "{{ vault_hermes_deepseek_api_key }}"
 hermes_api_server_key: "{{ vault_hermes_api_server_key }}"
 hermes_dashboard_password: "{{ vault_hermes_dashboard_password }}"
 hermes_dashboard_secret: "{{ vault_hermes_dashboard_secret }}"
+
+# ============================================================
+# 👁️ Komodo Periphery - Role komodo_periphery
+# ============================================================
+# hermes-30 rejoint le Core de dockhost-90 en OBSERVATEUR. La connexion est
+# sortante (Periphery appelle Core) : aucune regle UFW a ajouter.
+komodo_core_address: "ws://192.168.10.90:9120"
+komodo_connect_as: "hermes-30"
+
+# Lecture seule : Komodo voit la stack Hermes, il ne peut pas la piloter.
+# Le deploiement reste la propriete exclusive du role hermes_agent.
+komodo_periphery_docker_socket_mode: "ro"
+
+# Secret — valeur reelle dans group_vars/hermes/vault/config.yml.
+# ⚠️ Cle a USAGE UNIQUE, consommee au premier contact. Voir le README du role
+# komodo_periphery pour la procedure de re-onboarding.
+komodo_onboarding_key: "{{ vault_komodo_onboarding_key }}"

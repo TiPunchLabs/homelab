@@ -250,7 +250,10 @@ hermes/
 │   │   └── all/main.yml
 │   └── roles/
 │       ├── motd/
-│       └── security_hardening/    # SSH + UFW (port 22/tcp entrant)
+│       ├── security_hardening/    # SSH + UFW (port 22/tcp entrant)
+│       ├── docker/                # Docker Engine + Compose plugin
+│       ├── hermes_agent/          # Stack Hermes Agent (managed scope)
+│       └── komodo_periphery/      # Agent Komodo, observateur (docker.sock :ro)
 ├── terraform/
 │   ├── main.tf, providers.tf, variables.tf, outputs.tf
 └── ansible.cfg
@@ -271,7 +274,15 @@ cd hermes
 ansible-playbook ansible/deploy.yml
 ansible-playbook ansible/deploy.yml --tags motd
 ansible-playbook ansible/deploy.yml --tags security-hardening
+ansible-playbook ansible/deploy.yml --tags docker
+ansible-playbook ansible/deploy.yml --tags hermes
+ansible-playbook ansible/deploy.yml --tags komodo-periphery
 ```
+
+> 👁️ `komodo_periphery` rattache hermes-30 au Komodo Core de dockhost-90 en
+> **observateur** : `docker.sock` monte en lecture seule, connexion sortante,
+> aucune regle UFW a ajouter. La cle d'onboarding est a **usage unique** —
+> voir `hermes/ansible/roles/komodo_periphery/README.md`.
 
 ---
 

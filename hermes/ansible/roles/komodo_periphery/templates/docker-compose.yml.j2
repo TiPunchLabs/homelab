@@ -1,0 +1,33 @@
+{{ ansible_managed | comment }}
+# Agent Komodo en mode SORTANT : c'est Periphery qui ouvre le WebSocket vers
+# Core, sur dockhost-90. Aucun port entrant a ouvrir sur hermes-30 — UFW reste
+# strictement inchange par ce role.
+
+services:
+  periphery:
+    image: {{ komodo_periphery_image }}:{{ komodo_periphery_image_tag }}
+    container_name: komodo-periphery
+    init: true
+    restart: unless-stopped
+    # host : aucune regle NAT Docker n'est creee, donc UFW s'applique
+    # normalement — meme raison que pour la stack Hermes sur cette VM.
+    # Periphery ouvre peut-etre une ecoute sur 8120 ; le `deny` entrant par
+    # defaut la couvre, et le mode sortant la rend inutile.
+    network_mode: host
+    env_file: ./periphery.env
+    volumes:
+      # L'IDENTITE DE L'AGENT. Ce volume *est* le serveur aux yeux de Core :
+      # il porte la cle privee generee au premier contact. Le detruire
+      # (`docker compose down -v`) rend hermes-30 irrecuperable sans une
+      # NOUVELLE cle d'onboarding generee dans l'UI Komodo.
+      - keys:/config/keys
+      # :ro — la borne qui fait de « observer seulement » une propriete du
+      # systeme. Logs, stats, inspect : oui. start / stop / rm : refuses par
+      # le demon lui-meme, pas par convention.
+      - /var/run/docker.sock:/var/run/docker.sock:{{ komodo_periphery_docker_socket_mode }}
+      - /proc:/proc
+      # Chemin identique dedans et dehors (moghtech/komodo#180).
+      - {{ komodo_periphery_root }}:{{ komodo_periphery_root }}
+
+volumes:
+  keys:
