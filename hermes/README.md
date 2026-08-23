@@ -28,11 +28,19 @@ This project automates the deployment of [Hermes Agent](https://github.com/nousr
                               │        └── /opt/hermes/data   → /opt/data
                               │             ├── config.yaml  ← agent
                               │             └── memories/ skills/ sessions/
-                              └──────────────────┬───────────────────┘
+                              │                                      │
+   dockhost-90 ◀──────────────┼─── komodo-periphery (outbound ws://) │
+   komodo-core :9120          │        ↳ /var/run/docker.sock  :ro    │
+   observes, cannot act       └──────────────────┬───────────────────┘
                                                  │ HTTPS
                                                  ▼
                                         api.deepseek.com
 ```
+
+> 👁️ Komodo **observes** this host. The Docker socket is mounted read-only, so
+> Periphery can read logs and stats but cannot start, stop or destroy anything —
+> `hermes_agent` remains the sole controller of the stack. See
+> [`roles/komodo_periphery/README.md`](ansible/roles/komodo_periphery/README.md).
 
 ### Deployed Roles
 
@@ -44,9 +52,11 @@ Each role is deployed in this order by `deploy.yml`:
 | `security_hardening` / `security-hardening` | SSH hardening + UFW |
 | `docker` | Docker Engine + Compose plugin, log rotation |
 | `hermes_agent` / `hermes` | Hermes Agent stack (Docker Compose) |
+| `komodo_periphery` / `komodo-periphery` | Komodo agent — read-only observer |
 
 > ⚠️ Tag names are **not** always the role name: `security-hardening` uses a hyphen,
-> and the `hermes_agent` role is tagged `hermes`.
+> the `hermes_agent` role is tagged `hermes`, and `komodo_periphery` is tagged
+> `komodo-periphery`.
 
 ### Stack
 

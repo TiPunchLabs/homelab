@@ -15,6 +15,7 @@
         - security-hardening
         - docker
         - hermes
+        - komodo-periphery
 
     - name: Definir le fuseau horaire sur {{ hermes_timezone }}
       ansible.builtin.command: timedatectl set-timezone {{ hermes_timezone }}
@@ -25,6 +26,7 @@
         - security-hardening
         - docker
         - hermes
+        - komodo-periphery
   roles:
     - role: motd
       tags:
@@ -40,3 +42,10 @@
     - role: hermes_agent
       tags:
         - hermes
+    # Apres hermes_agent : l'agent Komodo observe la stack Hermes, autant
+    # qu'elle existe avant qu'il ne se connecte. Il n'en depend pas
+    # techniquement — le socket est monte en lecture seule, Periphery ne fait
+    # que la voir.
+    - role: komodo_periphery
+      tags:
+        - komodo-periphery

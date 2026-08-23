@@ -1,0 +1,6 @@
+---
+- name: Restart komodo periphery
+  community.docker.docker_compose_v2:
+    project_src: "{{ komodo_periphery_install_dir }}"
+    state: restarted
+  when: not ansible_check_mode
