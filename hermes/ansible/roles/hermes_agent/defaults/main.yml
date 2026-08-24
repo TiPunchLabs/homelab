@@ -47,6 +47,18 @@ hermes_provider_base_url: "https://api.deepseek.com/v1"
 hermes_provider_key_env: "DEEPSEEK_API_KEY"
 hermes_model_default: "deepseek-v4-flash"
 
+# ============================================================
+# Plateforme Telegram
+# ============================================================
+# Desactivable sans toucher au reste : sans jeton, l'adaptateur ne demarre pas.
+hermes_telegram_enabled: true
+
+# Liste blanche d'identifiants Telegram autorises a parler a l'agent, separes
+# par des virgules. Sans elle, le gateway journalise « No env user allowlists
+# configured » et retombe sur l'appairage — ce qui marche, mais laisse la porte
+# a quiconque connait le bot tant que personne n'a paire.
+hermes_telegram_allowed_users: ""
+
 hermes_dashboard_username: "admin"
 hermes_dashboard_public_url: "https://hermes.internal"
 
