@@ -1,0 +1,33 @@
+---
+# =============================================================================
+# Confiance dans la CA interne de Caddy (caddy-70).
+#
+# Caddy sert les vhosts `.internal` marques `tls_internal: true` avec sa propre
+# autorite. Sans ce root dans le magasin de confiance, tout appel HTTPS vers un
+# service interne echoue en `SSL certificate problem: unable to get local
+# issuer certificate` — constate sur hermes-30 le 2026-08-24.
+#
+# Le runbook caddy/docs/runbook-https-internal.md decrit ce geste au §3 comme
+# une procedure MANUELLE, « a faire une fois par machine cliente ». Ce role
+# l'automatise pour hermes-30, et le rend rejouable.
+# =============================================================================
+
+# Destination du root dans le magasin de l'hote. `update-ca-certificates` ne
+# ramasse que les fichiers `.crt` de ce repertoire.
+internal_ca_source_file: "caddy-root.crt"
+internal_ca_dest_file: "/usr/local/share/ca-certificates/caddy-internal.crt"
+
+# Bundle regenere par `update-ca-certificates`. C'est CE fichier que le role
+# hermes_agent monte dans le conteneur : apres l'etape ci-dessus il contient
+# les CA publiques ET celle de Caddy.
+internal_ca_bundle: "/etc/ssl/certs/ca-certificates.crt"
+
+# Sujet cherche dans le bundle DECODE. Volontairement partiel : l'annee change
+# a chaque regeneration de la PKI Caddy ("Caddy Local Authority - 2026 ECC
+# Root").
+internal_ca_subject_match: "Caddy Local Authority"
+
+# URL interne servie en TLS par Caddy, interrogee SANS `-k` pour prouver que la
+# confiance est effective. `/health` plutot que `/` : reponse courte, stable,
+# et qui n'exige aucune authentification.
+internal_ca_verify_url: "https://kandidat.internal/health"

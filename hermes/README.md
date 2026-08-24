@@ -52,11 +52,19 @@ Each role is deployed in this order by `deploy.yml`:
 | `security_hardening` / `security-hardening` | SSH hardening + UFW |
 | `docker` | Docker Engine + Compose plugin, log rotation |
 | `hermes_agent` / `hermes` | Hermes Agent stack (Docker Compose) |
+| `dns_resolver` / `dns` | dnsmasq split-horizon — `.internal` pinned to Pi-hole |
+| `internal_ca_trust` / `ca` | Trust Caddy's internal CA (host + containers) |
 | `komodo_periphery` / `komodo-periphery` | Komodo agent — read-only observer |
 
 > ⚠️ Tag names are **not** always the role name: `security-hardening` uses a hyphen,
-> the `hermes_agent` role is tagged `hermes`, and `komodo_periphery` is tagged
-> `komodo-periphery`.
+> `hermes_agent` is tagged `hermes`, `komodo_periphery` is tagged
+> `komodo-periphery`, `dns_resolver` is tagged `dns` and `internal_ca_trust` is
+> tagged `ca`.
+
+> 🔐 **Order matters**: `internal_ca_trust` fills the host CA bundle that
+> `hermes_agent`'s compose mounts into the containers. Running them the other way
+> round would mount a bundle without the internal CA. Same for `dns_resolver`:
+> the agent reaches `api.deepseek.com` by name.
 
 ### Stack
 

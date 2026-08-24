@@ -17,6 +17,7 @@
         - hermes
         - komodo-periphery
         - dns
+        - ca
 
     - name: Definir le fuseau horaire sur {{ hermes_timezone }}
       ansible.builtin.command: timedatectl set-timezone {{ hermes_timezone }}
@@ -29,6 +30,7 @@
         - hermes
         - komodo-periphery
         - dns
+        - ca
   roles:
     - role: motd
       tags:
@@ -42,6 +44,12 @@
     - role: dns_resolver
       tags:
         - dns
+    # Avant hermes_agent : ce role remplit le bundle CA de l'hote, que le
+    # compose de l'agent monte ensuite dans le conteneur. L'ordre inverse
+    # monterait un bundle sans la CA interne.
+    - role: internal_ca_trust
+      tags:
+        - ca
     - role: docker
       tags:
         - docker

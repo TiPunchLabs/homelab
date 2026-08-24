@@ -142,6 +142,54 @@
   when: not ansible_check_mode
 
 # =============================================================================
+# Preuve, cote CONTENEUR, que le bundle CA monte depuis l'hote fait son office.
+#
+# Le role `internal_ca_trust` prouve la meme chose cote hote. Les deux sont
+# necessaires : le conteneur a son PROPRE magasin de confiance, et un hote qui
+# valide ne dit rien de ce que voit l'agent.
+#
+# Les DEUX sondes comptent. La premiere seule ne suffirait pas : monter le
+# bundle de l'hote par-dessus celui du conteneur pourrait tres bien apporter la
+# CA Caddy tout en retirant une CA publique, et l'inference DeepSeek tomberait
+# — panne majeure, cause non evidente.
+# =============================================================================
+- name: Verify TLS trust from inside the container
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - |
+        import ssl, urllib.error, urllib.request
+
+        def probe(url):
+            try:
+                urllib.request.urlopen(url, timeout=10)
+                return "ok"
+            except urllib.error.HTTPError as exc:
+                # TLS a valide : la couche HTTP a repondu, meme en erreur.
+                return f"ok (HTTP {exc.code})"
+            except urllib.error.URLError as exc:
+                if isinstance(exc.reason, ssl.SSLError):
+                    raise SystemExit(f"TLS REFUSE pour {url} : {exc.reason}")
+                raise SystemExit(f"injoignable {url} : {exc.reason}")
+
+        print("interne:", probe("{{ hermes_ca_verify_internal_url }}"))
+        print("public :", probe("{{ hermes_ca_verify_public_url }}"))
+  register: hermes_ca_probe
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Report the container TLS trust state
+  ansible.builtin.debug:
+    var: hermes_ca_probe.stdout
+  when: not ansible_check_mode
+
+# =============================================================================
 # Retrait du filet de migration.
 #
 # Cette tache est volontairement la DERNIERE du role, apres l'assertion. Le
