@@ -1,0 +1,36 @@
+{{ ansible_managed | comment }}
+
+# N'ecoute que sur la loopback : systemd-resolved est le seul client, rien
+# n'arrive du LAN. Aucune regle UFW n'est donc necessaire.
+#
+# 127.0.0.1 est libre : resolved n'occupe que 127.0.0.53 (stub) et 127.0.0.54.
+listen-address=127.0.0.1
+bind-interfaces
+
+# INDISPENSABLE. Sans no-resolv, dnsmasq lit /etc/resolv.conf, qui pointe sur
+# le stub de resolved, qui pointe sur dnsmasq : boucle de resolution.
+no-resolv
+
+# ---------------------------------------------------------------------------
+# La raison d'etre de ce demon : le routage PAR DOMAINE.
+#
+# `server=/{{ dns_internal_domain }}/` EPINGLE la zone sur le Pi-hole. A la
+# difference d'une liste systemd-resolved, elle ne retombe JAMAIS sur un
+# resolveur public, meme si le Pi-hole cesse de repondre. Une panne de dns-71
+# rend alors .{{ dns_internal_domain }} indisponible — pas faussement NXDOMAIN.
+# C'est le troc voulu : une panne bruyante plutot qu'une panne silencieuse.
+# ---------------------------------------------------------------------------
+server=/{{ dns_internal_domain }}/{{ dns_internal_server }}
+server=/{{ dns_internal_reverse_zone }}/{{ dns_internal_server }}
+
+# Tout le reste. Ici la bascule est legitime : ces resolveurs sont
+# interchangeables et ne detiennent aucune zone privee.
+{% for server in dns_upstream_servers %}
+server={{ server }}
+{% endfor %}
+
+# Ne pas transmettre aux resolveurs publics les noms sans point : resolved a
+# deja qualifie les noms courts via `search` avant d'arriver ici.
+domain-needed
+
+cache-size={{ dns_cache_size }}

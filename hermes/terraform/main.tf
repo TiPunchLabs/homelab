@@ -34,11 +34,22 @@ module "hermes_vm" {
     }
   ]
 
-  # DNS : Pi-hole (dns-71) sert la zone .internal du homelab, indispensable si
-  # l'agent joint des services par leur nom. 1.1.1.1 en repli : le basculement
-  # n'a lieu que sur timeout/SERVFAIL, jamais sur NXDOMAIN, donc .internal reste
-  # correct tant que Pi-hole repond. Pi-hole forwarde lui-meme le trafic public.
-  vm_dns_servers = ["192.168.10.71", "1.1.1.1"]
+  # DNS de BOOTSTRAP uniquement. Le role Ansible `dns_resolver` installe ensuite
+  # dnsmasq et bascule le systeme sur 127.0.0.1 — voir le README de ce role.
+  #
+  # Un seul serveur, volontairement. La liste precedente etait
+  # ["192.168.10.71", "1.1.1.1"], justifiee par : « le basculement n'a lieu que
+  # sur timeout/SERVFAIL, jamais sur NXDOMAIN, donc .internal reste correct tant
+  # que Pi-hole repond ». La premisse est juste, la conclusion est fausse : la
+  # bascule de systemd-resolved est COLLANTE. Un seul timeout du Pi-hole a
+  # deplace la resolution vers 1.1.1.1 definitivement, et une fois la-bas
+  # .internal repondait NXDOMAIN — une reponse valide, qui ne provoque aucun
+  # retour en arriere. Constate le 2026-08-23 : plus aucun nom .internal ne
+  # resolvait depuis hermes-30, sans qu'aucun service ne soit tombe.
+  #
+  # ⚠️ Ne PAS pointer sur 127.0.0.1 ici : au premier boot dnsmasq n'existe pas
+  # encore, le provisioning n'aurait aucune resolution.
+  vm_dns_servers = ["192.168.10.71"]
 
   # "internal" plutot que le defaut "local", reserve au mDNS (RFC 6762).
   # Autorise les noms courts : `ping komodo` -> komodo.internal.

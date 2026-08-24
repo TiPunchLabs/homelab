@@ -1,0 +1,16 @@
+{{ ansible_managed | comment }}
+# Surcharge le `nameservers` de 50-cloud-init.yaml. netplan fusionne les
+# fichiers par ordre lexical : `99-` gagne sur `50-` pour la meme cle.
+#
+# UN SEUL serveur en amont, volontairement. C'est ce qui prive systemd-resolved
+# de toute logique de bascule — le routage par domaine vit desormais dans
+# dnsmasq, qui ecoute sur cette adresse.
+network:
+  version: 2
+  ethernets:
+    {{ dns_netplan_interface }}:
+      nameservers:
+        addresses:
+          - 127.0.0.1
+        search:
+          - {{ dns_internal_domain }}
