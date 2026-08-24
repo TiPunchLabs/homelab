@@ -58,6 +58,17 @@ hermes_dashboard_password: "{{ vault_hermes_dashboard_password }}"
 hermes_dashboard_secret: "{{ vault_hermes_dashboard_secret }}"
 
 # ============================================================
+# 📱 Telegram - Role hermes_agent
+# ============================================================
+# Identifiant Telegram autorise. Ce n'est pas un secret — c'est un identifiant
+# public, et le garder en clair rend la liste blanche auditable.
+# Releve dans agent.log le 2026-08-24 : « [Telegram] Sending response to 8854358938 ».
+hermes_telegram_allowed_users: "8854358938"
+
+# Jeton BotFather — valeur reelle dans group_vars/hermes/vault/config.yml.
+hermes_telegram_bot_token: "{{ vault_hermes_telegram_bot_token }}"
+
+# ============================================================
 # 👁️ Komodo Periphery - Role komodo_periphery
 # ============================================================
 # hermes-30 rejoint le Core de dockhost-90 en OBSERVATEUR. La connexion est

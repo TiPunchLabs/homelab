@@ -190,23 +190,27 @@
   when: not ansible_check_mode
 
 # =============================================================================
-# Retrait du filet de migration.
+# ⚠️ NE PAS REINTRODUIRE DE SUPPRESSION DU .env DU VOLUME.
 #
-# Cette tache est volontairement la DERNIERE du role, apres l'assertion. Le
-# .env du volume est ce sur quoi l'agent retombe si la couche managed n'est pas
-# appliquee : le supprimer plus haut reviendrait a retirer le filet avant de
-# savoir si le trapeze tient. Ici, l'assertion a deja fait echouer le playbook
-# en cas de probleme, et la condition sur `rc` rend cette dependance explicite
-# plutot qu'implicite dans l'ordre des taches.
+# Ce role a longtemps fini par `file: path={{ hermes_data_dir }}/.env
+# state=absent`, au motif que ce fichier etait « supplante par la couche
+# managed ». Le motif etait FAUX : la couche managed ne portait que les cles
+# qu'Ansible declare. Tout ce que l'agent ou l'utilisateur y ecrivait — via
+# `hermes gateway setup`, typiquement — etait detruit au playbook suivant.
 #
-# Seul .env est supprime. config.yaml du volume ne porte aucun secret et
-# appartient desormais a l'agent, qui peut legitimement le reecrire : le
-# supprimer empieterait sur son domaine, l'inverse de ce que ce role etablit.
+# Constate le 2026-08-24 : la tache a rendu `changed`, emportant le jeton
+# TELEGRAM_BOT_TOKEN pose lors de la configuration du bot. Hermes a cesse de
+# repondre sur Telegram, sans erreur, sans trace : l'adaptateur ne demarrait
+# simplement plus. Le playbook, lui, etait entierement vert.
+#
+# La regle du role vaut pour .env EXACTEMENT comme pour config.yaml, et le
+# commentaire de ce dernier l'enoncait deja : « le supprimer empieterait sur
+# son domaine, l'inverse de ce que ce role etablit ».
+#
+# Un .env residuel dans le volume est SANS DANGER : la couche managed est
+# fusionnee par-dessus et gagne. Il n'y avait donc rien a gagner a le
+# supprimer, et une configuration entiere a perdre.
+#
+# Si une cle doit devenir inviolable, l'ajouter a hermes.env.j2 — pas effacer
+# le fichier ou l'utilisateur travaille.
 # =============================================================================
-- name: Remove the superseded secrets file from the data volume
-  ansible.builtin.file:
-    path: "{{ hermes_data_dir }}/.env"
-    state: absent
-  when:
-    - not ansible_check_mode
-    - hermes_managed_scope.rc | default(1) == 0
