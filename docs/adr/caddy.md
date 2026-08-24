@@ -7,20 +7,23 @@
 
 ## 📖 Table des matieres
 
-- [ADR-001 : HTTP only, pas de TLS](#adr-001--http-only-pas-de-tls)
+- [ADR-001 : HTTP only, pas de TLS](#adr-001--http-only-pas-de-tls) — *remplace par ADR-006*
 - [ADR-002 : Domaines .internal au lieu de .local](#adr-002--domaines-internal-au-lieu-de-local)
 - [ADR-003 : tls_insecure_skip_verify pour Proxmox](#adr-003--tls_insecure_skip_verify-pour-proxmox)
 - [ADR-004 : IPs backends en clair dans group_vars](#adr-004--ips-backends-en-clair-dans-group_vars)
 - [ADR-005 : Restriction de l'API admin aux reseaux prives](#adr-005--restriction-de-lapi-admin-aux-reseaux-prives)
+- [ADR-006 : HTTPS interne opt-in par backend](#adr-006--https-interne-opt-in-par-backend)
 
 ------
 
 ## ADR-001 : HTTP only, pas de TLS
 
+> ⚠️ **Remplace par [ADR-006](#adr-006--https-interne-opt-in-par-backend) (2026-08-24).** Conserve pour l'historique — ne decrit plus l'etat du systeme.
+
 | | |
 |---|---|
 | **Date** | 2026-03-27 |
-| **Statut** | Accepte |
+| **Statut** | Remplace par ADR-006 |
 | **Decideurs** | xgueret |
 
 ### Contexte
@@ -199,6 +202,81 @@ L'ordre des directives Caddy place `respond` avant `reverse_proxy`, donc une req
 - L'administration du portail n'est plus possible depuis Internet — il faut passer par le VPN WireGuard. C'est le comportement voulu.
 - Le filtrage repose sur l'IP source vue par Caddy. Il reste correct tant que le port forwarding de la box fait du DNAT sans proxy intermediaire. Si un CDN ou un proxy amont etait ajoute devant Caddy, toutes les requetes arriveraient avec l'IP du proxy et il faudrait basculer sur `trusted_proxies` + `X-Forwarded-For`.
 - Le test depuis le LAN ne valide que le cas passant ; verifier le 403 demande une source publique reelle (4G, host externe).
+
+------
+
+## ADR-006 : HTTPS interne opt-in par backend
+
+| | |
+|---|---|
+| **Date** | 2026-08-24 |
+| **Statut** | Accepte — **remplace ADR-001** |
+| **Decideurs** | xgueret |
+
+### Contexte
+
+ADR-001 (2026-03-27) tranchait « HTTP only, pas de TLS » : le tunnel WireGuard couvrait deja le transport, et sans nom de domaine public il n'existait aucun moyen d'obtenir un certificat sans warning navigateur.
+
+Trois choses ont change depuis :
+
+1. **Des applications avec un besoin reel de TLS sont arrivees derriere Caddy.** `portail-client` pose un cookie de session `Secure` (login par magic-link) qui ne fonctionne pas en HTTP ; `hermes` demande des identifiants sur son dashboard ; `kandidat` expose des CV, des contacts et une cle d'API LLM. Le chiffrement s'arretait au VPN alors que ces flux traversent encore le LAN en clair jusqu'au navigateur.
+2. **Le cout de maintenance invoque par ADR-001 n'existe pas.** `tls internal` fait emettre **et renouveler** les certificats par la CA locale de Caddy, sans intervention. Il n'y a pas de « rotation a gerer ».
+3. **Le warning navigateur est evitable.** Importer la CA root de Caddy dans le magasin de confiance du client le supprime — une operation ponctuelle par machine, documentee dans `caddy/docs/runbook-https-internal.md`.
+
+Dans les faits la decision avait deja derive : `tls_internal: true` etait en place sur `proxmox`, `kandidat`, `portail-client` et `hermes`. ADR-001 ne decrivait plus l'etat du systeme.
+
+### Decision
+
+**Remplacer « HTTP only » par un HTTPS interne opt-in par backend, pilote par le flag `tls_internal` dans `caddy_backends`.**
+
+- Par defaut (flag absent), un backend reste servi en HTTP sur `:80` — c'est le comportement historique, inchange.
+- Le flag est active sur les backends qui manipulent des identifiants ou des donnees personnelles.
+- Caddy sert alors le vhost avec sa **CA locale** et redirige automatiquement `:80` vers `:443`.
+
+> 💡 **Note** : `.internal` est un TLD reserve (RFC 6761 / RFC 8375). **Aucune CA publique n'emettra jamais** pour ces noms — la CA locale de Caddy n'est pas un repli faute de mieux, c'est la seule option techniquement possible. Le cas d'un vrai certificat Let's Encrypt est traite separement, sur un nom public (`portail-client.tipunchlabs.fr`, ACME DNS-01 OVH).
+
+Etat au 2026-08-24 :
+
+| Mode | Backends |
+|---|---|
+| **HTTPS** (`tls_internal: true`) | `proxmox`, `kandidat`, `portail-client`, `hermes` |
+| **HTTP** (defaut) | `vpngate`, `portainer`, `pihole`, `openwebui`, `excalidraw`, `komodo`, `miniboard` |
+| **HTTPS public** (`tls_public`, ACME DNS-01 OVH) | `portail-client.tipunchlabs.fr` |
+
+### Justification
+
+```
+   ADR-001 (2026-03)                    ADR-006 (2026-08)
+
+   navigateur ──clair──┐                navigateur ──TLS──┐
+                       │                                  │
+            [ tunnel WireGuard ]              [ tunnel WireGuard ]
+                       │                                  │
+                    Caddy:80                          Caddy:443
+                                                    (CA locale)
+```
+
+Le VPN protege le transport **entre deux machines**. Il ne protege pas le segment navigateur → Caddy une fois le paquet arrive sur le LAN, ni contre un poste compromis sur ce meme LAN. Pour un dashboard sans authentification, c'est sans consequence ; pour un cookie de session ou une cle d'API, ca ne l'est pas.
+
+| Critere | HTTPS opt-in (choisi) | HTTP only (ADR-001) | HTTPS partout |
+|---------|----------------------|---------------------|---------------|
+| Cookies `Secure` / login | Fonctionnent la ou c'est necessaire | **Bloquants** — `portail-client` inutilisable | Fonctionnent |
+| Confidentialite sur le LAN | Assuree sur les flux sensibles | Aucune apres le VPN | Assuree partout |
+| Import de CA sur les clients | Requis, mais une fois par machine | Aucun | Requis |
+| Cout de maintenance | Nul (renouvellement auto) | Nul | Nul |
+| Surface de casse | Limitee aux 4 vhosts flagges | N/A | Tous les vhosts, y compris ceux consommes par des scripts |
+| Granularite | Par backend, decision explicite | N/A | Aucune |
+
+L'opt-in est prefere au « HTTPS partout » parce que le cout de la bascule n'est pas dans Caddy mais **chez les clients** : chaque runtime qui consomme une URL `.internal` avec son propre magasin de CA doit etre ajuste. Basculer un vhost consomme par un script sans le savoir casse le script. On paie ce cout la ou il achete quelque chose.
+
+### Consequences
+
+- Le Caddyfile n'a **plus** de `auto_https off` global. Les vhosts HTTP sont exprimes par une adresse explicite `domain:80`, ce qui suffit a desactiver l'HTTPS automatique pour eux seuls.
+- ADR-003 (`tls_insecure_skip_verify` pour Proxmox) reste valide et **independant** : il concerne le lien Caddy → upstream, pas le lien client → Caddy.
+- **La distribution de la CA root n'est pas automatisee.** Aucun role Ansible ne l'installe sur les postes clients ; c'est une procedure manuelle (`runbook-https-internal.md`, etape 3). C'est le principal point de friction de cette decision.
+- **Une reinstallation de la PKI de Caddy invalide tous les clients.** Si `/var/lib/caddy/.local/share/caddy/pki` est efface (rebuild du LXC, reset de volume), Caddy genere une **nouvelle** CA root et chaque client tombe en `ERR_CERT_AUTHORITY_INVALID` jusqu'a reimport. C'est deja arrive une fois : le poste de travail porte deux roots (`Caddy Local Authority - 2025 ECC Root` et `- 2026 ECC Root`).
+- **Les runtimes qui embarquent leur propre bundle de CA ignorent le magasin systeme.** Node en est l'exemple vivant : la cible `mcp-prod` du Makefile de `kandidat` doit passer `NODE_OPTIONS=--use-system-ca` pour joindre `https://kandidat.internal`. Meme classe de probleme pour Python (`certifi`), Firefox (magasin propre, import separe) et tout conteneur qui appelle un `.internal` en HTTPS.
+- Ajouter un backend au HTTPS interne reste une modification d'une ligne dans `group_vars` suivie de `ansible-playbook ansible/deploy.yml --tags caddy`.
 
 ------
 
