@@ -3,7 +3,7 @@
 
 services:
   mongo:
-    image: mongo
+    image: mongo:{{ komodo_mongo_image_tag }}@{{ komodo_mongo_image_digest }}
     container_name: komodo-mongo
     labels:
       komodo.skip: ""  # Prevent Komodo from stopping itself via StopAllContainers
@@ -17,7 +17,7 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${KOMODO_DATABASE_PASSWORD}
 
   core:
-    image: ghcr.io/moghtech/komodo-core:${COMPOSE_KOMODO_IMAGE_TAG:-2}
+    image: ghcr.io/moghtech/komodo-core:${COMPOSE_KOMODO_IMAGE_TAG:-{{ komodo_image_tag }}}
     container_name: komodo-core
     init: true
     restart: unless-stopped
@@ -33,7 +33,7 @@ services:
       - {{ komodo_backups_dir }}:/backups
 
   periphery:
-    image: ghcr.io/moghtech/komodo-periphery:${COMPOSE_KOMODO_IMAGE_TAG:-2}
+    image: ghcr.io/moghtech/komodo-periphery:${COMPOSE_KOMODO_IMAGE_TAG:-{{ komodo_image_tag }}}
     container_name: komodo-periphery
     init: true
     restart: unless-stopped

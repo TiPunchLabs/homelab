@@ -16,6 +16,7 @@ komodo_periphery_image: "ghcr.io/moghtech/komodo-periphery"
 #
 # ⚠️ Doit rester aligne avec `komodo_image_tag` (Core, sur dockhost-90). Core
 # plus ancien que Periphery est le mauvais sens : monter Core d'abord.
+# renovate: datasource=docker depName=ghcr.io/moghtech/komodo-periphery
 komodo_periphery_image_tag: "2.3.2"
 
 komodo_periphery_install_dir: "/opt/komodo-periphery"

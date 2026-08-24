@@ -1,6 +1,7 @@
 ---
 # Image Docker Portainer CE
 portainer_image: "portainer/portainer-ce"
+# renovate: datasource=docker depName=portainer/portainer-ce
 portainer_image_tag: "2.27.4"
 portainer_image_digest: "sha256:e65b9b55c16c32f6abcbd1440a4fff020739973f0e41d6a99088d200a6014bfe"
 

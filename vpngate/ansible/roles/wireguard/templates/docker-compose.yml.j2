@@ -2,7 +2,7 @@
 
 services:
   wg-easy:
-    image: {{ wg_easy_image }}:{{ wg_easy_image_tag }}
+    image: {{ wg_easy_image }}:{{ wg_easy_image_tag }}@{{ wg_easy_image_digest }}
     container_name: wg-easy
     hostname: wg-easy
     environment:

@@ -1,7 +1,19 @@
 ---
 wg_easy_data_dir: /opt/wg-easy
 wg_easy_image: "ghcr.io/wg-easy/wg-easy"
-wg_easy_image_tag: "latest"
+# Epingle sur l'image qui tourne sur vpngate-50 depuis le 2025-06-03, tag + digest.
+#
+# `latest` pointait ici, et pointe aujourd'hui sur wg-easy v15 — une reecriture
+# avec migration du format de configuration. Rien ne s'est casse jusqu'ici par
+# simple inertie : l'image etait deja presente, donc jamais retiree. Un rebuild
+# de la VM — ce que l'IaC doit rendre banal — aurait tire v15 et pu rendre la
+# passerelle VPN inaccessible, c'est-a-dire couper le seul chemin d'entree a
+# distance dans le homelab.
+#
+# Le digest rend l'epinglage immuable : le tag `14` ne documente que l'intention.
+# renovate: datasource=docker depName=ghcr.io/wg-easy/wg-easy
+wg_easy_image_tag: "14"
+wg_easy_image_digest: "sha256:5f26407fd2ede54df76d63304ef184576a6c1bb73f934a58a11abdd852fab549"
 wg_easy_port: 51820
 wg_easy_web_port: 51821
 wg_easy_default_address: "10.0.0.x"

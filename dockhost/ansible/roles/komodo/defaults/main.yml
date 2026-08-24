@@ -11,7 +11,20 @@
 # ⚠️ Doit rester aligne avec `komodo_periphery_image_tag` du role
 # `hermes/ansible/roles/komodo_periphery`. Un Core plus ancien que ses agents
 # est le mauvais sens : l'UI affiche VERSION MISMATCH sur le Server concerne.
+# renovate: datasource=docker depName=ghcr.io/moghtech/komodo-core
 komodo_image_tag: "2.3.2"
+
+# MongoDB — la base qui porte TOUT l'etat de Komodo.
+#
+# Le compose amont ecrit `image: mongo`, sans tag : c'est `latest`. Combine au
+# `pull: always` de ce role, chaque replay du playbook re-tirait la derniere
+# image publiee. MongoDB ne supporte pas de sauter une version majeure a la
+# mise a niveau : un bond surprise laisse la base incapable de demarrer.
+#
+# Epingle sur la version qui tourne (v8.2.12), tag + digest.
+# renovate: datasource=docker depName=mongo
+komodo_mongo_image_tag: "8.2.12"
+komodo_mongo_image_digest: "sha256:e0ce8c35124d4a9f9785532d1f268f39e9728ffa1cb38f46fa482436424c4bd3"
 
 # Host paths
 komodo_install_dir: "/opt/komodo"

@@ -5,37 +5,89 @@
     "schedule:weekly",
     ":gitlabAutoMerge"
   ],
-  "labels": ["dependencies"],
-  "schedule": ["every monday"],
+  "labels": [
+    "dependencies"
+  ],
+  "schedule": [
+    "every monday"
+  ],
   "timezone": "Europe/Paris",
   "packageRules": [
     {
       "description": "Terraform providers",
-      "matchManagers": ["terraform"],
-      "labels": ["dependencies", "terraform"],
+      "matchManagers": [
+        "terraform"
+      ],
+      "labels": [
+        "dependencies",
+        "terraform"
+      ],
       "groupName": "terraform",
       "automerge": false
     },
     {
       "description": "Python dependencies (pip/uv)",
-      "matchManagers": ["pip_requirements", "pip_setup", "pep621"],
-      "labels": ["dependencies", "python"],
+      "matchManagers": [
+        "pip_requirements",
+        "pip_setup",
+        "pep621"
+      ],
+      "labels": [
+        "dependencies",
+        "python"
+      ],
       "groupName": "python-deps",
       "automerge": false
     },
     {
       "description": "Pre-commit hooks",
-      "matchManagers": ["pre-commit"],
-      "labels": ["dependencies", "ci"],
+      "matchManagers": [
+        "pre-commit"
+      ],
+      "labels": [
+        "dependencies",
+        "ci"
+      ],
       "groupName": "pre-commit-hooks",
       "automerge": true,
       "automergeType": "branch"
     },
     {
-      "description": "Docker images (pinned by digest in templates)",
-      "matchManagers": ["docker-compose", "dockerfile"],
-      "labels": ["dependencies", "docker"],
+      "description": "Images Docker. Ces deux managers ne matchent RIEN dans ce depot (aucun compose ni Dockerfile en clair) \u2014 la regle utile est celle du custom manager ci-dessous. Conservee au cas ou un compose non template apparaitrait.",
+      "matchManagers": [
+        "docker-compose",
+        "dockerfile"
+      ],
+      "labels": [
+        "dependencies",
+        "docker"
+      ],
       "automerge": false
+    },
+    {
+      "description": "Images Docker extraites des defaults Ansible par le custom manager",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "labels": [
+        "dependencies",
+        "docker"
+      ],
+      "groupName": "docker-images",
+      "automerge": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Images Docker declarees en variables Ansible. Les compose de ce depot sont des templates .j2 dont les lignes d'image valent {{ var }}:{{ var }} : le manager docker-compose natif ne peut rien en lire. Les vraies chaines de version vivent ici, dans les defaults des roles.",
+      "managerFilePatterns": [
+        "/ansible/roles/[^/]+/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+?) depName=(?<depName>[^\\s]+?)\\s+[a-z0-9_]+_image_tag:\\s*[\"'](?<currentValue>[^\"']+)[\"'](?:\\s+[a-z0-9_]+_image_digest:\\s*[\"'](?<currentDigest>[^\"']+)[\"'])?"
+      ],
+      "datasourceTemplate": "docker"
     }
   ]
 }

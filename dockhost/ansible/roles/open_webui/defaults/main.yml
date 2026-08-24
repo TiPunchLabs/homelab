@@ -1,6 +1,7 @@
 ---
 # Image Docker Open WebUI
 open_webui_image: "ghcr.io/open-webui/open-webui"
+# renovate: datasource=docker depName=ghcr.io/open-webui/open-webui
 open_webui_image_tag: "v0.9.6"
 open_webui_image_digest: "sha256:90eae5b419e40b4c3dd684582b2c83440b36f9ae2f6532c09639b2ba4ee65158"
 
