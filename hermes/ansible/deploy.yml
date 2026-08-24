@@ -16,6 +16,7 @@
         - docker
         - hermes
         - komodo-periphery
+        - dns
 
     - name: Definir le fuseau horaire sur {{ hermes_timezone }}
       ansible.builtin.command: timedatectl set-timezone {{ hermes_timezone }}
@@ -27,6 +28,7 @@
         - docker
         - hermes
         - komodo-periphery
+        - dns
   roles:
     - role: motd
       tags:
@@ -34,6 +36,12 @@
     - role: security_hardening
       tags:
         - security-hardening
+    # Avant docker et hermes_agent : l'agent joint api.deepseek.com par son nom,
+    # et la stack tourne en network_mode: host — elle herite donc du resolveur
+    # de l'hote. Le reparer d'abord evite de deployer par-dessus un DNS casse.
+    - role: dns_resolver
+      tags:
+        - dns
     - role: docker
       tags:
         - docker

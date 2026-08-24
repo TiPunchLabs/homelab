@@ -1,0 +1,43 @@
+---
+# =============================================================================
+# Resolveur local en split-horizon.
+#
+# systemd-resolved ne sait pas router par domaine sans serveurs PAR LIEN
+# (cf. `man resolved.conf`, section Domains=). Sur une VM a une seule
+# interface, une liste `192.168.10.71 1.1.1.1` n'est donc pas un
+# split-horizon : c'est une liste de bascule, aveugle au domaine ET COLLANTE.
+# Un seul timeout du Pi-hole y deplace la resolution vers 1.1.1.1
+# definitivement — et une fois la-bas, .internal repond NXDOMAIN, une reponse
+# valide qui ne provoque aucun retour en arriere.
+#
+# dnsmasq porte le routage par domaine que resolved ne peut pas porter. En
+# echange, resolved n'a plus qu'UN seul serveur en amont : sa logique de
+# bascule n'a plus de prise.
+# =============================================================================
+
+# Zone servie par le Pi-hole, epinglee par domaine.
+dns_internal_domain: "internal"
+dns_internal_server: "192.168.10.71"
+
+# Zone inverse du LAN, routee vers le Pi-hole elle aussi : sans cette entree,
+# les PTR de 192.168.10.0/24 partiraient vers les resolveurs publics, qui n'en
+# savent evidemment rien.
+dns_internal_reverse_zone: "10.168.192.in-addr.arpa"
+
+# Tout ce qui n'est pas .internal. C'est ici que la bascule est legitime :
+# ces resolveurs sont interchangeables, aucun ne detient de zone privee.
+dns_upstream_servers:
+  - "1.1.1.1"
+  - "8.8.8.8"
+
+dns_cache_size: 1000
+
+# Interface portant la configuration netplan de cloud-init.
+dns_netplan_interface: "eth0"
+
+# Nom interne interroge par la verification finale. Doit exister dans le
+# Pi-hole ; c'est le vhost de cet hote, donc il disparaitrait avec lui.
+dns_verify_internal_name: "hermes.internal"
+# Nom public interroge par la verification finale : l'endpoint d'inference,
+# soit exactement ce dont l'agent a besoin pour fonctionner.
+dns_verify_public_name: "api.deepseek.com"

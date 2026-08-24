@@ -1,0 +1,221 @@
+---
+# =============================================================================
+# L'ORDRE EST LA PARTIE QUI COMPTE.
+#
+# dnsmasq doit repondre AVANT que netplan ne pointe vers lui. L'inverse laisse
+# la VM sans resolution entre les deux taches — y compris pour Ansible lui-meme
+# si une tache ulterieure a besoin d'un nom.
+#
+# D'ou la sequence : installer, configurer, demarrer, PROUVER que dnsmasq
+# repond en l'interrogeant directement, et seulement ensuite basculer le
+# systeme. La preuve intermediaire est le garde-fou : elle echoue avant tout
+# changement irreversible cote reseau.
+# =============================================================================
+
+- name: Install dnsmasq and DNS query tools
+  ansible.builtin.apt:
+    name:
+      - dnsmasq
+      - dnsutils
+    state: present
+    update_cache: true
+
+- name: Deploy the dnsmasq split-horizon configuration
+  ansible.builtin.template:
+    src: homelab.conf.j2
+    dest: /etc/dnsmasq.d/homelab.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart dnsmasq
+
+- name: Ensure dnsmasq is enabled and running
+  ansible.builtin.systemd_service:
+    name: dnsmasq
+    state: started
+    enabled: true
+
+# Les handlers ne se declenchent qu'en fin de play : sans ce flush, la preuve
+# ci-dessous interrogerait un dnsmasq portant encore l'ancienne configuration.
+- name: Apply the pending dnsmasq restart before proving it answers
+  ansible.builtin.meta: flush_handlers
+
+# ---------------------------------------------------------------------------
+# Garde-fou. On interroge dnsmasq EN DIRECT, avant de lui confier le systeme.
+# Si cette tache echoue, netplan n'a pas encore ete touche et la VM resout
+# toujours comme avant.
+# ---------------------------------------------------------------------------
+- name: Prove that dnsmasq routes the internal zone to the Pi-hole
+  ansible.builtin.command:
+    argv:
+      - dig
+      - +short
+      - +time=3
+      - +tries=2
+      - "{{ dns_verify_internal_name }}"
+      - "@127.0.0.1"
+  register: dns_probe_internal
+  changed_when: false
+  failed_when: dns_probe_internal.stdout | trim | length == 0
+  when: not ansible_check_mode
+
+- name: Prove that dnsmasq still resolves public names
+  ansible.builtin.command:
+    argv:
+      - dig
+      - +short
+      - +time=3
+      - +tries=2
+      - "{{ dns_verify_public_name }}"
+      - "@127.0.0.1"
+  register: dns_probe_public
+  changed_when: false
+  failed_when: dns_probe_public.stdout | trim | length == 0
+  when: not ansible_check_mode
+
+# ---------------------------------------------------------------------------
+# Seulement maintenant : basculer le systeme sur dnsmasq.
+#
+# ⚠️ NETPLAN FUSIONNE LES LISTES, IL NE LES REMPLACE PAS.
+#
+# Poser un `99-dns-local.yaml` avec `addresses: [127.0.0.1]` ne suffit donc
+# pas : netplan l'AJOUTE a la liste de cloud-init et le lien se retrouve avec
+# `DNS=192.168.10.71 DNS=1.1.1.1 DNS=127.0.0.1`. La resolution fonctionne
+# alors — mais par chance, tant que resolved pointe sur le Pi-hole — et le
+# piege de bascule collante reste entier. Constate en direct le 2026-08-23.
+#
+# Il faut donc retirer `nameservers` du fichier de cloud-init. Ce retrait tient
+# au reboot : avec le datasource `nocloud`, cloud-init n'ecrit sa configuration
+# reseau qu'une fois par instance-id (verifie : mtime du 50-cloud-init anterieur
+# de trois jours au dernier boot). Un rebuild repart de
+# `vm_dns_servers` cote Terraform, puis ce role rejoue.
+# ---------------------------------------------------------------------------
+- name: Read the cloud-init netplan configuration
+  ansible.builtin.slurp:
+    src: /etc/netplan/50-cloud-init.yaml
+  register: dns_cloud_init_netplan
+
+- name: Parse the cloud-init netplan configuration
+  ansible.builtin.set_fact:
+    dns_ci: "{{ dns_cloud_init_netplan.content | b64decode | from_yaml }}"
+
+# `combine` sans `recursive` REMPLACE la cle au lieu de la fusionner — c'est
+# exactement ce qu'il faut ici, puisqu'une fusion reconduirait `nameservers`.
+- name: Build the cloud-init netplan without its nameservers
+  ansible.builtin.set_fact:
+    dns_ci_stripped: >-
+      {{ dns_ci | combine({'network': dns_ci.network | combine({'ethernets':
+         dns_ci.network.ethernets | combine({dns_netplan_interface:
+           dns_ci.network.ethernets[dns_netplan_interface] | dict2items
+           | rejectattr('key', 'equalto', 'nameservers') | items2dict })})}) }}
+
+- name: Strip the nameservers from the cloud-init netplan
+  ansible.builtin.copy:
+    content: "{{ dns_ci_stripped | to_nice_yaml(indent=2) }}"
+    dest: /etc/netplan/50-cloud-init.yaml
+    owner: root
+    group: root
+    mode: '0600'
+    # Ce fichier porte aussi l'adresse et la route par defaut : une erreur de
+    # reecriture rendrait la VM injoignable au reboot.
+    backup: true
+  register: dns_netplan_cloud_init
+
+# 0600 : netplan refuse de lire un fichier trop permissif et emet un
+# avertissement a chaque invocation.
+- name: Point the system resolver at dnsmasq
+  ansible.builtin.template:
+    src: 99-dns-local.yaml.j2
+    dest: /etc/netplan/99-dns-local.yaml
+    owner: root
+    group: root
+    mode: '0600'
+  register: dns_netplan
+
+- name: Apply the netplan configuration
+  ansible.builtin.command: netplan apply
+  changed_when: true
+  when:
+    - dns_netplan is changed or dns_netplan_cloud_init is changed
+    - not ansible_check_mode
+
+# systemd-resolved recharge sa configuration de lien de maniere asynchrone
+# apres `netplan apply` : interroger immediatement lirait l'etat d'avant.
+- name: Let systemd-resolved pick up the new link configuration
+  ansible.builtin.wait_for:
+    timeout: 5
+  when:
+    - dns_netplan is changed or dns_netplan_cloud_init is changed
+    - not ansible_check_mode
+
+# ---------------------------------------------------------------------------
+# L'INVARIANT, et non le symptome.
+#
+# Une resolution qui marche ne prouve rien : elle marche aussi quand le lien
+# porte encore 1.1.1.1, tant que resolved n'a pas bascule. C'est precisement
+# l'erreur commise a la premiere implementation de ce role. Ce qu'il faut
+# verifier, c'est que le lien n'a plus qu'UN seul serveur — donc que la logique
+# de bascule de resolved n'a plus rien sur quoi s'exercer.
+# ---------------------------------------------------------------------------
+- name: Read the DNS servers systemd-networkd actually applied to the link
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      grep '^DNS=' /run/systemd/network/10-netplan-{{ dns_netplan_interface }}.network
+      | cut -d= -f2
+    executable: /bin/bash
+  register: dns_link_servers
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify the link carries dnsmasq and nothing else
+  ansible.builtin.assert:
+    that:
+      - dns_link_servers.stdout_lines == ['127.0.0.1']
+    fail_msg: >-
+      Le lien {{ dns_netplan_interface }} porte
+      {{ dns_link_servers.stdout_lines }} au lieu de ['127.0.0.1'].
+      Tant qu'un second serveur y figure, systemd-resolved peut basculer
+      dessus et .{{ dns_internal_domain }} cessera de resoudre — c'est le bug
+      d'origine, pas une nuance. Verifier que `nameservers` a bien ete retire
+      de /etc/netplan/50-cloud-init.yaml.
+    success_msg: >-
+      Lien {{ dns_netplan_interface }} : un seul serveur amont (127.0.0.1),
+      aucune bascule possible.
+  when: not ansible_check_mode
+
+# ---------------------------------------------------------------------------
+# Verification de bout en bout. `systemctl is-active dnsmasq` ne prouve rien
+# ici : c'est la RESOLUTION qui a regresse silencieusement le 2026-08-23, pas
+# un service tombe. On mesure donc ce qui a casse, via le chemin normal du
+# systeme (getent -> nsswitch -> resolved -> dnsmasq) et non via dig, qui
+# court-circuiterait resolved.
+# ---------------------------------------------------------------------------
+- name: Resolve an internal name through the system resolver
+  ansible.builtin.command:
+    argv: [getent, hosts, "{{ dns_verify_internal_name }}"]
+  register: dns_final_internal
+  changed_when: false
+  failed_when: dns_final_internal.rc != 0
+  retries: 3
+  delay: 3
+  until: dns_final_internal.rc == 0
+  when: not ansible_check_mode
+
+- name: Resolve a public name through the system resolver
+  ansible.builtin.command:
+    argv: [getent, hosts, "{{ dns_verify_public_name }}"]
+  register: dns_final_public
+  changed_when: false
+  failed_when: dns_final_public.rc != 0
+  retries: 3
+  delay: 3
+  until: dns_final_public.rc == 0
+  when: not ansible_check_mode
+
+- name: Report the resolver state
+  ansible.builtin.debug:
+    msg:
+      - "interne : {{ dns_final_internal.stdout }}"
+      - "public  : {{ dns_final_public.stdout }}"
+  when: not ansible_check_mode
