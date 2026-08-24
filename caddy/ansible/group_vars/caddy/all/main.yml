@@ -39,6 +39,17 @@ caddy_backends:
     upstream: http://192.168.10.90:8000
     tls_internal: true
     tls_insecure_skip_verify: false
+  # Serveur MCP de kandidat, consomme par l'agent Hermes (hermes-30).
+  #
+  # `tls_internal` comme kandidat lui-meme, et pour la meme raison : le trafic
+  # MCP transporte le contenu des candidatures — CV, contacts, entretiens. Le
+  # client n'est pas un navigateur mais un conteneur du LAN, qui fait confiance
+  # a la CA interne depuis le role `internal_ca_trust` de hermes.
+  - name: kandidat-mcp
+    domain: kandidat-mcp.internal
+    upstream: http://192.168.10.90:3001
+    tls_internal: true
+    tls_insecure_skip_verify: false
   - name: portail-client
     domain: portail-client.internal
     upstream: http://192.168.10.90:8091
