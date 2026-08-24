@@ -19,6 +19,16 @@ hermes_data_dir: "/opt/hermes/data"
 # config.yaml etait detruit au playbook suivant.
 hermes_managed_dir: "/opt/hermes/managed"
 
+# Bundle CA de l'hote, monte dans le conteneur. Rempli par le role
+# `internal_ca_trust`, qui doit donc s'executer AVANT ce role.
+hermes_ca_bundle: "/etc/ssl/certs/ca-certificates.crt"
+
+# Sondes TLS jouees DEPUIS le conteneur. La premiere prouve que la CA interne
+# est vue ; la seconde que le bundle de l'hote n'a pas casse la confiance
+# publique — sans quoi l'inference tomberait et l'agent avec.
+hermes_ca_verify_internal_url: "https://kandidat.internal/health"
+hermes_ca_verify_public_url: "https://api.deepseek.com/"
+
 # Le conteneur tourne en utilisateur `hermes` (UID 10000) via s6-overlay.
 # PUID/PGID le remappent sur le proprietaire du volume cote hote, sans quoi
 # les fichiers ecrits par l'agent seraient illisibles depuis la VM.

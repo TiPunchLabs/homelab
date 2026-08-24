@@ -1,0 +1,76 @@
+---
+# =============================================================================
+# Deposer le root CA de Caddy et regenerer le bundle de l'hote.
+#
+# Ce role ne verifie QUE la moitie hote. La moitie conteneur appartient au role
+# `hermes_agent`, qui monte le bundle : chaque role prouve ce qu'il possede.
+# =============================================================================
+
+- name: Install the ca-certificates tooling
+  ansible.builtin.apt:
+    name: ca-certificates
+    state: present
+    update_cache: true
+
+# `.crt` obligatoire : update-ca-certificates ignore toute autre extension,
+# silencieusement. Un `.pem` depose ici ne produirait aucune erreur et aucun
+# effet.
+- name: Install the Caddy internal root CA
+  ansible.builtin.copy:
+    src: "{{ internal_ca_source_file }}"
+    dest: "{{ internal_ca_dest_file }}"
+    owner: root
+    group: root
+    mode: '0644'
+  register: internal_ca_cert
+
+- name: Rebuild the system CA bundle
+  ansible.builtin.command: update-ca-certificates
+  changed_when: true
+  when:
+    - internal_ca_cert is changed
+    - not ansible_check_mode
+
+# ---------------------------------------------------------------------------
+# Preuve, cote hote. Deux controles distincts, parce qu'ils echouent
+# differemment :
+#
+#  - la presence du sujet dans le bundle prouve que le certificat a bien ete
+#    RAMASSE (une extension erronee le ferait echouer ici, sans bruit ailleurs) ;
+#  - l'appel HTTPS sans `-k` prouve que la chaine VALIDE reellement, ce qu'un
+#    certificat present mais perime ou revoque ne garantit pas.
+# ---------------------------------------------------------------------------
+# ⚠️ Ne PAS grep le sujet directement dans le bundle : c'est une concatenation
+# de blocs PEM en base64, le CN en clair n'y figure nulle part. Un
+# `grep "Caddy Local Authority"` rend 0 meme quand la CA est parfaitement
+# installee — erreur commise et corrigee le 2026-08-24. Il faut DECODER.
+- name: Verify the Caddy root landed in the system bundle
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      openssl crl2pkcs7 -nocrl -certfile {{ internal_ca_bundle }}
+      | openssl pkcs7 -print_certs -noout
+      | grep -c '{{ internal_ca_subject_match }}'
+    executable: /bin/bash
+  register: internal_ca_in_bundle
+  changed_when: false
+  failed_when: internal_ca_in_bundle.rc != 0
+  when: not ansible_check_mode
+
+- name: Verify the host validates an internal TLS service without -k
+  ansible.builtin.uri:
+    url: "{{ internal_ca_verify_url }}"
+    validate_certs: true
+    status_code: 200
+  register: internal_ca_probe
+  retries: 3
+  delay: 3
+  until: internal_ca_probe.status | default(0) == 200
+  when: not ansible_check_mode
+
+- name: Report the host trust state
+  ansible.builtin.debug:
+    msg: >-
+      Hote : {{ internal_ca_verify_url }} valide sans -k
+      (CA Caddy presente {{ internal_ca_in_bundle.stdout | trim }} fois dans le bundle).
+  when: not ansible_check_mode

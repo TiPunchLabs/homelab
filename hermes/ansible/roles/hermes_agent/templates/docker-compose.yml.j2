@@ -17,6 +17,16 @@ services:
       # ne peut pas la reecrire. La frontiere devient une propriete du
       # systeme de fichiers au lieu d'une convention documentee.
       - {{ hermes_managed_dir }}:/etc/hermes:ro
+      # Bundle CA de l'HOTE, monte au meme chemin que celui du conteneur.
+      # Apres le role internal_ca_trust il contient les CA publiques ET celle
+      # de Caddy, donc toute bibliotheque du conteneur fait confiance aux
+      # vhosts .internal sans le savoir.
+      #
+      # Prefere a SSL_CERT_FILE / REQUESTS_CA_BUNDLE / NODE_EXTRA_CA_CERTS :
+      # ces variables ne couvrent qu'une bibliotheque chacune, et laquelle
+      # depend de l'implementation du client HTTP. Le chemin, lui, est lu par
+      # toutes.
+      - {{ hermes_ca_bundle }}:/etc/ssl/certs/ca-certificates.crt:ro
     environment:
       - PUID={{ hermes_puid }}
       - PGID={{ hermes_pgid }}
@@ -40,6 +50,16 @@ services:
       # ne peut pas la reecrire. La frontiere devient une propriete du
       # systeme de fichiers au lieu d'une convention documentee.
       - {{ hermes_managed_dir }}:/etc/hermes:ro
+      # Bundle CA de l'HOTE, monte au meme chemin que celui du conteneur.
+      # Apres le role internal_ca_trust il contient les CA publiques ET celle
+      # de Caddy, donc toute bibliotheque du conteneur fait confiance aux
+      # vhosts .internal sans le savoir.
+      #
+      # Prefere a SSL_CERT_FILE / REQUESTS_CA_BUNDLE / NODE_EXTRA_CA_CERTS :
+      # ces variables ne couvrent qu'une bibliotheque chacune, et laquelle
+      # depend de l'implementation du client HTTP. Le chemin, lui, est lu par
+      # toutes.
+      - {{ hermes_ca_bundle }}:/etc/ssl/certs/ca-certificates.crt:ro
     environment:
       - PUID={{ hermes_puid }}
       - PGID={{ hermes_pgid }}

@@ -251,8 +251,10 @@ hermes/
 │   └── roles/
 │       ├── motd/
 │       ├── security_hardening/    # SSH + UFW (port 22/tcp entrant)
+│       ├── dns_resolver/          # dnsmasq split-horizon (.internal -> Pi-hole)
+│       ├── internal_ca_trust/     # Confiance CA interne Caddy (hote + conteneurs)
 │       ├── docker/                # Docker Engine + Compose plugin
-│       ├── hermes_agent/          # Stack Hermes Agent (managed scope)
+│       ├── hermes_agent/          # Stack Hermes Agent (managed scope + bundle CA)
 │       └── komodo_periphery/      # Agent Komodo, observateur (docker.sock :ro)
 ├── terraform/
 │   ├── main.tf, providers.tf, variables.tf, outputs.tf
@@ -274,6 +276,8 @@ cd hermes
 ansible-playbook ansible/deploy.yml
 ansible-playbook ansible/deploy.yml --tags motd
 ansible-playbook ansible/deploy.yml --tags security-hardening
+ansible-playbook ansible/deploy.yml --tags dns
+ansible-playbook ansible/deploy.yml --tags ca
 ansible-playbook ansible/deploy.yml --tags docker
 ansible-playbook ansible/deploy.yml --tags hermes
 ansible-playbook ansible/deploy.yml --tags komodo-periphery
