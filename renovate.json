@@ -9,7 +9,7 @@
     "dependencies"
   ],
   "schedule": [
-    "every monday"
+    "on monday"
   ],
   "timezone": "Europe/Paris",
   "packageRules": [

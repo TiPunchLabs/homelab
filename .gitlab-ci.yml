@@ -200,7 +200,9 @@ renovate:
     RENOVATE_AUTODISCOVER: "false"
     LOG_LEVEL: info
   script:
-    - renovate "$CI_PROJECT_PATH"
+    # A single Renovate for both repos: homelab-gitops has its own renovate.json
+    # but no runner. RENOVATE_TOKEN must have access to both projects.
+    - renovate "$CI_PROJECT_PATH" tipunchlabs/homelab-gitops
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "main"
