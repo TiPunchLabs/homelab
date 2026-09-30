@@ -74,6 +74,17 @@
       ],
       "groupName": "docker-images",
       "automerge": false
+    },
+    {
+      "description": "Majeures bloquees. postgres : serveur partage de dockhost (open-webui), une majeure exige pg_upgrade ou dump/restore. wg-easy : epingle sur v14 volontairement, la v15 reecrit le format de config (migration reportee).",
+      "matchPackageNames": [
+        "postgres",
+        "ghcr.io/wg-easy/wg-easy"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
     }
   ],
   "customManagers": [
