@@ -77,7 +77,7 @@ shell-lint:
 # =============================================================================
 security-check:
   stage: security
-  image: alpine:3.21
+  image: alpine:3.24
   before_script:
     # BusyBox grep ne connait ni --include ni --exclude-dir : il sortait en code 2
     # sans rien examiner, et le 2>/dev/null des controles masquait l'erreur. Les
@@ -159,7 +159,7 @@ security-check:
 # =============================================================================
 scan-docker-images:
   stage: security
-  image: alpine:3.21
+  image: alpine:3.24
   before_script:
     - apk add --no-cache grep sed curl
   script:
