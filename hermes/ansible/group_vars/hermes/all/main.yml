@@ -69,6 +69,29 @@ hermes_telegram_allowed_users: "8854358938"
 hermes_telegram_bot_token: "{{ vault_hermes_telegram_bot_token }}"
 
 # ============================================================
+# 🧬 Profils supplementaires - Role hermes_agent
+# ============================================================
+# Chacun a son bot Telegram et son port d'API. Contenu livre (SOUL.md,
+# scripts/) : roles/hermes_agent/files/profiles/<name>/.
+hermes_profiles:
+  # Veille techno (IA, IA locale, Python, DevOps, prisme Caraibe) : brief
+  # quotidien + synthese hebdo par cron, echanges en direct sur le meme chat.
+  - name: veille
+    description: "Veille technologique IA, IA locale, Python, DevOps et Caraibe : briefs, syntheses, approfondissements."
+    telegram_bot_token: "{{ vault_hermes_veille_telegram_bot_token }}"
+    telegram_allowed_users: "{{ hermes_telegram_allowed_users }}"
+    api_server_port: 8643
+    env:
+      # Recherche web (questions ponctuelles, axe Caraibe). Propre au profil :
+      # default n'en a pas l'usage.
+      TAVILY_API_KEY: "{{ vault_hermes_veille_tavily_api_key }}"
+    config:
+      # Verse chaque brief dans la conversation d'origine : « approfondis le 2 »
+      # arrive avec le brief en contexte. Ne vaut que pour les taches creees
+      # depuis le chat Telegram (cron/scheduler.py, _target_matches_origin).
+      cron.mirror_delivery: true
+
+# ============================================================
 # 👁️ Komodo Periphery - Role komodo_periphery
 # ============================================================
 # hermes-30 rejoint le Core de dockhost-90 en OBSERVATEUR. La connexion est
