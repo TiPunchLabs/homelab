@@ -1,0 +1,37 @@
+---
+# Contenu POSSEDE par Ansible dans un profil (scripts/, sources de base...).
+#
+# Entrees :
+#   hermes_content_src  : files/profiles/<name> (controleur)
+#   hermes_content_dest : profiles/<name> (hote)
+#
+# Fichiers listes un a un (filtre hermes_profile_payload) plutot qu'un `copy`
+# de repertoire, qui livrait aussi les __pycache__ du poste. SOUL.md est
+# exclu : il suit la regle du semis unique (soul_seed.yml). copy n'efface
+# rien : l'agent garde ses propres fichiers a cote.
+
+- name: Create the owned content directories in {{ hermes_content_dest }}
+  ansible.builtin.file:
+    path: "{{ hermes_content_dest }}/{{ item.path }}"
+    state: directory
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0755'
+  loop: "{{ hermes_content_payload | selectattr('state', 'eq', 'directory') | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+  vars:
+    hermes_content_payload: "{{ lookup('community.general.filetree', hermes_content_src, wantlist=true) | hermes_profile_payload }}"
+
+- name: Deploy the owned content files in {{ hermes_content_dest }}
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ hermes_content_dest }}/{{ item.path }}"
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0644'
+  loop: "{{ hermes_content_payload | selectattr('state', 'eq', 'file') | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+  vars:
+    hermes_content_payload: "{{ lookup('community.general.filetree', hermes_content_src, wantlist=true) | hermes_profile_payload }}"

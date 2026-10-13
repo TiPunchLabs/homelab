@@ -1,0 +1,64 @@
+---
+# =============================================================================
+# Cles d'un .env du volume, ecrites CLE PAR CLE.
+#
+# Entrees :
+#   hermes_env_path : fichier cible (.env de default ou d'un profil)
+#   hermes_env_keys : { CLE: valeur }. Valeur vide = cle retiree.
+#
+# Ce fichier appartient aussi a l'agent (`hermes gateway setup`, `enroll`,
+# approbation d'appairage). Ansible ne touche que les cles listees, ne reecrit
+# jamais le fichier entier et ne cree aucune copie (pas de `backup:`, qui
+# laisserait un double du jeton en clair a cote).
+#
+# no_log partout : `--diff` afficherait la ligne, donc le jeton.
+#
+# Le redemarrage est l'affaire de l'appelant : `apply: { notify: ... }` sur
+# l'include pour default, `hermes_env_keys_result` pour un profil.
+# =============================================================================
+
+# Une cle en double serait un jeton perime qui traine : lineinfile ne
+# remplacerait que la derniere occurrence (celle que dotenv retient). On
+# s'arrete plutot que de choisir : la resolution est manuelle. grep -c ne
+# renvoie qu'un nombre, jamais la ligne.
+- name: Count each managed key in {{ hermes_env_path }}
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -cE
+      - "^[[:space:]]*(export[[:space:]]+)?{{ item }}[[:space:]]*="
+      - "{{ hermes_env_path }}"
+  loop: "{{ hermes_env_keys.keys() | list }}"
+  register: hermes_env_key_counts
+  changed_when: false
+  # Lecture seule : doit tourner aussi en --check, sinon l'assertion suivante
+  # n'aurait rien a compter.
+  check_mode: false
+  # rc=1 : aucune occurrence ; rc=2 : fichier absent (premier passage).
+  failed_when: hermes_env_key_counts.rc not in [0, 1, 2]
+
+- name: Refuse duplicated keys in {{ hermes_env_path }}
+  ansible.builtin.assert:
+    that:
+      - (hermes_env_key_counts.results | map(attribute='stdout') | select('match', '^[0-9]+$') | map('int') | max | default(0)) <= 1
+    fail_msg: >-
+      Une cle geree par Ansible apparait plusieurs fois dans {{ hermes_env_path }}.
+      Comptes : {{ hermes_env_key_counts.results | items2dict(key_name='item', value_name='stdout') }}.
+      Supprimer les doublons a la main, puis rejouer.
+    quiet: true
+
+- name: Pin the managed keys in {{ hermes_env_path }}
+  ansible.builtin.lineinfile:
+    path: "{{ hermes_env_path }}"
+    regexp: "^\\s*(export\\s+)?{{ item.key }}\\s*="
+    line: "{{ item.key }}={{ item.value }}"
+    state: "{{ 'present' if (item.value | string | length > 0) else 'absent' }}"
+    create: true
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0600'
+  loop: "{{ hermes_env_keys | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+  register: hermes_env_keys_result

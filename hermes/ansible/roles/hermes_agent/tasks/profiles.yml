@@ -8,92 +8,14 @@
 # take_over_scoped_lock_holder) : demarrer un profil couperait le bot de
 # default. D'ou, avant tout `gateway start` :
 #
-#   1. aucune cle Telegram dans la couche managed (elle s'impose a tous) ;
-#   2. aucun jeton en double entre default et les profils ;
-#   3. default deja redemarre sans jeton managed (flush_handlers).
+#   1. aucun jeton en double entre default et les profils (validate.yml) ;
+#   2. aucun TELEGRAM_BOT_TOKEN dans la couche managed, verifie par Hermes
+#      lui-meme sur la couche reellement montee (main.yml) ;
+#   3. default deja redemarre sans jeton managed et CONNECTE (main.yml,
+#      apres flush_handlers).
 #
-# Les assertions portent sur des index, jamais sur l'element : un echec de
-# boucle afficherait le dictionnaire entier, jeton compris.
+# Ce fichier n'est inclus qu'APRES ces trois controles.
 # =============================================================================
-
-- name: Validate each profile definition
-  ansible.builtin.assert:
-    that:
-      - hermes_profiles[idx].name is match('^[a-z0-9][a-z0-9_-]*$')
-      - hermes_profiles[idx].name != 'default'
-      - (hermes_profiles[idx].api_server_port | default(0) | int) > 0
-      - (hermes_profiles[idx].api_server_port | int) != (hermes_gateway_port | int)
-      # Liste blanche obligatoire : sans elle, Hermes retombe sur l'appairage
-      # et repond a n'importe quel inconnu avec un code.
-      - (hermes_profiles[idx].telegram_bot_token | default('') | length == 0)
-        or (hermes_profiles[idx].telegram_allowed_users | default('') | length > 0)
-    fail_msg: >-
-      Profil '{{ hermes_profiles[idx].name }}' invalide : nom [a-z0-9_-] autre
-      que default, api_server_port distinct de {{ hermes_gateway_port }}, et
-      telegram_allowed_users obligatoire des qu'un jeton est pose.
-    quiet: true
-  loop: "{{ range(hermes_profiles | length) | list }}"
-  loop_control:
-    loop_var: idx
-    label: "{{ hermes_profiles[idx].name }}"
-
-- name: Assert that profile names and API ports are unique
-  ansible.builtin.assert:
-    that:
-      - hermes_profile_names | unique | length == hermes_profile_names | length
-      - hermes_profile_ports | unique | length == hermes_profile_ports | length
-    fail_msg: "Deux profils partagent un nom ou un api_server_port."
-    quiet: true
-  vars:
-    hermes_profile_names: "{{ hermes_profiles | map(attribute='name') | list }}"
-    hermes_profile_ports: "{{ hermes_profiles | map(attribute='api_server_port') | map('int') | list }}"
-
-# no_log : l'assertion manipule les jetons. Un echec n'affiche que le nom de
-# la tache, qui suffit a comprendre.
-- name: Assert that no two profiles share a Telegram bot token
-  ansible.builtin.assert:
-    that:
-      - hermes_telegram_tokens_in_use | unique | length == hermes_telegram_tokens_in_use | length
-    quiet: true
-  vars:
-    hermes_telegram_tokens_in_use: >-
-      {{ ([hermes_telegram_bot_token if hermes_telegram_enabled else '']
-          + (hermes_profiles | map(attribute='telegram_bot_token', default='') | list))
-         | select | list }}
-  no_log: true
-
-# Lu par Hermes lui-meme : prouve que la couche reellement montee ne porte plus
-# Telegram, quel que soit le contenu suppose du template.
-- name: Assert that Telegram is not pinned by the managed scope
-  ansible.builtin.command:
-    argv:
-      - docker
-      - exec
-      - -u
-      - "{{ hermes_puid }}"
-      - hermes
-      - python3
-      - -c
-      - |
-        from hermes_cli import managed_scope as ms
-        ms.invalidate_managed_cache()
-        pinned = [k for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_USERS") if ms.is_env_managed(k)]
-        if pinned:
-            raise SystemExit(f"Telegram encore epingle par la couche managed : {pinned}")
-        print("Telegram absent de la couche managed")
-  changed_when: false
-  when: not ansible_check_mode
-
-# Redemarre default sans jeton managed AVANT qu'un profil ne demarre.
-- name: Apply pending Hermes restarts before starting any profile gateway
-  ansible.builtin.meta: flush_handlers
-
-- name: Wait for the default gateway to listen again
-  ansible.builtin.wait_for:
-    host: 127.0.0.1
-    port: "{{ hermes_gateway_port }}"
-    timeout: 120
-  when: not ansible_check_mode
 
 - name: Deploy each profile
   ansible.builtin.include_tasks: profile.yml
