@@ -75,6 +75,31 @@
   no_log: true
   notify: Restart hermes
 
+# Telegram du profil default : dans SON .env (volume), pas dans la couche
+# managed, qui l'imposerait a tous les profils (cf. hermes.env.j2).
+#
+# lineinfile et non template : le fichier appartient aussi a l'agent
+# (`hermes gateway setup`, `hermes gateway enroll`). Ansible ne touche que ses
+# propres cles et ne reecrit jamais le fichier entier. Desactiver Telegram
+# retire la cle du jeton — explicitement, cle par cle.
+- name: Pin the default profile Telegram keys in its own .env
+  ansible.builtin.lineinfile:
+    path: "{{ hermes_data_dir }}/.env"
+    regexp: "^{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    state: "{{ 'present' if (hermes_telegram_enabled and hermes_telegram_bot_token and item.value) else 'absent' }}"
+    create: true
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0600'
+  loop:
+    - { key: TELEGRAM_BOT_TOKEN, value: "{{ hermes_telegram_bot_token }}" }
+    - { key: TELEGRAM_ALLOWED_USERS, value: "{{ hermes_telegram_allowed_users }}" }
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+  notify: Restart hermes
+
 - name: Deploy the Docker Compose file
   ansible.builtin.template:
     src: docker-compose.yml.j2
@@ -188,6 +213,10 @@
   ansible.builtin.debug:
     var: hermes_ca_probe.stdout
   when: not ansible_check_mode
+
+- name: Deploy the additional Hermes profiles
+  ansible.builtin.include_tasks: profiles.yml
+  when: hermes_profiles | length > 0
 
 # =============================================================================
 # ⚠️ NE PAS REINTRODUIRE DE SUPPRESSION DU .env DU VOLUME.

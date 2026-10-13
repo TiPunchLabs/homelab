@@ -48,8 +48,13 @@ hermes_provider_key_env: "DEEPSEEK_API_KEY"
 hermes_model_default: "deepseek-v4-flash"
 
 # ============================================================
-# Plateforme Telegram
+# Plateforme Telegram (profil default)
 # ============================================================
+# Ces cles vivent dans le .env du VOLUME (profil default), pas dans la couche
+# managed : celle-ci s'applique a TOUS les profils, et un jeton Telegram ne
+# peut appartenir qu'a un seul. Voir la tache « Pin the default profile
+# Telegram keys ».
+#
 # Desactivable sans toucher au reste : sans jeton, l'adaptateur ne demarre pas.
 hermes_telegram_enabled: true
 
@@ -58,6 +63,25 @@ hermes_telegram_enabled: true
 # configured » et retombe sur l'appairage — ce qui marche, mais laisse la porte
 # a quiconque connait le bot tant que personne n'a paire.
 hermes_telegram_allowed_users: ""
+
+# ============================================================
+# Profils supplementaires
+# ============================================================
+# Chaque profil est une instance Hermes isolee (memoire, sessions, cron, bot
+# Telegram) sous {{ hermes_data_dir }}/profiles/<name>. Schema :
+#
+#   - name: veille                      # [a-z0-9_-], jamais "default"
+#     description: "..."                # routage kanban
+#     telegram_bot_token: "{{ vault_... }}"
+#     telegram_allowed_users: "123"     # OBLIGATOIRE des qu'un jeton est pose
+#     api_server_port: 8643             # distinct de hermes_gateway_port
+#     env: { TAVILY_API_KEY: "..." }    # cles .env propres au profil
+#     config: { cron.mirror_delivery: true }
+#
+# Le contenu livre (SOUL.md, scripts/) vit dans files/profiles/<name>/.
+# Ansible possede ces fichiers et les cles qu'il declare ; l'agent possede
+# tout le reste (memoires, sessions, taches cron, skills).
+hermes_profiles: []
 
 hermes_dashboard_username: "admin"
 hermes_dashboard_public_url: "https://hermes.internal"
