@@ -2,6 +2,6 @@
 
 import sys
 
-from veille_collect import run_weekly
+from tech_watch_collect import run_weekly
 
 sys.stdout.write(run_weekly() + "\n")

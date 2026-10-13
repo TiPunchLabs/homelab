@@ -60,36 +60,53 @@ hermes_dashboard_secret: "{{ vault_hermes_dashboard_secret }}"
 # ============================================================
 # 📱 Telegram - Role hermes_agent
 # ============================================================
-# Identifiant Telegram autorise. Ce n'est pas un secret — c'est un identifiant
+# Identifiant Telegram autorise, pose dans la couche MANAGED : il vaut pour les
+# bots de tous les profils. Ce n'est pas un secret — c'est un identifiant
 # public, et le garder en clair rend la liste blanche auditable.
 # Releve dans agent.log le 2026-08-24 : « [Telegram] Sending response to 8854358938 ».
 hermes_telegram_allowed_users: "8854358938"
 
-# Jeton BotFather — valeur reelle dans group_vars/hermes/vault/config.yml.
+# Jeton BotFather du profil default — valeur reelle dans
+# group_vars/hermes/vault/config.yml. Deploye dans /opt/hermes/data/.env,
+# PLUS dans la couche managed.
 hermes_telegram_bot_token: "{{ vault_hermes_telegram_bot_token }}"
 
 # ============================================================
 # 🧬 Profils supplementaires - Role hermes_agent
 # ============================================================
-# Chacun a son bot Telegram et son port d'API. Contenu livre (SOUL.md,
-# scripts/) : roles/hermes_agent/files/profiles/<name>/.
-hermes_profiles:
-  # Veille techno (IA, IA locale, Python, DevOps, prisme Caraibe) : brief
-  # quotidien + synthese hebdo par cron, echanges en direct sur le meme chat.
-  - name: veille
-    description: "Veille technologique IA, IA locale, Python, DevOps et Caraibe : briefs, syntheses, approfondissements."
-    telegram_bot_token: "{{ vault_hermes_veille_telegram_bot_token }}"
-    telegram_allowed_users: "{{ hermes_telegram_allowed_users }}"
-    api_server_port: 8643
-    env:
-      # Recherche web (questions ponctuelles, axe Caraibe). Propre au profil :
-      # default n'en a pas l'usage.
-      TAVILY_API_KEY: "{{ vault_hermes_veille_tavily_api_key }}"
-    config:
-      # Verse chaque brief dans la conversation d'origine : « approfondis le 2 »
-      # arrive avec le brief en contexte. Ne vaut que pour les taches creees
-      # depuis le chat Telegram (cron/scheduler.py, _target_matches_origin).
-      cron.mirror_delivery: true
+# Un profil = une gateway s6, un bot Telegram, un port d'API, dans le meme
+# conteneur. Contenu livre : roles/hermes_agent/files/profiles/<name>/.
+#
+# ⚠️ AUCUN PROFIL DEPLOYE (mission M1). La liste reste vide ici, explicitement,
+# et non par la valeur par defaut du role. Chaque profil y entre lors de SA
+# mission (M2 cafe-ia, M3 tech-watch, M4 daily-life, M5 job-search).
+hermes_profiles: []
+
+# Ports figes par profil (default = hermes_gateway_port, 8642). API en
+# 127.0.0.1 : rien a ouvrir en UFW, rien a changer dans Caddy.
+hermes_profile_reserved_ports:
+  tech-watch: 8643
+  daily-life: 8644
+  job-search: 8645
+  cafe-ia: 8646
+
+# Alex — veille technologique. PREPARE, NON DEPLOYE : n'entre dans
+# hermes_profiles qu'en M3. Il reutilise le bot Telegram existant, ex-« veille »
+# (decision D2) : meme jeton au vault, aucun bot ni jeton nouveau.
+hermes_profile_tech_watch:
+  name: tech-watch
+  description: "Alex — veille technologique IA, DevOps et Caraibe : briefs, syntheses, approfondissements."
+  telegram_bot_token: "{{ vault_hermes_tech_watch_telegram_bot_token }}"
+  api_server_port: 8643
+  env:
+    # Recherche web (questions ponctuelles, axe Caraibe). Propre au profil :
+    # default n'en a pas l'usage.
+    TAVILY_API_KEY: "{{ vault_hermes_tech_watch_tavily_api_key }}"
+  config:
+    # Verse chaque brief dans la conversation d'origine : « approfondis le 2 »
+    # arrive avec le brief en contexte. Ne vaut que pour les taches creees
+    # depuis le chat Telegram (cron/scheduler.py, _target_matches_origin).
+    cron.mirror_delivery: true
 
 # ============================================================
 # 👁️ Komodo Periphery - Role komodo_periphery

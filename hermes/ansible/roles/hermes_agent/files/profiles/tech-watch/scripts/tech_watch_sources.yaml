@@ -1,5 +1,5 @@
 # Sources de base de la veille — possedees par Ansible, ecrasees au playbook.
-# L'agent ajoute ou desactive des sources dans veille/sources.local.yaml
+# L'agent ajoute ou desactive des sources dans tech-watch/sources.local.yaml
 # (meme schema + `disabled: [noms]`), fusionne a chaque collecte.
 #
 # kind: github -> releases.atom du depot ; sinon `url` d'un flux RSS ou Atom.

@@ -1,4 +1,4 @@
-"""Tests for the `veille` profile collector (hermes_agent role files).
+"""Tests for the `tech-watch` profile collector (hermes_agent role files).
 
 Run from the repo root:
     uv run pytest hermes/tests -q
@@ -14,10 +14,10 @@ from typing import Any
 import httpx
 import pytest
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "ansible/roles/hermes_agent/files/profiles/veille/scripts"
+SCRIPTS = Path(__file__).resolve().parents[1] / "ansible/roles/hermes_agent/files/profiles/tech-watch/scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-import veille_collect as vc
+import tech_watch_collect as vc
 
 NOW = datetime(2026, 10, 9, 11, 0, tzinfo=UTC)
 
@@ -62,7 +62,7 @@ HN = {
 @pytest.fixture
 def profile_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point every state path of the module at a throwaway profile home."""
-    state = tmp_path / "veille"
+    state = tmp_path / "tech-watch"
     monkeypatch.setattr(vc, "STATE_DIR", state)
     monkeypatch.setattr(vc, "LOCAL_SOURCES", state / "sources.local.yaml")
     return tmp_path

@@ -1,12 +1,12 @@
-"""Collect tech-watch items for the Hermes `veille` profile.
+"""Collect tech-watch items for the Hermes `tech-watch` profile.
 
-Run by Hermes cron through thin entry points (`veille_daily.py`,
-`veille_weekly.py`): cron scripts take no arguments. The stdout of a run is
+Run by Hermes cron through thin entry points (`tech_watch_daily.py`,
+`tech_watch_weekly.py`): cron scripts take no arguments. The stdout of a run is
 injected into the agent's prompt, which selects, scores and summarises.
 
 Collection is deterministic and free (RSS/Atom, GitHub releases, Hacker News
 Algolia API). Deduplication is local: an item is reported once, then
-remembered in `veille/seen.json` for SEEN_RETENTION.
+remembered in `tech-watch/seen.json` for SEEN_RETENTION.
 """
 
 from __future__ import annotations
@@ -27,11 +27,11 @@ import yaml
 
 PROFILE_HOME = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = Path(__file__).resolve().parent
-STATE_DIR = PROFILE_HOME / "veille"
+STATE_DIR = PROFILE_HOME / "tech-watch"
 
-BASE_SOURCES = SCRIPTS_DIR / "veille_sources.yaml"
+BASE_SOURCES = SCRIPTS_DIR / "tech_watch_sources.yaml"
 # Owned by the agent: sources added or disabled from the Telegram chat.
-LOCAL_SOURCES = PROFILE_HOME / "veille" / "sources.local.yaml"
+LOCAL_SOURCES = PROFILE_HOME / "tech-watch" / "sources.local.yaml"
 
 SEEN_RETENTION = timedelta(days=45)
 HISTORY_RETENTION = timedelta(days=21)
@@ -39,7 +39,7 @@ MAX_ITEMS_PER_SOURCE = 8
 MAX_ITEMS_TOTAL = 80
 SUMMARY_CHARS = 280
 HTTP_TIMEOUT = 15.0
-USER_AGENT = "hermes-veille/1.0 (+homelab tech watch)"
+USER_AGENT = "hermes-tech-watch/1.0 (+homelab tech watch)"
 
 ATOM = "{http://www.w3.org/2005/Atom}"
 # GitHub's releases.atom carries no prerelease flag: rc, canary and nightly
