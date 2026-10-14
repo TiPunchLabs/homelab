@@ -149,8 +149,12 @@ SEED = "Tu es **Alex**.\n"
 STOCK = "You are Hermes Agent, an intelligent AI assistant created by Nous Research."
 
 
-def seed(run: RunTasks, tmp_path: Path, dest: Path, content: str = SEED) -> Any:
-    """Run soul_seed.yml with a delivered SOUL.md and the fixture stock checksum."""
+def seed(run: RunTasks, tmp_path: Path, dest: Path, content: str = SEED, data_dir: Path | None = None) -> Any:
+    """Run soul_seed.yml with a delivered SOUL.md and the fixture stock checksum.
+
+    `dest` is normally <data>/profiles/<name>/SOUL.md, so <data> defaults to
+    its third parent.
+    """
     src = tmp_path / "SOUL.seed.md"
     src.write_text(content)
     return run(
@@ -159,13 +163,22 @@ def seed(run: RunTasks, tmp_path: Path, dest: Path, content: str = SEED) -> Any:
             "hermes_soul_src": str(src),
             "hermes_soul_dest": str(dest),
             "hermes_soul_stock_sha256": [hashlib.sha256(STOCK.encode()).hexdigest()],
+            "hermes_data_dir": str(data_dir or dest.parents[2]),
         },
     )
 
 
-def test_t05_customised_soul_is_never_touched(run_tasks: RunTasks, tmp_path: Path, data_dir: Path) -> None:
+@pytest.fixture
+def profile_soul(data_dir: Path) -> Path:
+    """Path of an additional profile's SOUL.md, its directory created."""
+    path = data_dir / "profiles" / "tech-watch" / "SOUL.md"
+    path.parent.mkdir(parents=True)
+    return path
+
+
+def test_t05_customised_soul_is_never_touched(run_tasks: RunTasks, tmp_path: Path, profile_soul: Path) -> None:
     """T05: a SOUL.md edited by the user keeps its content, mode and mtime."""
-    dest = data_dir / "SOUL.md"
+    dest = profile_soul
     dest.write_text("Tu es Alex, version retouchee depuis le dashboard.\n")
     dest.chmod(0o640)
     before = (dest.read_bytes(), dest.stat().st_mode, dest.stat().st_mtime_ns)
@@ -175,30 +188,50 @@ def test_t05_customised_soul_is_never_touched(run_tasks: RunTasks, tmp_path: Pat
     assert (dest.read_bytes(), dest.stat().st_mode, dest.stat().st_mtime_ns) == before
 
 
-def test_t06_absent_soul_is_seeded(run_tasks: RunTasks, tmp_path: Path, data_dir: Path) -> None:
+def test_t06_absent_soul_is_seeded(run_tasks: RunTasks, tmp_path: Path, profile_soul: Path) -> None:
     """T06: no SOUL.md -> the delivered one is installed, 0644."""
-    dest = data_dir / "SOUL.md"
+    dest = profile_soul
     result = seed(run_tasks, tmp_path, dest)
     assert result.returncode == 0, result.stdout
     assert dest.read_text() == SEED
     assert stat.S_IMODE(dest.stat().st_mode) == 0o644
 
 
-def test_t06_stock_soul_from_profile_create_is_replaced(run_tasks: RunTasks, tmp_path: Path, data_dir: Path) -> None:
+def test_t06_stock_soul_from_profile_create_is_replaced(run_tasks: RunTasks, tmp_path: Path, profile_soul: Path) -> None:
     """T06: `hermes profile create` writes the stock text first; the seed still lands."""
-    dest = data_dir / "SOUL.md"
+    dest = profile_soul
     dest.write_text(STOCK)
     assert seed(run_tasks, tmp_path, dest).returncode == 0
     assert dest.read_text() == SEED
 
 
-def test_t07_seed_second_run_changes_nothing(run_tasks: RunTasks, tmp_path: Path, data_dir: Path) -> None:
+def test_t07_seed_second_run_changes_nothing(run_tasks: RunTasks, tmp_path: Path, profile_soul: Path) -> None:
     """T07: once seeded, the next run is a no-op, even if the repo version changes."""
-    dest = data_dir / "SOUL.md"
+    dest = profile_soul
     assert seed(run_tasks, tmp_path, dest).returncode == 0
     second = seed(run_tasks, tmp_path, dest, content="new repo version\n")
     assert recap(second)["changed"] == 0
     assert dest.read_text() == SEED
+
+
+@pytest.mark.parametrize("current", [STOCK, "Tu es Hermes, l'assistant de Xavier.\n"], ids=["stock", "custom"])
+def test_default_soul_is_never_seeded(run_tasks: RunTasks, tmp_path: Path, data_dir: Path, current: str) -> None:
+    """M1 review §2: default's SOUL.md is refused as a target, even when it is the stock text."""
+    dest = data_dir / "SOUL.md"
+    dest.write_text(current)
+    before = (dest.read_bytes(), dest.stat().st_mode, dest.stat().st_mtime_ns, dest.stat().st_ino)
+    result = seed(run_tasks, tmp_path, dest, data_dir=data_dir)
+    assert result.returncode != 0
+    assert "jamais le SOUL.md de default" in result.stdout
+    assert (dest.read_bytes(), dest.stat().st_mode, dest.stat().st_mtime_ns, dest.stat().st_ino) == before
+
+
+@pytest.mark.parametrize("target", ["profiles/default/SOUL.md", "profiles/tech-watch/../../SOUL.md", "profiles/a/b/SOUL.md"])
+def test_soul_seed_refuses_paths_outside_a_profile(run_tasks: RunTasks, tmp_path: Path, data_dir: Path, target: str) -> None:
+    """The seed target must be exactly <data>/profiles/<name>/SOUL.md, never default."""
+    result = seed(run_tasks, tmp_path, data_dir / target, data_dir=data_dir)
+    assert result.returncode != 0
+    assert not (data_dir / "SOUL.md").exists()
 
 
 # --- owned content ----------------------------------------------------------

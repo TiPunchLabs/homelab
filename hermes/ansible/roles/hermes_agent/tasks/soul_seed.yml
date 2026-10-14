@@ -19,7 +19,23 @@
 #
 # Pousser volontairement une nouvelle version du depot : supprimer le
 # SOUL.md du profil a la main, puis rejouer. Jamais automatiquement.
+#
+# Ne vise QUE profiles/<name>/SOUL.md. Le SOUL.md de default
+# ({{ hermes_data_dir }}/SOUL.md) n'est jamais seme, meme s'il est encore le
+# texte generique : c'est une identite deja en service.
 # =============================================================================
+
+- name: Refuse to seed anything but an additional profile SOUL.md
+  ansible.builtin.assert:
+    that:
+      - hermes_soul_dest | basename == 'SOUL.md'
+      - hermes_soul_dest | dirname | dirname == hermes_data_dir ~ '/profiles'
+      - hermes_soul_dest | dirname | basename is match('^[a-z0-9][a-z0-9_-]*$')
+      - hermes_soul_dest | dirname | basename != 'default'
+    fail_msg: >-
+      soul_seed.yml ne seme que {{ hermes_data_dir }}/profiles/<name>/SOUL.md,
+      jamais le SOUL.md de default. Cible refusee : {{ hermes_soul_dest }}.
+    quiet: true
 
 - name: Read the current SOUL.md of {{ hermes_soul_dest }}
   ansible.builtin.stat:
