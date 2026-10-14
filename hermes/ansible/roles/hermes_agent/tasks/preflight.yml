@@ -116,7 +116,7 @@
 
 - name: Read free space on the data volume
   ansible.builtin.command:
-    argv: [df, -h, --output=avail,pcent, "{{ hermes_data_dir }}"]
+    argv: [df, -h, "--output=avail,pcent", "{{ hermes_data_dir }}"]
   register: hermes_pf_df
   changed_when: false
   check_mode: false

@@ -308,3 +308,13 @@ def test_rollback_refuses_a_post_m1_backup(run_tasks: RunTasks, host: dict[str, 
     assert "pas un etat pre-M1" in result.stdout
     assert {p: p.read_bytes() for p in before} == before
     assert_no_token(result)
+
+
+def test_preflight_argv_items_are_not_split_by_flow_commas() -> None:
+    """A bare `a,b` inside a YAML flow list becomes two argv items (df failed on hermes-30)."""
+    for task in yaml.safe_load((ROLE / "tasks/preflight.yml").read_text()):
+        argv = (task.get("ansible.builtin.command") or {}).get("argv") if isinstance(
+            task.get("ansible.builtin.command"), dict
+        ) else None
+        if argv and argv[0] == "df":
+            assert "--output=avail,pcent" in argv
