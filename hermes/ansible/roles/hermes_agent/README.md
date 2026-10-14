@@ -206,38 +206,125 @@ Measure first: after the next controlled restart, read the last line of
 `/opt/hermes/data/logs/container-boot.log`. `prior_exit=clean` means Docker's
 10 s already suffices for controlled restarts.
 
-## Cron safety
+## SOUL.md of `default` is never seeded
+
+`soul_seed.yml` is reached only through `profiles.yml` → `profile.yml`, i.e.
+for entries of `hermes_profiles` (`[]` in M1, and `default` is a refused name).
+It also **asserts** its target is exactly `<data>/profiles/<name>/SOUL.md`
+before reading anything: `/opt/hermes/data/SOUL.md` is refused even when it is
+byte-identical to the stock text (tests: `test_default_soul_is_never_seeded`,
+`test_soul_seed_refuses_paths_outside_a_profile`). On hermes-30 it is
+customised anyway (sha256 `a0a58fb6…`, ≠ stock `2765a846…`); the preflight
+prints it so the post-deploy value can be compared.
+
+## Cron safety (Hermes v0.20.4)
 
 The role creates, edits, pauses or triggers **no** cron job and sets no
-timezone (decision D1, applied in M6). A gateway restart is the only contact:
-Hermes runs once, at the first tick, any job overdue beyond its grace period
-(weekly jobs: 2 h). Restart **outside** the windows of the three jobs of
-`default` (UTC: Monday 07:00, Wednesday 07:00, Saturday 08:00, ± 2 h).
+timezone (D1, applied in M6). A gateway restart is the only contact. What
+`cron/jobs.py` (`_get_due_jobs_locked`) does on the first tick after a restart:
+
+| Job state at restart | Effect |
+|---|---|
+| `next_run_at` in the future | nothing — fires at its time |
+| `next_run_at` **past**, within grace (½ period, 2 h max for weekly jobs) | fires **once**, late |
+| `next_run_at` **past**, beyond grace | fast-forwarded to the next slot **and fires once now** |
+| run in flight (`fire_claim` set) | killed by the restart; `next_run_at` was advanced **before** the run → **not** re-fired (at-most-once), the run is lost |
+| `interval` job with `last_status=error` | re-armed to **now** |
+| `cron` job with `last_status=error` | re-armed to its next **legal** slot, never now |
+| disabled / paused | nothing |
+
+So a restart is safe iff no enabled job is overdue, due within the window, or
+running. `files/hermes_checks.py schedule-window <minutes>` evaluates exactly
+that from the profile's `jobs.json` (read-only, prints names, schedules and
+timestamps, never a prompt) and is part of the preflight
+(`hermes_restart_safety_window_minutes`, default 120).
+
+Windows to avoid (UTC, container time): **Mon 07:00**, **Wed 07:00**,
+**Sat 08:00**, ± 2 h. Observed on 2026-10-14 01:30 UTC: the three jobs
+`scheduled`, `last_status=ok`, no claim, no `ESTOP`; next due:
+prospection-entreprises Wed 2026-10-14 07:00 UTC.
+
+## M1 deployment procedure
+
+All commands from `hermes/`. Nothing below runs without explicit approval.
+
+| Step | Command | Writes on hermes-30? |
+|---|---|---|
+| 1. Preflight | `ansible-playbook ansible/m1-preflight.yml` | no |
+| 2. Dry run | `ansible-playbook ansible/deploy.yml --tags hermes --check --diff` | no |
+| 3. Backup | `ansible-playbook ansible/m1-backup.yml` | `/root/hermes-m1-backup/` only |
+| 4. Deploy | `ansible-playbook ansible/deploy.yml --tags hermes` | managed/.env, data/.env, 1 restart |
+| 5. Idempotence | same command again → `changed=0`, no restart | no |
+| 6. Level 4 | human message to the default bot | — |
+
+**Preflight (NO-GO on any failure):** host timezone already equals
+`hermes_timezone` (else the `deploy.yml` pre_task would change it); default
+gateway already Telegram-connected (levels 1-3); no cron job can fire across a
+restart. It also prints, values never shown: `data/.env` presence and its
+`TELEGRAM_BOT_TOKEN` line count, the managed `.env` key names, the default
+SOUL.md sha256, the profile count, free space, `ESTOP`.
+
+**What `--check` proves, and what it cannot:**
+
+| Verified by `--check --diff` | Only by the real run |
+|---|---|
+| inventory guards (`validate.yml`: allowlist, tokens, ports) | the single restart actually happening |
+| timezone pre_task: read runs, **no change** reported | managed contract as **loaded by Hermes** |
+| `managed/config.yaml`, `docker-compose.yml`: diff shown | `data/.env` really holding the token (`env-key`) |
+| `managed/.env`, `data/.env`: `changed` expected, **no diff** (no_log) | ports listening, TLS trust from the container |
+| duplicate-key detection in `data/.env` (read runs in check mode) | Telegram levels 1-3 on the **new** process |
+| handler and every post-restart check reported `skipped` | level 4 (human) |
+
+Expected `--check` result: `failed=0`; `changed` only on the managed `.env`,
+the `data/.env` key and the restart relay; **not** on the timezone task, the
+Compose file or `managed/config.yaml`. Anything else changed → stop and
+investigate.
 
 ## Rollback of M1
 
-`git revert` alone is not enough: the token must come back into the managed
-layer **before** it leaves the default `.env`, and the `.env` must keep every
-other line.
+Independent of git: `ansible-playbook ansible/m1-rollback.yml` reads the
+step-3 backup (`tasks/m1_rollback.yml`).
 
-1. From a checkout of the pre-M1 role (`main` before the merge), run
-   `ansible-playbook ansible/deploy.yml --tags hermes`. The managed `.env`
-   regains `TELEGRAM_BOT_TOKEN` + allowlist (managed wins over the volume); the
-   handler restarts the stack once.
-2. Check Telegram (levels 1-3 by hand, then level 4).
-3. Only then remove the now-redundant token line, that key only:
-   ```bash
-   ansible hermes -b -m ansible.builtin.lineinfile \
-     -a "path=/opt/hermes/data/.env regexp='^\s*(export\s+)?TELEGRAM_BOT_TOKEN\s*=' state=absent"
-   ```
-   (no `--diff`: it would print the line). Leaving it is harmless — the
-   managed copy wins — but it is a second copy of the secret.
-4. Check the three cron jobs (`hermes cron list`) and Kandidat
-   (`hermes mcp list`).
+1. **Guard**: the backed-up managed `.env` must hold exactly one
+   `TELEGRAM_BOT_TOKEN`, i.e. be a pre-M1 state. Otherwise nothing is written.
+2. Restores `managed/.env` (0640 root:1000), `managed/config.yaml` and
+   `docker-compose.yml` from the backup: the token is back in managed.
+3. In `data/.env`, touches **only** `TELEGRAM_BOT_TOKEN` (via `env_keys.yml`):
+   - absent before M1 (hermes-30 case) → key removed; the file is left
+     **empty**, 0600, no secret (this role never deletes a volume file;
+     removing it is manual, on confirmation);
+   - present with a token → that original value comes back, in place;
+   - present without a token → key removed.
+   Every other variable stays.
+4. One restart if anything changed, then Telegram levels 1-3; level 4 by hand.
+5. `jobs.json` and `data/config.yaml` are never restored (agent-owned, M1
+   does not write them).
 
-Never delete `/opt/hermes/data` or a `.env`, never regenerate a token.
-`tests/test_role_tasks.py::test_t20_*` proves step 3 restores the original
-file byte for byte.
+Fallback if the backup is unusable: replay the pre-M1 role from `main`
+(`--tags hermes`), check Telegram, then remove the key with
+`env_keys.yml` semantics (empty value). Never delete `/opt/hermes/data`, never
+regenerate a token.
+
+Tests: `test_m1_operations.py` (absent / present-with-token /
+present-without-token, post-M1 backup refused, idempotent rollback, no token
+in output even with `--diff -v`), `test_t20_*`.
+
+### Backup protection and cleanup
+
+`/root/hermes-m1-backup/` is 0700 root, every file 0600, created only on the
+host, never copied back to the controller; secret copies are `no_log`. An
+existing backup is never overwritten.
+
+It holds two copies of secrets (`managed.env`, `data.env` if any). Keep it
+until **all** of: second run `changed=0`, level 4 validated, and the next cron
+run (Wed 07:00 UTC) delivered. Then, **on explicit confirmation only**:
+
+```bash
+ssh ansible@hermes-30 'sudo shred -u /root/hermes-m1-backup/managed.env; sudo test ! -e /root/hermes-m1-backup/data.env || sudo shred -u /root/hermes-m1-backup/data.env'
+```
+
+and move the remaining non-secret files out (`trash` is not installed on the
+host; the directory removal is a deliberate manual step).
 
 ## Tests
 
@@ -248,6 +335,7 @@ uv run pytest hermes/tests -q
 | File | Covers |
 |---|---|
 | `test_role_tasks.py` | runs the **real** `env_keys`, `soul_seed`, `profile_content`, `validate` task files with `ansible-playbook` on a throwaway directory: key preservation, idempotence, duplicates, check mode, no token in output (even `--diff -v`), seed-once, bytecode exclusion, guards |
+| `test_m1_operations.py` | backup/rollback of `data/.env` (absent, present with/without token), post-M1 backup refused, cron restart window, `deploy.yml` timezone pre_task under `--check`, read-only preflight |
 | `test_hermes_checks.py` | managed contract, Telegram verdict (connected / disconnected / unknown / absent / malformed / stale writer / dead pid), type-strict config comparison |
 | `test_inventory.py` | effective `hermes_profiles == []` (needs the vault password, skipped otherwise), definitive ids, no destructive task, `no_log` on every token task, task ordering, D1/D5 non-goals |
 | `test_tech_watch_collect.py` | the tech-watch collector |
