@@ -1,0 +1,143 @@
+---
+# =============================================================================
+# Preflight du deploiement : LECTURE SEULE, jouable avant `--check`.
+#
+# Ne modifie rien sur l'hote ni dans le conteneur : chaque commande est une
+# lecture (check_mode: false pour qu'elle s'execute aussi sous --check, ce
+# qu'elle peut faire sans risque). N'affiche que des noms de cles, des etats,
+# des PID et des horodatages — jamais une valeur de .env, jamais un prompt.
+#
+# Echoue (NO-GO) si :
+#   - le fuseau de l'hote differe de hermes_timezone : le pre_task de
+#     deploy.yml le CHANGERAIT, ce que M1 s'interdit (D1) ;
+#   - le profil default n'est pas deja connecte a Telegram (niveaux 1-3) :
+#     on ne deploie pas sur une base deja en panne ;
+#   - un job cron pourrait partir a cause du redemarrage (schedule-window).
+# =============================================================================
+
+- name: Read the host timezone
+  ansible.builtin.command: timedatectl show -p Timezone --value
+  register: hermes_pf_timezone
+  changed_when: false
+  check_mode: false
+
+- name: Assert that deploy.yml will not change the host timezone
+  ansible.builtin.assert:
+    that:
+      - hermes_pf_timezone.stdout | trim == hermes_timezone
+    fail_msg: >-
+      NO-GO : fuseau hote {{ hermes_pf_timezone.stdout | trim }} different de
+      hermes_timezone ({{ hermes_timezone }}). Le pre_task de deploy.yml le
+      modifierait ; M1 ne touche pas au fuseau (D1, M6).
+    quiet: true
+
+- name: Check that the hermes container is running
+  ansible.builtin.command:
+    argv: [docker, container, inspect, --format, "{{ '{{.State.Running}}' }}", hermes]
+  register: hermes_pf_running
+  changed_when: false
+  check_mode: false
+  failed_when: hermes_pf_running.rc != 0 or hermes_pf_running.stdout | trim != 'true'
+
+- name: Check that the default gateway is connected to Telegram before deploying
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - telegram
+      - /opt/data/gateway_state.json
+      - gateway-default
+  register: hermes_pf_telegram
+  changed_when: false
+  check_mode: false
+
+# Voir files/hermes_checks.py, schedule_window_verdict : apres redemarrage,
+# Hermes v0.20.4 lance au premier tick tout job dont next_run_at est passe.
+- name: Check that no cron job can fire across a restart now
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - schedule-window
+      - "{{ hermes_restart_safety_window_minutes }}"
+  register: hermes_pf_schedule
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Stat the default profile .env (presence only)
+  ansible.builtin.stat:
+    path: "{{ hermes_data_dir }}/.env"
+    get_checksum: false
+  register: hermes_pf_data_env
+
+- name: Count TELEGRAM_BOT_TOKEN lines in the default profile .env (never the value)
+  ansible.builtin.command:
+    argv: [grep, -cE, '^\s*(export\s+)?TELEGRAM_BOT_TOKEN\s*=', "{{ hermes_data_dir }}/.env"]
+  register: hermes_pf_data_env_token
+  changed_when: false
+  check_mode: false
+  failed_when: hermes_pf_data_env_token.rc > 1
+  when: hermes_pf_data_env.stat.exists
+
+# -o sur un motif qui s'arrete au `=` : seuls les NOMS sortent.
+- name: List the key names of the managed .env
+  ansible.builtin.command:
+    argv: [grep, -oE, '^[A-Z0-9_]+=', "{{ hermes_managed_dir }}/.env"]
+  register: hermes_pf_managed_keys
+  changed_when: false
+  check_mode: false
+  failed_when: hermes_pf_managed_keys.rc > 1
+
+- name: Read the default SOUL.md checksum (identity reference)
+  ansible.builtin.stat:
+    path: "{{ hermes_data_dir }}/SOUL.md"
+    checksum_algorithm: sha256
+  register: hermes_pf_soul
+
+- name: List existing profile directories
+  ansible.builtin.find:
+    paths: "{{ hermes_data_dir }}/profiles"
+    file_type: directory
+    recurse: false
+  register: hermes_pf_profiles
+
+- name: Read free space on the data volume
+  ansible.builtin.command:
+    argv: [df, -h, --output=avail,pcent, "{{ hermes_data_dir }}"]
+  register: hermes_pf_df
+  changed_when: false
+  check_mode: false
+
+- name: Report the preflight state
+  ansible.builtin.debug:
+    msg:
+      - "timezone hote          : {{ hermes_pf_timezone.stdout | trim }} (inchange par deploy.yml)"
+      - "telegram default (1-3) : {{ hermes_pf_telegram.stdout | trim }}"
+      - "data/.env              : {{ 'present' if hermes_pf_data_env.stat.exists else 'ABSENT' }}{{
+          ', ' ~ (hermes_pf_data_env_token.stdout | trim) ~ ' ligne(s) TELEGRAM_BOT_TOKEN'
+          if hermes_pf_data_env.stat.exists else '' }}"
+      - "cles managed/.env      : {{ hermes_pf_managed_keys.stdout_lines | map('regex_replace', '=$', '') | join(', ') }}"
+      - "SOUL.md default sha256 : {{ hermes_pf_soul.stat.checksum | default('absent') }}"
+      - "profils existants      : {{ hermes_pf_profiles.files | length }}"
+      - "espace libre data      : {{ hermes_pf_df.stdout_lines | last | default('?') }}"
+      - "{{ hermes_pf_schedule.stdout_lines }}"
+
+- name: Assert that no cron job can fire across the restart
+  ansible.builtin.assert:
+    that:
+      - hermes_pf_schedule.rc == 0
+    fail_msg: "NO-GO cron : {{ hermes_pf_schedule.stdout_lines | last | default(hermes_pf_schedule.stderr) }}"
+    quiet: true

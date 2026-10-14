@@ -12,14 +12,21 @@ Usage (argv after `-c`):
     managed <expected_allowlist>
     env-key <dotenv_path> <KEY>
     telegram <gateway_state.json> <s6 service name, e.g. gateway-default>
+    schedule-window <minutes>
+
+`schedule-window` is read-only: it reads the profile's jobs.json and prints
+names, schedules and timestamps only, never a prompt.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 # Keys the managed layer must NEVER carry: it applies to every profile, last
@@ -119,6 +126,71 @@ def telegram_verdict(
     return True, f"telegram connected (gateway pid {s6_pid})"
 
 
+def _parse_instant(value: Any, now: datetime) -> datetime | None:
+    """Parse an ISO timestamp from jobs.json; naive values take now's zone."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=now.tzinfo)
+
+
+def schedule_window_verdict(
+    jobs: Sequence[Mapping[str, Any]],
+    now: datetime,
+    window: timedelta,
+) -> tuple[list[str], list[str]]:
+    """Decide whether the gateway may restart now without firing a job.
+
+    Mirrors Hermes v0.20.4 cron/jobs.py (_get_due_jobs_locked): on the first
+    tick after a restart, ANY enabled job whose next_run_at is already past
+    fires once — within its grace window or beyond it (fast-forward + one
+    catch-up run). A recurring `interval` job in `error` is re-armed to now.
+    A non-null fire_claim/run_claim means a run is in flight: a restart kills
+    it (at-most-once, the run is lost, not repeated).
+
+    Returns (blocking reasons, one report line per job). Prompts are never read.
+    """
+    blocking: list[str] = []
+    lines: list[str] = []
+    for job in jobs:
+        schedule = job.get("schedule") if isinstance(job.get("schedule"), Mapping) else {}
+        kind = schedule.get("kind", "?")
+        label = f"{job.get('name', '?')} ({job.get('id', '?')}, {kind} {schedule.get('expr') or schedule.get('run_at') or ''})"
+        if not job.get("enabled", True) or job.get("state") == "paused":
+            lines.append(f"{label}: disabled ({job.get('state')}), cannot fire")
+            continue
+
+        reasons: list[str] = []
+        if job.get("fire_claim") or job.get("run_claim"):
+            reasons.append("run in flight (claim held)")
+        next_run = _parse_instant(job.get("next_run_at"), now)
+        if next_run is None:
+            if kind == "once":
+                reasons.append("one-shot without a readable next_run_at")
+        elif next_run <= now:
+            reasons.append(f"overdue since {job.get('next_run_at')}: would fire on the first tick")
+        elif next_run - now < window:
+            reasons.append(f"due at {job.get('next_run_at')}, inside the {window} safety window")
+        if kind == "interval" and job.get("last_status") == "error":
+            reasons.append("interval job in error: Hermes re-arms it to now")
+
+        status = (
+            f"next_run_at={job.get('next_run_at')} last_run_at={job.get('last_run_at')} "
+            f"last_status={job.get('last_status')}"
+        )
+        if next_run is not None and next_run > now:
+            status += f" (in {next_run - now})"
+        if reasons:
+            blocking += [f"{job.get('name', '?')}: {reason}" for reason in reasons]
+            lines.append(f"{label}: NO-GO, {'; '.join(reasons)} | {status}")
+        else:
+            lines.append(f"{label}: ok | {status}")
+    return blocking, lines
+
+
 def _report(errors: list[str], ok_message: str) -> int:
     """Print the outcome and return the process exit code."""
     if errors:
@@ -160,6 +232,29 @@ def main(argv: list[str]) -> int:
         ok, message = telegram_verdict(state, svstat.stdout or svstat.stderr, runtime_status_pid_is_live)
         print(message)
         return 0 if ok else 1
+    if mode == "schedule-window" and len(argv) == 2:
+        import hermes_time
+
+        try:
+            from hermes_constants import get_hermes_home
+
+            home = Path(get_hermes_home())
+        except ImportError:
+            home = Path(os.environ.get("HERMES_HOME", "/opt/data"))
+        jobs_file = home / "cron" / "jobs.json"
+        try:
+            with open(jobs_file, encoding="utf-8") as handle:
+                data = json.load(handle)
+        except FileNotFoundError:
+            data = {"jobs": []}
+        jobs = data.get("jobs", []) if isinstance(data, Mapping) else data
+        now = hermes_time.now()
+        blocking, lines = schedule_window_verdict(jobs, now, timedelta(minutes=int(argv[1])))
+        estop = (home / "ESTOP").exists()
+        print(f"now={now.isoformat()} jobs={jobs_file} ESTOP={'present' if estop else 'absent'}")
+        print("\n".join(lines))
+        print("NO-GO: " + "; ".join(blocking) if blocking else "GO: no job can fire across a restart now")
+        return 1 if blocking else 0
     print(f"usage error: {argv!r}")
     return 2
 

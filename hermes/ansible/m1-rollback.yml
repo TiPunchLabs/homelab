@@ -1,0 +1,12 @@
+---
+# Sur decision explicite seulement. Independant de git.
+#   ansible-playbook ansible/m1-rollback.yml
+- name: Rollback de M1 depuis la sauvegarde ponctuelle
+  hosts: hermes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run m1_rollback.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: m1_rollback.yml

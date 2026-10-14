@@ -1,0 +1,12 @@
+---
+# Lecture seule : jouable a tout moment, y compris avant --check.
+#   ansible-playbook ansible/m1-preflight.yml
+- name: Preflight M1 de hermes-30 — LECTURE SEULE (fuseau, Telegram, fenetre cron)
+  hosts: hermes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run preflight.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: preflight.yml

@@ -1,0 +1,99 @@
+---
+# =============================================================================
+# Sauvegarde ponctuelle AVANT le deploiement de M1 — base du rollback
+# (m1_rollback.yml), qui ne depend ainsi ni d'un `git revert` ni du rejeu
+# de main.
+#
+# Ce qui est copie, et pourquoi :
+#   managed/.env, managed/config.yaml, docker-compose.yml
+#       les fichiers qu'Ansible possede et que M1 reecrit : restaures tels
+#       quels au rollback ;
+#   data/.env (S'IL EXISTE)
+#       restaure CLE PAR CLE au rollback (TELEGRAM_BOT_TOKEN seul) : l'agent
+#       peut y avoir ecrit d'autres variables entre-temps ;
+#   data/config.yaml, data/cron/jobs.json
+#       reference seulement, jamais restaures automatiquement (a l'agent).
+#
+# L'absence initiale de data/.env est ENREGISTREE dans manifest.json : c'est
+# elle qui dit au rollback de retirer la cle au lieu de la restaurer.
+#
+# Protection : repertoire 0700, fichiers 0600, proprietaire = l'utilisateur du
+# play (root en production). Sur l'hote seulement, jamais rapatrie. Les deux
+# copies de secrets (managed.env, data.env) sont en no_log. Une sauvegarde
+# existante n'est JAMAIS ecrasee : le play echoue avant d'ecrire.
+# =============================================================================
+
+- name: Stat the M1 backup directory
+  ansible.builtin.stat:
+    path: "{{ hermes_m1_backup_dir }}"
+  register: hermes_m1_backup_stat
+
+- name: Refuse to overwrite an existing M1 backup
+  ansible.builtin.assert:
+    that:
+      - not hermes_m1_backup_stat.stat.exists
+    fail_msg: >-
+      {{ hermes_m1_backup_dir }} existe deja : une sauvegarde M1 n'est jamais
+      ecrasee. Choisir un autre hermes_m1_backup_dir.
+    quiet: true
+
+- name: Create the M1 backup directory
+  ansible.builtin.file:
+    path: "{{ hermes_m1_backup_dir }}"
+    state: directory
+    mode: '0700'
+
+- name: Stat the files to back up
+  ansible.builtin.stat:
+    path: "{{ item.src }}"
+    get_checksum: false
+  loop: "{{ hermes_m1_backup_files }}"
+  loop_control:
+    label: "{{ item.dest }}"
+  register: hermes_m1_backup_sources
+
+# Le .env managed est indispensable : c'est lui qui rapporte le jeton dans la
+# couche managed au rollback. Sans lui, pas de rollback possible : on s'arrete.
+- name: Assert that the managed .env exists
+  ansible.builtin.assert:
+    that:
+      - hermes_m1_backup_sources.results | selectattr('item.dest', 'equalto', 'managed.env')
+        | map(attribute='stat.exists') | first
+    fail_msg: "{{ hermes_managed_dir }}/.env introuvable : sauvegarde impossible."
+    quiet: true
+
+- name: Record whether the default profile .env exists
+  ansible.builtin.set_fact:
+    hermes_m1_data_env_present: >-
+      {{ hermes_m1_backup_sources.results | selectattr('item.dest', 'equalto', 'data.env')
+         | map(attribute='stat.exists') | first }}
+
+- name: Copy the files into the M1 backup (0600)
+  ansible.builtin.copy:
+    src: "{{ item.item.src }}"
+    dest: "{{ hermes_m1_backup_dir }}/{{ item.item.dest }}"
+    remote_src: true
+    mode: '0600'
+  loop: "{{ hermes_m1_backup_sources.results }}"
+  loop_control:
+    label: "{{ item.item.dest }}"
+  when: item.stat.exists
+  no_log: true
+
+- name: Write the M1 backup manifest
+  ansible.builtin.copy:
+    dest: "{{ hermes_m1_backup_dir }}/manifest.json"
+    mode: '0600'
+    content: >-
+      {{ {'created_for': 'hermes M1 rollback',
+          'files': hermes_m1_backup_sources.results
+                   | selectattr('stat.exists') | map(attribute='item.dest') | list,
+          'data_env_present': hermes_m1_data_env_present}
+         | to_nice_json }}
+
+- name: Report the M1 backup
+  ansible.builtin.debug:
+    msg:
+      - "sauvegarde : {{ hermes_m1_backup_dir }} (0700, fichiers 0600)"
+      - "copies     : {{ hermes_m1_backup_sources.results | selectattr('stat.exists') | map(attribute='item.dest') | join(', ') }}"
+      - "data/.env  : {{ 'present, copie' if hermes_m1_data_env_present | bool else 'ABSENT, absence enregistree' }}"

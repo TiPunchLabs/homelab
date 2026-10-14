@@ -98,6 +98,30 @@ hermes_profile_reserved_ports: {}
 
 hermes_profiles_src_dir: "{{ role_path }}/files/profiles"
 
+# ============================================================
+# Preflight, sauvegarde et rollback du deploiement M1
+# ============================================================
+# Fenetre de securite cron (minutes) : aucun job ne doit etre du dans ce
+# delai, ni en retard, ni en cours, au moment du redemarrage (preflight.yml).
+hermes_restart_safety_window_minutes: 120
+
+# Sauvegarde ponctuelle prise avant M1 (m1_backup.yml), lue par
+# m1_rollback.yml. Sur l'hote, sous /root (0700), jamais rapatriee.
+hermes_m1_backup_dir: "/root/hermes-m1-backup"
+hermes_m1_backup_files:
+  - { src: "{{ hermes_managed_dir }}/.env", dest: managed.env }
+  - { src: "{{ hermes_managed_dir }}/config.yaml", dest: managed.config.yaml }
+  - { src: "{{ hermes_install_dir }}/docker-compose.yml", dest: docker-compose.yml }
+  - { src: "{{ hermes_data_dir }}/.env", dest: data.env }
+  - { src: "{{ hermes_data_dir }}/config.yaml", dest: data.config.yaml }
+  - { src: "{{ hermes_data_dir }}/cron/jobs.json", dest: jobs.json }
+
+# Proprietaire des fichiers managed restaures (root en production).
+hermes_managed_owner: root
+# Le rollback redemarre la stack une fois si un fichier a change, puis
+# controle Telegram (niveaux 1-3).
+hermes_m1_rollback_restart: true
+
 hermes_dashboard_username: "admin"
 hermes_dashboard_public_url: "https://hermes.internal"
 
