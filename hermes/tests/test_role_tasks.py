@@ -20,7 +20,7 @@ from conftest import FAKE_TOKEN, FAKE_TOKEN_2, ROLE, RunTasks, recap
 ENV_BEFORE = (
     "# Per-profile secrets for this Hermes profile.\n"
     "MY_CUSTOM_VAR=keep me\n"
-    "TELEGRAM_HOME_CHANNEL=8854358938\n"
+    "TELEGRAM_HOME_CHANNEL=1111111111\n"
     "\n"
     "HERMES_SOMETHING=agent-written\n"
 )
@@ -299,7 +299,7 @@ def validate(run: RunTasks, profiles: list[dict[str, Any]], **overrides: Any) ->
     variables = {
         "hermes_telegram_enabled": True,
         "hermes_telegram_bot_token": FAKE_TOKEN,
-        "hermes_telegram_allowed_users": "8854358938",
+        "hermes_telegram_allowed_users": "1111111111",
         "hermes_profile_reserved_ports": RESERVED,
         "hermes_profiles": profiles,
         **overrides,
@@ -356,7 +356,7 @@ def test_t10_missing_tokens_fail(run_tasks: RunTasks) -> None:
 
 def test_t11_missing_or_malformed_allowlist_fails(run_tasks: RunTasks) -> None:
     """T11: empty, blank or non-numeric allowlist is refused before any write."""
-    for allowlist in ("", "   ", "@someone", "8854358938,"):
+    for allowlist in ("", "   ", "@someone", "1111111111,"):
         assert_fails_quietly(validate(run_tasks, [], hermes_telegram_allowed_users=allowlist))
 
 

@@ -29,12 +29,12 @@ MANAGED_ENV_PRE_M1 = (
     "# Ansible managed\n"
     "DEEPSEEK_API_KEY=sk-fake-not-a-key\n"
     f"TELEGRAM_BOT_TOKEN={FAKE_TOKEN}\n"
-    "TELEGRAM_ALLOWED_USERS=8854358938\n"
+    "TELEGRAM_ALLOWED_USERS=1111111111\n"
 )
 MANAGED_ENV_M1 = (
     "# Ansible managed\n"
     "DEEPSEEK_API_KEY=sk-fake-not-a-key\n"
-    "TELEGRAM_ALLOWED_USERS=8854358938\n"
+    "TELEGRAM_ALLOWED_USERS=1111111111\n"
     "TELEGRAM_ALLOW_ALL_USERS=false\n"
     "GATEWAY_ALLOW_ALL_USERS=false\n"
 )

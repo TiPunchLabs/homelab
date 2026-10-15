@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROLE / "filter_plugins"))
 import hermes_checks as hc
 import hermes_profiles as hp
 
-ALLOWLIST = "8854358938"
+ALLOWLIST = "1111111111"
 MANAGED_OK = {
     "DEEPSEEK_API_KEY": "sk-fake",
     "API_SERVER_ENABLED": "true",
@@ -43,8 +43,8 @@ def test_managed_contract_ok() -> None:
 
 def test_allowlist_order_and_spaces_do_not_matter() -> None:
     """Allowlists compare as sets of ids."""
-    env = MANAGED_OK | {"TELEGRAM_ALLOWED_USERS": "2, 8854358938"}
-    assert hc.managed_errors(env, CONFIG_KEYS, "8854358938,2") == []
+    env = MANAGED_OK | {"TELEGRAM_ALLOWED_USERS": "2, 1111111111"}
+    assert hc.managed_errors(env, CONFIG_KEYS, "1111111111,2") == []
 
 
 def test_t02_global_token_fails() -> None:
@@ -65,7 +65,7 @@ def test_t03_t11_missing_allowlist_fails(value: str | None) -> None:
 
 def test_t03_allowlist_drift_fails() -> None:
     """T03: an allowlist that differs from the inventory is refused."""
-    env = MANAGED_OK | {"TELEGRAM_ALLOWED_USERS": "8854358938,666"}
+    env = MANAGED_OK | {"TELEGRAM_ALLOWED_USERS": "1111111111,666"}
     assert hc.managed_errors(env, CONFIG_KEYS, ALLOWLIST) == [
         "TELEGRAM_ALLOWED_USERS in managed .env differs from inventory"
     ]
