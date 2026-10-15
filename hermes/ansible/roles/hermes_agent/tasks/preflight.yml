@@ -26,9 +26,9 @@
     that:
       - hermes_pf_timezone.stdout | trim == hermes_timezone
     fail_msg: >-
-      NO-GO : fuseau hote {{ hermes_pf_timezone.stdout | trim }} different de
-      hermes_timezone ({{ hermes_timezone }}). Le pre_task de deploy.yml le
-      modifierait ; M1 ne touche pas au fuseau (D1, M6).
+      NO-GO : le fuseau de l'hote ({{ hermes_pf_timezone.stdout | trim }})
+      differe de celui attendu par l'inventaire (hermes_timezone :
+      {{ hermes_timezone }}). Le pre_task de deploy.yml le modifierait.
     quiet: true
 
 - name: Check that the hermes container is running

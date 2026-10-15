@@ -141,6 +141,12 @@ Ownership inside `profiles/<name>/`:
 | `config.yaml` | the agent; Ansible sets declared keys with `hermes config set`, compared **type-strictly** (`hermes config get --json` vs canonical JSON: `true` ≠ `"true"`, `42` ≠ `"42"`) |
 | memories, sessions, cron, skills | the agent — never touched |
 
+Every new profile starts **blank** (decision D7): `hermes profile create <name>
+--no-alias`, never `--clone`. Nothing is copied from `default` — no memory,
+conversation, session, custom skill or cron; only the image's bundled skills
+are seeded. Each profile's automations are created for it later (M6); a cron
+of `default` is paused or removed only on an explicit decision.
+
 ## SOUL.md: seeded once (decision D6)
 
 `hermes profile create` already writes a SOUL.md: the stock `DEFAULT_SOUL_MD`
@@ -220,7 +226,7 @@ prints it so the post-deploy value can be compared.
 ## Cron safety (Hermes v0.20.4)
 
 The role creates, edits, pauses or triggers **no** cron job and sets no
-timezone (D1, applied in M6). A gateway restart is the only contact. What
+timezone (D1: target set, timing still open). A gateway restart is the only contact. What
 `cron/jobs.py` (`_get_due_jobs_locked`) does on the first tick after a restart:
 
 | Job state at restart | Effect |
