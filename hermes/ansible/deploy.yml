@@ -10,6 +10,9 @@
       ansible.builtin.command: timedatectl show -p Timezone --value
       register: hermes_current_timezone
       changed_when: false
+      # Lecture seule : doit tourner aussi sous --check, sinon la tache
+      # suivante evalue un `stdout` inexistant et le preflight echoue.
+      check_mode: false
       tags:
         - motd
         - security-hardening

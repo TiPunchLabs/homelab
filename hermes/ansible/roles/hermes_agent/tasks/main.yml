@@ -15,6 +15,11 @@
 # la couche managed appartient a root en lecture seule.
 # =============================================================================
 
+# Avant toute ecriture : un inventaire incoherent (liste blanche vide, jeton
+# manquant ou partage, port en double) arrete le playbook ici.
+- name: Validate the Hermes inventory
+  ansible.builtin.import_tasks: validate.yml
+
 - name: Create the install directory
   ansible.builtin.file:
     path: "{{ hermes_install_dir }}"
@@ -61,6 +66,28 @@
     mode: '0640'
   notify: Restart hermes
 
+# Jeton Telegram du profil default : dans SON .env (volume), pas dans la
+# couche managed, qui l'imposerait a tous les profils (cf. hermes.env.j2).
+#
+# Pose AVANT le .env managed : a aucun moment le jeton n'existe dans aucun
+# fichier. Le processus en cours ne relit pas son environnement Telegram ; le
+# redemarrage unique (handler) lit les deux fichiers dans leur etat final.
+- name: Pin the default profile Telegram bot token in its own .env
+  ansible.builtin.import_tasks: env_keys.yml
+  vars:
+    hermes_env_path: "{{ hermes_data_dir }}/.env"
+    hermes_env_keys:
+      TELEGRAM_BOT_TOKEN: "{{ hermes_telegram_bot_token if hermes_telegram_enabled else '' }}"
+
+# Relais vers le handler : l'import statique garde les tags du role, et seul
+# un vrai changement de cle declenche le redemarrage.
+- name: Schedule a restart when the default profile .env changed
+  ansible.builtin.debug:
+    msg: "Cle Telegram du profil default mise a jour : redemarrage programme."
+  when: hermes_env_keys_result is changed
+  changed_when: true
+  notify: Restart hermes
+
 # 0640 root:PGID plutot que le 0644 de la documentation amont : Hermes ne
 # controle aucun mode ("v1 enforcement is filesystem permissions only"), seul
 # l'OS decide. L'agent lit par le groupe et ne peut plus reecrire ce fichier —
@@ -93,6 +120,13 @@
     remove_orphans: true
   when: not ansible_check_mode
 
+# Tous les controles qui suivent doivent juger le processus REDEMARRE avec la
+# configuration finale, pas l'ancien qui tourne encore : sans ce flush, le
+# handler ne passerait qu'en fin de play, apres les assertions — qui
+# valideraient alors l'etat d'avant.
+- name: Apply pending Hermes restarts before verifying
+  ansible.builtin.meta: flush_handlers
+
 # wait_for plutot qu'un appel HTTP : le chemin exact du health endpoint n'est
 # pas garanti d'une version a l'autre, alors que l'ecoute du port l'est.
 - name: Wait for the gateway to listen
@@ -109,11 +143,16 @@
     timeout: 120
   when: not ansible_check_mode
 
-# Garde-fou contre le mode d'echec silencieux decrit plus haut. Sans cette
-# assertion, un repertoire mal permissionne laisserait un playbook entierement
-# vert alors que la configuration d'Ansible n'est plus appliquee du tout.
-# `argv` evite toute gymnastique de quoting shell autour du one-liner Python.
-- name: Verify that the managed scope layer is actually applied
+# Garde-fou contre le mode d'echec silencieux decrit plus haut, et preuve que
+# la couche REELLEMENT montee, lue par Hermes lui-meme, respecte le contrat
+# multiprofil (files/hermes_checks.py, managed_errors) :
+#   - model.provider epingle (sinon : repertoire non traversable, politique
+#     ignoree sans un mot) ;
+#   - TELEGRAM_ALLOWED_USERS present et egal a l'inventaire ;
+#   - TELEGRAM_ALLOW_ALL_USERS / GATEWAY_ALLOW_ALL_USERS epingles a false ;
+#   - ni TELEGRAM_BOT_TOKEN, ni API_SERVER_PORT, ni API_SERVER_HOST.
+# Le script n'affiche que des noms de cles, jamais une valeur.
+- name: Verify the managed scope contract
   ansible.builtin.command:
     argv:
       - docker
@@ -123,23 +162,36 @@
       - hermes
       - python3
       - -c
-      - |
-        from hermes_cli import managed_scope as ms
-        ms.invalidate_managed_cache()
-        keys = ms.managed_config_keys()
-        if "model.provider" not in keys:
-            raise SystemExit(
-                f"managed scope NOT applied - pinned keys: {sorted(keys)}"
-            )
-        print(f"managed scope applied - pinned keys: {sorted(keys)}")
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - managed
+      - "{{ hermes_telegram_allowed_users }}"
   register: hermes_managed_scope
   changed_when: false
   when: not ansible_check_mode
 
-- name: Report the pinned managed scope keys
+- name: Report the managed scope verdict
   ansible.builtin.debug:
     var: hermes_managed_scope.stdout
   when: not ansible_check_mode
+
+- name: Verify that the default profile .env carries its Telegram token
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - env-key
+      - /opt/data/.env
+      - TELEGRAM_BOT_TOKEN
+  changed_when: false
+  when:
+    - hermes_telegram_enabled
+    - not ansible_check_mode
 
 # =============================================================================
 # Preuve, cote CONTENEUR, que le bundle CA monte depuis l'hote fait son office.
@@ -188,6 +240,73 @@
   ansible.builtin.debug:
     var: hermes_ca_probe.stdout
   when: not ansible_check_mode
+
+# =============================================================================
+# Sante Telegram du profil default — la panne du 2026-08-24 etait MUETTE :
+# playbook vert, conteneur Up, bot mort. Trois niveaux controles ici :
+#
+#   1. conteneur demarre        docker inspect
+#   2. gateway active sous s6   s6-svstat gateway-default -> up (pid N)
+#   3. Telegram connecte        gateway_state.json, ECRIT PAR CE PID N
+#
+# Le niveau 3 ne fait pas confiance a `state: connected` seul : ce fichier
+# n'est pas un battement de coeur et survit aux redemarrages. L'entree doit
+# avoir ete ecrite par le processus que s6 supervise maintenant (pid et
+# start_time), sinon c'est l'etat de la vie precedente.
+#
+# Niveau 4 — le bot repond a un vrai message — n'est PAS automatisable sans
+# perturber le polling (getUpdates vole les messages du gateway) : test
+# manuel, voir README du role.
+# =============================================================================
+- name: Check that the hermes container is running (level 1)
+  ansible.builtin.command:
+    argv:
+      - docker
+      - container
+      - inspect
+      - --format
+      - "{{ '{{.State.Running}}' }}"
+      - hermes
+  register: hermes_container_inspect
+  changed_when: false
+  failed_when: hermes_container_inspect.rc != 0 or hermes_container_inspect.stdout | trim != 'true'
+  when:
+    - hermes_telegram_enabled
+    - not ansible_check_mode
+
+- name: Wait until the default gateway is up and Telegram connected (levels 2-3)
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - telegram
+      - /opt/data/gateway_state.json
+      - gateway-default
+  register: hermes_default_telegram
+  changed_when: false
+  until: hermes_default_telegram.rc == 0
+  retries: "{{ hermes_telegram_check_retries }}"
+  delay: "{{ hermes_telegram_check_delay }}"
+  when:
+    - hermes_telegram_enabled
+    - not ansible_check_mode
+
+- name: Report the default Telegram state
+  ansible.builtin.debug:
+    var: hermes_default_telegram.stdout
+  when:
+    - hermes_telegram_enabled
+    - not ansible_check_mode
+
+- name: Deploy the additional Hermes profiles
+  ansible.builtin.include_tasks: profiles.yml
+  when: hermes_profiles | length > 0
 
 # =============================================================================
 # ⚠️ NE PAS REINTRODUIRE DE SUPPRESSION DU .env DU VOLUME.

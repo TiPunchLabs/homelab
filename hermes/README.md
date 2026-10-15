@@ -161,7 +161,8 @@ cd ../caddy  && ansible-playbook ansible/deploy.yml --tags caddy    # vhost → 
 | Firewall | UFW default deny in — `22/tcp` (any) + `9119/tcp` (**from `192.168.10.70` only**) |
 | Gateway API | Binds `127.0.0.1:8642`; `API_SERVER_KEY` as defense in depth |
 | Dashboard | Username/password, session-signing secret, TLS terminated by Caddy |
-| Secrets | Ansible Vault → managed `.env` (`0640 root:1000`, read-only mount) — the agent can read it, **not rewrite it**; never in `config.yaml` |
+| Secrets | Ansible Vault → managed `.env` (`0640 root:1000`, read-only mount) — the agent can read it, **not rewrite it**; never in `config.yaml`. Exception: each profile's **Telegram bot token** lives in that profile's own `.env` (`0600`), written key by key — see [`roles/hermes_agent/README.md`](ansible/roles/hermes_agent/README.md) |
+| Telegram | One shared allowlist, pinned in the managed layer for every profile; `*_ALLOW_ALL_USERS` pinned to `false` |
 | Logs | Hermes redacts secrets in `logs/`; Docker caps them at 10 MB × 3 |
 
 ### 🌐 Why host networking
@@ -180,22 +181,21 @@ displaying `deny` — a green light that lies. Hence `network_mode: host`.
 
 ### 🚧 The Ansible / agent boundary — per **key**, not per file
 
-Ansible writes **nothing** into the data volume. Its configuration goes to
-`/opt/hermes/managed`, mounted read-only on `/etc/hermes` — Hermes' *managed
-scope* layer. Its keys are deep-merged **on top** of the volume's `config.yaml`
-and win **at the leaf**.
+Ansible's configuration goes to `/opt/hermes/managed`, mounted read-only on
+`/etc/hermes` — Hermes' *managed scope* layer. Its keys are deep-merged **on
+top** of the volume's `config.yaml` and win **at the leaf**. The managed layer is
+**global to every profile**: never put a per-profile value there.
 
 | | Owner | Enforcement |
 |---|---|---|
 | `/opt/hermes/managed/{config.yaml,.env}` | Ansible | `root:1000`, mode `0640`, mounted `:ro` |
-| `/opt/hermes/data/**` | the agent | writable by UID 1000 |
+| `TELEGRAM_BOT_TOKEN` in `/opt/hermes/data/.env` (and later `profiles/<name>/.env`) | Ansible, **that key only** | `lineinfile`, `0600`, `no_log` |
+| `SOUL.md` of an additional profile | seeded once by Ansible, then the agent/user | never overwritten |
+| everything else in `/opt/hermes/data/**` | the agent | writable by UID 1000 |
 
-The role removes the superseded `/opt/hermes/data/.env` — but only as its **last
-task**, gated on the managed-scope assertion having passed. That file is what the
-agent falls back on if the managed layer is not applied; removing it any earlier
-would take the safety net away before knowing the trapeze holds. `config.yaml` in
-the volume is deliberately kept: it carries no secret and now belongs to the
-agent.
+> ⚠️ **Never delete a file the agent writes to.** The role once removed
+> `/opt/hermes/data/.env` as "superseded"; on 2026-08-24 that silently killed the
+> Telegram bot with a green playbook. Ansible owns **keys**, not files.
 
 The earlier design drew the boundary **per file** — Ansible owned all of
 `config.yaml`. That worked as long as the only other writers (`hermes setup`,
@@ -238,14 +238,25 @@ platforms       : {"telegram": {"enabled": true}}   ← survives untouched
 │       ├── motd/
 │       ├── security_hardening/                 # SSH + UFW (supports per-rule `src`)
 │       ├── docker/                             # Engine + Compose + log rotation
-│       └── hermes_agent/
+│       └── hermes_agent/                       # see its README.md
 │           ├── defaults/main.yml
-│           ├── tasks/main.yml
+│           ├── tasks/
+│           │   ├── main.yml                    # stack + post-deploy checks
+│           │   ├── validate.yml                # inventory guards, before any write
+│           │   ├── env_keys.yml                # .env keys, one by one, no_log
+│           │   ├── soul_seed.yml               # SOUL.md seeded once
+│           │   ├── profiles.yml, profile.yml   # additional profiles (none yet)
+│           │   └── profile_content.yml         # owned content, no bytecode
 │           ├── handlers/main.yml
+│           ├── filter_plugins/hermes_profiles.py
+│           ├── files/
+│           │   ├── hermes_checks.py            # checks run inside the container
+│           │   └── profiles/tech-watch/        # prepared, not deployed
 │           └── templates/
 │               ├── docker-compose.yml.j2
 │               ├── config.yaml.j2              # Managed layer — no secrets
 │               └── hermes.env.j2               # Managed layer — secrets, 0640
+├── tests/                                      # uv run pytest hermes/tests -q
 ├── terraform/
 │   ├── main.tf, providers.tf, variables.tf, outputs.tf
 ├── ansible.cfg
@@ -266,14 +277,14 @@ ssh hermes-30 'sudo docker exec hermes hermes status'
 #   DeepSeek   ✓ sk-d...
 ```
 
-### `hermes status` reports `.env file: ✗ not found`
+### `hermes status` and the `.env file` line
 
-**Expected — not a fault.** That line reports the *user-scope* `.env`, which the
-role deliberately removed: the secrets live in the managed layer now. What
-matters is the two lines below it:
+That line reports the *user-scope* `/opt/data/.env`. Since mission M1 it exists
+and holds the default bot's `TELEGRAM_BOT_TOKEN` (before M1 it was absent and the
+line read `✗ not found`, which was normal too). Either way, what proves the
+DeepSeek key resolved is the provider:
 
 ```
-  .env file:    ✗ not found        <- normal
   Model:        deepseek-v4-flash
   Provider:     DeepSeek           <- this is what proves the key resolved
 ```

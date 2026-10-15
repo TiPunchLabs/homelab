@@ -1,0 +1,150 @@
+---
+# =============================================================================
+# Rollback de M1 depuis la sauvegarde ponctuelle (m1_backup.yml).
+#
+# Independant de git : ni revert, ni rejeu de main. Restaure UNIQUEMENT :
+#   1. les fichiers possedes par Ansible (managed/.env, managed/config.yaml,
+#      docker-compose.yml), copies de la sauvegarde — le jeton de default
+#      revient ainsi dans la couche managed ;
+#   2. dans data/.env, la SEULE cle TELEGRAM_BOT_TOKEN :
+#        - data/.env existait avec la cle   -> sa valeur d'origine revient ;
+#        - existait sans la cle, ou absent  -> la cle est retiree.
+#      Toute autre variable du fichier reste en place (env_keys.yml).
+#
+# Un data/.env qu'il n'y avait pas avant M1 est laisse VIDE (0600, sans
+# secret) plutot que supprime : ce role ne supprime jamais un fichier du
+# volume (voir main.yml). Le retirer est un geste manuel, sur confirmation.
+#
+# Les deux ecritures precedent l'unique redemarrage : le conteneur ne voit
+# jamais un etat sans jeton. jobs.json et data/config.yaml ne sont jamais
+# restaures (a l'agent ; M1 n'y ecrit pas).
+# =============================================================================
+
+- name: Read the M1 backup manifest
+  ansible.builtin.slurp:
+    src: "{{ hermes_m1_backup_dir }}/manifest.json"
+  register: hermes_m1_manifest_raw
+
+- name: Parse the M1 backup manifest
+  ansible.builtin.set_fact:
+    hermes_m1_manifest: "{{ hermes_m1_manifest_raw.content | b64decode | from_json }}"
+
+# Garde-fou majeur : si la sauvegarde managed ne porte pas le jeton (prise
+# APRES M1, par erreur), retirer la cle de data/.env laisserait default sans
+# bot. On s'arrete avant toute ecriture.
+- name: Count TELEGRAM_BOT_TOKEN lines in the backed-up managed .env (never the value)
+  ansible.builtin.command:
+    argv: [grep, -cE, '^\s*(export\s+)?TELEGRAM_BOT_TOKEN\s*=\s*\S', "{{ hermes_m1_backup_dir }}/managed.env"]
+  register: hermes_m1_backup_managed_token
+  changed_when: false
+  check_mode: false
+  failed_when: hermes_m1_backup_managed_token.rc > 1
+
+- name: Assert that the backup is a pre-M1 state
+  ansible.builtin.assert:
+    that:
+      - "'managed.env' in hermes_m1_manifest.files"
+      - hermes_m1_backup_managed_token.stdout | trim == '1'
+    fail_msg: >-
+      La sauvegarde {{ hermes_m1_backup_dir }} n'a pas exactement un
+      TELEGRAM_BOT_TOKEN dans managed.env : ce n'est pas un etat pre-M1.
+      Rollback interrompu, rien n'a ete modifie.
+    quiet: true
+
+- name: Restore the managed .env from the backup
+  ansible.builtin.copy:
+    src: "{{ hermes_m1_backup_dir }}/managed.env"
+    dest: "{{ hermes_managed_dir }}/.env"
+    remote_src: true
+    owner: "{{ hermes_managed_owner }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0640'
+  register: hermes_m1_restore_managed_env
+  no_log: true
+
+- name: Restore the managed config and the Compose file from the backup
+  ansible.builtin.copy:
+    src: "{{ hermes_m1_backup_dir }}/{{ item.backup }}"
+    dest: "{{ item.dest }}"
+    remote_src: true
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - backup: managed.config.yaml
+      dest: "{{ hermes_managed_dir }}/config.yaml"
+      owner: "{{ hermes_managed_owner }}"
+      group: "{{ hermes_pgid }}"
+      mode: '0640'
+    - backup: docker-compose.yml
+      dest: "{{ hermes_install_dir }}/docker-compose.yml"
+      owner: "{{ hermes_managed_owner }}"
+      group: "{{ hermes_managed_owner }}"
+      mode: '0644'
+  loop_control:
+    label: "{{ item.backup }}"
+  when: item.backup in hermes_m1_manifest.files
+  register: hermes_m1_restore_files
+
+# Valeur d'origine lue dans la copie, jamais affichee. Tout ce qui suit le
+# premier `=` est repris tel quel (guillemets compris) ; seul un eventuel
+# prefixe `export ` est abandonne — meme valeur pour dotenv.
+- name: Read the original default .env from the backup
+  ansible.builtin.slurp:
+    src: "{{ hermes_m1_backup_dir }}/data.env"
+  register: hermes_m1_backup_data_env
+  when: hermes_m1_manifest.data_env_present | bool
+  no_log: true
+
+- name: Restore only TELEGRAM_BOT_TOKEN in the default .env
+  ansible.builtin.include_tasks: env_keys.yml
+  vars:
+    hermes_env_path: "{{ hermes_data_dir }}/.env"
+    hermes_env_keys:
+      TELEGRAM_BOT_TOKEN: >-
+        {{ (hermes_m1_backup_data_env.content | b64decode
+            | regex_findall('(?m)^[ \t]*(?:export[ \t]+)?TELEGRAM_BOT_TOKEN[ \t]*=[ \t]*(.*?)[ \t]*$')
+            | first | default(''))
+           if hermes_m1_manifest.data_env_present | bool else '' }}
+
+- name: Restart the Hermes stack once after the rollback
+  community.docker.docker_compose_v2:
+    project_src: "{{ hermes_install_dir }}"
+    state: restarted
+  when:
+    - hermes_m1_rollback_restart | bool
+    - not ansible_check_mode
+    - hermes_m1_restore_managed_env is changed
+      or hermes_m1_restore_files is changed
+      or hermes_env_keys_result is changed
+
+- name: Wait until the default gateway is up and Telegram connected (levels 2-3)
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - telegram
+      - /opt/data/gateway_state.json
+      - gateway-default
+  register: hermes_m1_rollback_telegram
+  changed_when: false
+  until: hermes_m1_rollback_telegram.rc == 0
+  retries: "{{ hermes_telegram_check_retries }}"
+  delay: "{{ hermes_telegram_check_delay }}"
+  when:
+    - hermes_m1_rollback_restart | bool
+    - not ansible_check_mode
+
+- name: Report the rollback
+  ansible.builtin.debug:
+    msg:
+      - "managed/.env restaure         : {{ hermes_m1_restore_managed_env is changed }}"
+      - "config/compose restaures      : {{ hermes_m1_restore_files is changed }}"
+      - "data/.env, TELEGRAM_BOT_TOKEN : {{ 'valeur d origine restauree' if hermes_m1_manifest.data_env_present | bool else 'cle retiree (fichier absent avant M1, laisse vide)' }}"
+      - "telegram                      : {{ hermes_m1_rollback_telegram.stdout | default('non controle (pas de redemarrage)') }}"

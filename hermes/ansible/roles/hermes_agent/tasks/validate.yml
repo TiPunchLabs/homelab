@@ -1,0 +1,110 @@
+---
+# =============================================================================
+# Garde-fous joues cote CONTROLEUR, avant la moindre ecriture sur l'hote.
+#
+# Tout echoue ferme : une liste blanche vide, un jeton manquant ou partage, un
+# port en double arretent le playbook avant qu'un fichier ne bouge.
+#
+# Les assertions portent sur des INDEX, jamais sur l'element : un echec de
+# boucle afficherait le dictionnaire du profil, jeton compris. Celles qui
+# manipulent un jeton sont en no_log ; le nom de la tache suffit a comprendre.
+# =============================================================================
+
+- name: Assert that hermes_profiles is a list
+  ansible.builtin.assert:
+    that:
+      - hermes_profiles is sequence
+      - hermes_profiles is not string
+      - hermes_profiles is not mapping
+    fail_msg: "hermes_profiles doit etre une liste (vide tant qu'aucun profil n'est deploye)."
+    quiet: true
+
+# La liste blanche vit dans la couche managed et s'impose aux bots de TOUS
+# les profils. Vide, Hermes retomberait sur l'appairage : n'importe qui
+# connaissant un bot obtiendrait un code.
+- name: Assert that the Telegram allowlist is set
+  ansible.builtin.assert:
+    that:
+      - hermes_telegram_allowed_users | string | trim | length > 0
+      - hermes_telegram_allowed_users | string is match('^\s*[0-9]+(\s*,\s*[0-9]+)*\s*$')
+    fail_msg: >-
+      hermes_telegram_allowed_users doit lister des identifiants Telegram
+      numeriques separes par des virgules : sans liste blanche, les bots
+      s'ouvrent a l'appairage.
+    quiet: true
+  when: hermes_telegram_enabled or hermes_profiles | length > 0
+
+- name: Assert that the default profile has its Telegram bot token
+  ansible.builtin.assert:
+    that:
+      - hermes_telegram_bot_token | default('') | string | length > 0
+    quiet: true
+  when: hermes_telegram_enabled
+  no_log: true
+
+- name: Validate each profile definition
+  ansible.builtin.assert:
+    that:
+      - hermes_profiles[idx] is mapping
+      - hermes_profiles[idx].name | default('') is match('^[a-z0-9][a-z0-9_-]*$')
+      - hermes_profiles[idx].name != 'default'
+      # Ports figes par profil, pas par ordre de deploiement.
+      - hermes_profiles[idx].name in hermes_profile_reserved_ports
+      - (hermes_profiles[idx].api_server_port | default(0) | int)
+        == (hermes_profile_reserved_ports[hermes_profiles[idx].name] | default(-1) | int)
+      # La liste blanche est globale (couche managed) : une valeur par profil
+      # serait ignoree sans bruit, puisque le managed gagne.
+      - hermes_profiles[idx].telegram_allowed_users is not defined
+      # Ces cles passent par leurs champs dedies ou par le managed.
+      - hermes_profiles[idx].env | default({}) | dict2items | map(attribute='key')
+        | select('match', '^(TELEGRAM_|API_SERVER_PORT$|API_SERVER_HOST$|GATEWAY_ALLOW)') | list | length == 0
+    fail_msg: >-
+      Profil n°{{ idx }} invalide : nom [a-z0-9_-] autre que default et present
+      dans hermes_profile_reserved_ports, api_server_port egal a son port
+      reserve, pas de telegram_allowed_users (liste blanche globale), aucune
+      cle TELEGRAM_* / API_SERVER_* / GATEWAY_ALLOW* dans env.
+    quiet: true
+  loop: "{{ range(hermes_profiles | length) | list }}"
+  loop_control:
+    loop_var: idx
+    label: "{{ idx }}"
+
+- name: Assert that each profile has its own Telegram bot token
+  ansible.builtin.assert:
+    that:
+      - hermes_profiles[idx].telegram_bot_token | default('') | string | length > 0
+    fail_msg: "Profil n°{{ idx }} sans telegram_bot_token."
+    quiet: true
+  loop: "{{ range(hermes_profiles | length) | list }}"
+  loop_control:
+    loop_var: idx
+    label: "{{ idx }}"
+  no_log: true
+
+- name: Assert that profile names and API ports are unique
+  ansible.builtin.assert:
+    that:
+      - hermes_profile_reserved_ports.values() | map('int') | unique | length == hermes_profile_reserved_ports | length
+      - hermes_profile_names | unique | length == hermes_profile_names | length
+      - hermes_ports_in_use | unique | length == hermes_ports_in_use | length
+    fail_msg: "Deux profils (default compris) partagent un nom ou un port d'API."
+    quiet: true
+  vars:
+    hermes_profile_names: "{{ hermes_profiles | map(attribute='name') | list }}"
+    hermes_ports_in_use: >-
+      {{ [hermes_gateway_port | int]
+         + (hermes_profiles | map(attribute='api_server_port') | map('int') | list) }}
+
+# Deux gateways avec le meme jeton : `gateway run --replace` tue le detenteur
+# du verrou, meme s'il appartient a un autre profil.
+- name: Assert that no two profiles share a Telegram bot token
+  ansible.builtin.assert:
+    that:
+      - hermes_telegram_tokens_in_use | unique | length == hermes_telegram_tokens_in_use | length
+    quiet: true
+  vars:
+    hermes_telegram_tokens_in_use: >-
+      {{ ([hermes_telegram_bot_token if hermes_telegram_enabled else '']
+          + (hermes_profiles | map(attribute='telegram_bot_token', default='') | list))
+         | select | list }}
+  no_log: true

@@ -1,0 +1,25 @@
+---
+# =============================================================================
+# Profils Hermes supplementaires.
+#
+# ⚠️ ORDRE CRITIQUE. Le gateway s6 d'un profil tourne en
+# `hermes -p <name> gateway run --replace`. Si deux gateways partagent un jeton
+# Telegram, `--replace` TUE le detenteur du verrou (gateway/platforms/base.py,
+# take_over_scoped_lock_holder) : demarrer un profil couperait le bot de
+# default. D'ou, avant tout `gateway start` :
+#
+#   1. aucun jeton en double entre default et les profils (validate.yml) ;
+#   2. aucun TELEGRAM_BOT_TOKEN dans la couche managed, verifie par Hermes
+#      lui-meme sur la couche reellement montee (main.yml) ;
+#   3. default deja redemarre sans jeton managed et CONNECTE (main.yml,
+#      apres flush_handlers).
+#
+# Ce fichier n'est inclus qu'APRES ces trois controles.
+# =============================================================================
+
+- name: Deploy each profile
+  ansible.builtin.include_tasks: profile.yml
+  loop: "{{ hermes_profiles }}"
+  loop_control:
+    loop_var: hermes_profile
+    label: "{{ hermes_profile.name }}"

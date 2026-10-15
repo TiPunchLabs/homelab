@@ -1,0 +1,56 @@
+---
+# =============================================================================
+# SOUL.md : SEME UNE FOIS, puis la propriete de Hermes et de l'utilisateur.
+#
+# Entrees :
+#   hermes_soul_src          : SOUL.md livre (controleur)
+#   hermes_soul_dest         : SOUL.md du profil (hote)
+#   hermes_soul_stock_sha256 : empreintes du SOUL.md generique de Hermes
+#
+# Pourquoi pas un simple `copy force: false` : `hermes profile create` ecrit
+# DEJA un SOUL.md, le texte generique DEFAULT_SOUL_MD (hermes_cli/profiles.py,
+# v0.20.4). force: false ne regarde que l'existence : notre SOUL.md ne serait
+# jamais pose. On seme donc si le fichier est ABSENT ou s'il est encore,
+# octet pour octet, le texte generique — qui ne porte aucune intention.
+#
+# Toute autre valeur est une identite vivante (editee depuis le dashboard,
+# `PUT /api/profiles/{name}/soul`, ou a la main) : la tache est alors
+# sautee, et ni le contenu, ni le mode, ni le proprietaire ne bougent.
+#
+# Pousser volontairement une nouvelle version du depot : supprimer le
+# SOUL.md du profil a la main, puis rejouer. Jamais automatiquement.
+#
+# Ne vise QUE profiles/<name>/SOUL.md. Le SOUL.md de default
+# ({{ hermes_data_dir }}/SOUL.md) n'est jamais seme, meme s'il est encore le
+# texte generique : c'est une identite deja en service.
+# =============================================================================
+
+- name: Refuse to seed anything but an additional profile SOUL.md
+  ansible.builtin.assert:
+    that:
+      - hermes_soul_dest | basename == 'SOUL.md'
+      - hermes_soul_dest | dirname | dirname == hermes_data_dir ~ '/profiles'
+      - hermes_soul_dest | dirname | basename is match('^[a-z0-9][a-z0-9_-]*$')
+      - hermes_soul_dest | dirname | basename != 'default'
+    fail_msg: >-
+      soul_seed.yml ne seme que {{ hermes_data_dir }}/profiles/<name>/SOUL.md,
+      jamais le SOUL.md de default. Cible refusee : {{ hermes_soul_dest }}.
+    quiet: true
+
+- name: Read the current SOUL.md of {{ hermes_soul_dest }}
+  ansible.builtin.stat:
+    path: "{{ hermes_soul_dest }}"
+    checksum_algorithm: sha256
+  register: hermes_soul_stat
+
+- name: Seed SOUL.md when absent or still the Hermes stock text
+  ansible.builtin.copy:
+    src: "{{ hermes_soul_src }}"
+    dest: "{{ hermes_soul_dest }}"
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0644'
+    force: true
+  when: >-
+    not hermes_soul_stat.stat.exists
+    or hermes_soul_stat.stat.checksum in hermes_soul_stock_sha256

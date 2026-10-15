@@ -1,0 +1,12 @@
+---
+# Ecrit UNIQUEMENT sous hermes_m1_backup_dir (0700) ; refuse d'ecraser.
+#   ansible-playbook ansible/m1-backup.yml
+- name: Sauvegarde ponctuelle avant M1 (managed, compose, data/.env)
+  hosts: hermes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run m1_backup.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: m1_backup.yml

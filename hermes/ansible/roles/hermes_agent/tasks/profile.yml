@@ -1,0 +1,195 @@
+---
+# Un profil : creation, contenu livre, cles .env, cles config, gateway.
+# Appele en boucle par profiles.yml ; validate.yml a deja verifie les
+# garde-fous (nom, port reserve, jeton present et unique).
+#
+# Frontiere de propriete dans profiles/<name>/ :
+#   SOUL.md          seme une fois (soul_seed.yml), puis a Hermes/l'utilisateur
+#   scripts/ etc.    possedes par Ansible, reecrits a chaque run
+#   .env             cle par cle (env_keys.yml), le reste a l'agent
+#   tout le reste    a l'agent : memoires, sessions, cron, skills, config.yaml
+
+- name: "Create the profile {{ hermes_profile.name }}"
+  ansible.builtin.command:
+    # --no-alias : le wrapper ~/.local/bin/<name> atterrirait dans un $HOME
+    # ephemere du conteneur.
+    argv: >-
+      {{ ['docker', 'exec', '-u', hermes_puid | string, 'hermes',
+          'hermes', 'profile', 'create', hermes_profile.name, '--no-alias']
+         + (['--description', hermes_profile.description]
+            if hermes_profile.description | default('') else []) }}
+    creates: "{{ hermes_data_dir }}/profiles/{{ hermes_profile.name }}"
+
+- name: "Read the stock SOUL.md checksum of this Hermes image ({{ hermes_profile.name }})"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - |
+        import hashlib
+        from hermes_cli.default_soul import DEFAULT_SOUL_MD
+        print(hashlib.sha256(DEFAULT_SOUL_MD.encode("utf-8")).hexdigest())
+  register: hermes_stock_soul
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: "Seed the SOUL.md of profile {{ hermes_profile.name }}"
+  ansible.builtin.include_tasks: soul_seed.yml
+  vars:
+    hermes_soul_src: "{{ hermes_profiles_src_dir }}/{{ hermes_profile.name }}/SOUL.md"
+    hermes_soul_dest: "{{ hermes_data_dir }}/profiles/{{ hermes_profile.name }}/SOUL.md"
+    hermes_soul_stock_sha256: "{{ [hermes_stock_soul.stdout | default('')] | select | list }}"
+
+- name: "Deploy the owned content of profile {{ hermes_profile.name }}"
+  ansible.builtin.include_tasks: profile_content.yml
+  vars:
+    hermes_content_src: "{{ hermes_profiles_src_dir }}/{{ hermes_profile.name }}"
+    hermes_content_dest: "{{ hermes_data_dir }}/profiles/{{ hermes_profile.name }}"
+
+# Liste blanche absente a dessein : elle vient du managed, commune a tous.
+- name: "Pin the .env keys of profile {{ hermes_profile.name }}"
+  ansible.builtin.include_tasks: env_keys.yml
+  vars:
+    hermes_env_path: "{{ hermes_data_dir }}/profiles/{{ hermes_profile.name }}/.env"
+    hermes_env_keys: >-
+      {{ {'TELEGRAM_BOT_TOKEN': hermes_profile.telegram_bot_token,
+          'API_SERVER_PORT': hermes_profile.api_server_port | string}
+         | combine(hermes_profile.env | default({})) }}
+
+- name: "Read the config keys of profile {{ hermes_profile.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - hermes
+      - -p
+      - "{{ hermes_profile.name }}"
+      - config
+      - get
+      - "{{ item.key }}"
+      - --json
+  loop: "{{ hermes_profile.config | default({}) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: hermes_profile_config_current
+  changed_when: false
+  # rc=1 : cle absente, donc a poser.
+  failed_when: hermes_profile_config_current.rc not in [0, 1]
+  when: not ansible_check_mode
+
+# Comparaison typee (filtre hermes_config_equal) : true != "true", 42 != "42",
+# mappings et listes compares en JSON canonique.
+- name: "Set the config keys of profile {{ hermes_profile.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - hermes
+      - -p
+      - "{{ hermes_profile.name }}"
+      - config
+      - set
+      - "{{ item.item.key }}"
+      - "{{ item.item.value | hermes_config_arg }}"
+  loop: "{{ hermes_profile_config_current.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when:
+    - not ansible_check_mode
+    - item.rc == 1 or not (item.stdout | hermes_config_equal(item.item.value))
+  register: hermes_profile_config_set
+
+# s6-svstat plutot que `hermes gateway status` : sortie stable et non decoree.
+- name: "Read the gateway supervision state of profile {{ hermes_profile.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - /command/s6-svstat
+      - "/run/service/gateway-{{ hermes_profile.name }}"
+  register: hermes_profile_svstat
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode
+
+# `gateway start` passe par s6 et persiste desired_state=running : le profil
+# redemarre seul au boot du conteneur (cont-init.d/02-reconcile-profiles).
+- name: "Start the gateway of profile {{ hermes_profile.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - hermes
+      - -p
+      - "{{ hermes_profile.name }}"
+      - gateway
+      - start
+  when:
+    - not ansible_check_mode
+    - hermes_profile_svstat.stdout is not match('^up')
+  register: hermes_profile_gateway_started
+
+# .env et config ne sont lus qu'au demarrage du gateway. SOUL.md et scripts/
+# n'en ont pas besoin : relus a chaque session et a chaque tache.
+- name: "Restart the gateway with its new keys for profile {{ hermes_profile.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - hermes
+      - -p
+      - "{{ hermes_profile.name }}"
+      - gateway
+      - restart
+  when:
+    - not ansible_check_mode
+    - hermes_profile_gateway_started is skipped
+    - hermes_env_keys_result is changed or hermes_profile_config_set is changed
+
+- name: "Wait for the gateway to listen for profile {{ hermes_profile.name }}"
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ hermes_profile.api_server_port }}"
+    timeout: 120
+  when: not ansible_check_mode
+
+- name: "Wait until Telegram is connected for profile {{ hermes_profile.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - telegram
+      - "/opt/data/profiles/{{ hermes_profile.name }}/gateway_state.json"
+      - "gateway-{{ hermes_profile.name }}"
+  register: hermes_profile_telegram
+  changed_when: false
+  until: hermes_profile_telegram.rc == 0
+  retries: "{{ hermes_telegram_check_retries }}"
+  delay: "{{ hermes_telegram_check_delay }}"
+  when: not ansible_check_mode
