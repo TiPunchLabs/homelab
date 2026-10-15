@@ -91,8 +91,10 @@ hermes_profile_reserved_ports:
   cafe-ia: 8646
 
 # Alex — veille technologique. PREPARE, NON DEPLOYE : n'entre dans
-# hermes_profiles qu'en M3. Il reutilise le bot Telegram existant, ex-« veille »
-# (decision D2) : meme jeton au vault, aucun bot ni jeton nouveau.
+# hermes_profiles qu'en M3. Bot Telegram NEUF (D2 revisee le 2026-10-14) :
+# alex_<6 alphanum>_bot. La cle vault porte encore le jeton de l'ancien bot
+# « veille » : sa valeur est remplacee en M3, et l'ancien bot n'est supprime
+# (BotFather) qu'apres validation d'Alex.
 hermes_profile_tech_watch:
   name: tech-watch
   description: "Alex — veille technologique IA, DevOps et Caraibe : briefs, syntheses, approfondissements."
