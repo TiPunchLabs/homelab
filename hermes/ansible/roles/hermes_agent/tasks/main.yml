@@ -308,6 +308,33 @@
   ansible.builtin.include_tasks: profiles.yml
   when: hermes_profiles | length > 0
 
+# `gateway run --replace` tue le detenteur d'un meme jeton, quel que soit son
+# profil. Le controle d'avant ne jugeait default qu'AVANT les profils : celui-ci
+# prouve qu'il est toujours le MEME processus connecte une fois qu'ils tournent.
+- name: Verify that the default gateway survived the profiles (levels 2-3)
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - telegram
+      - /opt/data/gateway_state.json
+      - gateway-default
+  register: hermes_default_telegram_after
+  changed_when: false
+  failed_when: >-
+    hermes_default_telegram_after.rc != 0
+    or hermes_default_telegram_after.stdout != hermes_default_telegram.stdout
+  when:
+    - hermes_profiles | length > 0
+    - hermes_telegram_enabled
+    - not ansible_check_mode
+
 # =============================================================================
 # ⚠️ NE PAS REINTRODUIRE DE SUPPRESSION DU .env DU VOLUME.
 #

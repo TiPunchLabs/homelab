@@ -13,9 +13,15 @@ Usage (argv after `-c`):
     env-key <dotenv_path> <KEY>
     telegram <gateway_state.json> <s6 service name, e.g. gateway-default>
     schedule-window <minutes>
+    api-key <profile .env>                       (HERMES_HOME = the profile)
+    toolsets <allowed,csv> <denied,csv> <no_mcp> (HERMES_HOME = the profile)
+    bot-identity <profile .env> <expected bot username>
+    listen <port>                                (on the HOST: reads `ss`)
 
 `schedule-window` is read-only: it reads the profile's jobs.json and prints
-names, schedules and timestamps only, never a prompt.
+names, schedules and timestamps only, never a prompt. `bot-identity` calls
+Telegram `getMe` (identity only: unlike getUpdates it steals no message) and
+never prints the token, the URL that carries it, or an exception text.
 """
 
 from __future__ import annotations
@@ -191,6 +197,92 @@ def schedule_window_verdict(
     return blocking, lines
 
 
+def api_key_errors(profile_env_keys: set[str], effective_matches_managed: bool, managed_has_key: bool) -> list[str]:
+    """Judge whether a profile gateway gets API_SERVER_KEY deterministically.
+
+    The image's stage2 hook appends a random key to $HERMES_HOME/.env only,
+    i.e. /opt/data/.env, never to profiles/<name>/.env. The managed .env is
+    loaded last with override, so every gateway must end up with the managed
+    key. A key in the profile .env would be dead weight at best, a second
+    secret to leak at worst: refused. Booleans only, never a value.
+    """
+    errors: list[str] = []
+    if not managed_has_key:
+        errors.append("API_SERVER_KEY missing from managed .env")
+    if "API_SERVER_KEY" in profile_env_keys:
+        errors.append("API_SERVER_KEY present in the profile .env (must come from managed only)")
+    if managed_has_key and not effective_matches_managed:
+        errors.append("effective API_SERVER_KEY differs from the managed one")
+    return errors
+
+
+def toolset_errors(
+    effective: Mapping[str, set[str]],
+    allowed: set[str],
+    denied: set[str],
+    mcp_servers: set[str],
+    require_no_mcp: bool,
+) -> list[str]:
+    """Judge the toolsets Hermes resolves for each platform of a profile.
+
+    `effective` maps a platform to what hermes_cli.tools_config resolves for
+    it (the gateway's own code path). Any toolset outside `allowed`, any
+    `denied` one, and any MCP server when `require_no_mcp` is an error.
+    """
+    errors: list[str] = []
+    for platform, toolsets in sorted(effective.items()):
+        extra = sorted(toolsets - allowed)
+        if extra:
+            errors.append(f"{platform}: toolsets beyond the allowlist: {', '.join(extra)}")
+        forbidden = sorted(toolsets & denied)
+        if forbidden:
+            errors.append(f"{platform}: denied toolsets enabled: {', '.join(forbidden)}")
+    if require_no_mcp and mcp_servers:
+        errors.append(f"MCP servers configured: {', '.join(sorted(mcp_servers))}")
+    return errors
+
+
+def bot_identity_errors(reply: Any, expected_username: str) -> list[str]:
+    """Judge a Telegram getMe reply against the bot username declared in Git.
+
+    Catches a valid token that belongs to ANOTHER bot (pasted in the wrong
+    vault key): duplicates are caught by validate.yml, this is not.
+    """
+    if not isinstance(reply, Mapping) or reply.get("ok") is not True:
+        code = reply.get("error_code") if isinstance(reply, Mapping) else None
+        return [f"getMe refused the token (error_code={code})"]
+    result = reply.get("result") if isinstance(reply.get("result"), Mapping) else {}
+    if result.get("is_bot") is not True:
+        return ["getMe: not a bot account"]
+    actual = str(result.get("username") or "")
+    if actual.lower() != expected_username.lower():
+        return [f"token belongs to @{actual or '?'}, expected @{expected_username}"]
+    return []
+
+
+_LOOPBACK = ("127.", "[::1]", "::1")
+
+
+def listen_errors(ss_output: str, port: int) -> list[str]:
+    """Judge `ss -Hltn` output: `port` must listen, and on loopback only.
+
+    The container runs with network_mode: host, so a non-loopback bind would
+    be on the VM's LAN interface; UFW denies it, but the intent is that it
+    never listens there in the first place.
+    """
+    locals_ = []
+    for line in ss_output.splitlines():
+        fields = line.split()
+        if len(fields) >= 4 and fields[3].rsplit(":", 1)[-1] == str(port):
+            locals_.append(fields[3])
+    if not locals_:
+        return [f"nothing listens on port {port}"]
+    exposed = sorted(addr for addr in locals_ if not addr.startswith(_LOOPBACK))
+    if exposed:
+        return [f"port {port} listens beyond loopback: {', '.join(exposed)}"]
+    return []
+
+
 def _report(errors: list[str], ok_message: str) -> int:
     """Print the outcome and return the process exit code."""
     if errors:
@@ -255,6 +347,63 @@ def main(argv: list[str]) -> int:
         print("\n".join(lines))
         print("NO-GO: " + "; ".join(blocking) if blocking else "GO: no job can fire across a restart now")
         return 1 if blocking else 0
+    if mode == "api-key" and len(argv) == 2:
+        import hmac
+
+        from dotenv import dotenv_values
+        from hermes_cli import managed_scope as ms
+        from hermes_cli.env_loader import load_hermes_dotenv
+
+        ms.invalidate_managed_cache()
+        managed_key = ms.load_managed_env().get("API_SERVER_KEY") or ""
+        load_hermes_dotenv()
+        effective = os.environ.get("API_SERVER_KEY") or ""
+        errors = api_key_errors(
+            set(dotenv_values(argv[1])),
+            hmac.compare_digest(effective, managed_key),
+            bool(managed_key),
+        )
+        return _report(errors, "API_SERVER_KEY comes from managed only (deterministic)")
+    if mode == "toolsets" and len(argv) == 4:
+        from hermes_cli.config import load_config
+        from hermes_cli.tools_config import _get_platform_tools
+
+        cfg = load_config()
+        effective = {p: set(_get_platform_tools(cfg, p)) for p in ("telegram", "cron", "api_server", "cli")}
+        errors = toolset_errors(
+            effective,
+            {t for t in argv[1].split(",") if t},
+            {t for t in argv[2].split(",") if t},
+            set(cfg.get("mcp_servers") or {}),
+            argv[3] == "true",
+        )
+        return _report(errors, f"toolsets restricted to: {', '.join(sorted(set().union(*effective.values())))}")
+    if mode == "bot-identity" and len(argv) == 3:
+        import urllib.error
+        import urllib.request
+
+        from dotenv import dotenv_values
+
+        token = (dotenv_values(argv[1]).get("TELEGRAM_BOT_TOKEN") or "").strip()
+        if not token:
+            return _report(["TELEGRAM_BOT_TOKEN missing or empty"], "")
+        try:
+            with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/getMe", timeout=15) as resp:
+                reply = json.load(resp)
+        except urllib.error.HTTPError as exc:
+            try:
+                reply = json.load(exc)
+            except ValueError:
+                reply = {"ok": False, "error_code": exc.code}
+        except (urllib.error.URLError, OSError) as exc:
+            # The exception text could carry the URL, hence the token.
+            return _report([f"api.telegram.org unreachable ({type(exc).__name__})"], "")
+        return _report(bot_identity_errors(reply, argv[2]), f"token belongs to @{argv[2]}")
+    if mode == "listen" and len(argv) == 2:
+        import subprocess
+
+        ss = subprocess.run(["ss", "-Hltn"], capture_output=True, text=True, check=False)
+        return _report(listen_errors(ss.stdout, int(argv[1])), f"port {argv[1]} listens on loopback only")
     print(f"usage error: {argv!r}")
     return 2
 

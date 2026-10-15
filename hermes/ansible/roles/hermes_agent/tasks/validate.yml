@@ -55,14 +55,22 @@
       # La liste blanche est globale (couche managed) : une valeur par profil
       # serait ignoree sans bruit, puisque le managed gagne.
       - hermes_profiles[idx].telegram_allowed_users is not defined
-      # Ces cles passent par leurs champs dedies ou par le managed.
+      # Ces cles passent par leurs champs dedies ou par le managed. API_SERVER_*
+      # en entier : la cle d'API vient du managed seul (cf. hermes_checks.py
+      # api_key_errors), un port ou un hote par profil passent par
+      # api_server_port et le bind loopback par defaut.
       - hermes_profiles[idx].env | default({}) | dict2items | map(attribute='key')
-        | select('match', '^(TELEGRAM_|API_SERVER_PORT$|API_SERVER_HOST$|GATEWAY_ALLOW)') | list | length == 0
+        | select('match', '^(TELEGRAM_|API_SERVER_|GATEWAY_ALLOW)') | list | length == 0
+      # Nom du bot (public, pas un secret) : controle par getMe avant le
+      # demarrage du gateway. Convention D2 : <assistant>_<6 alphanum>_bot.
+      - hermes_profiles[idx].telegram_bot_username is not defined
+        or hermes_profiles[idx].telegram_bot_username is match('^[a-z]+_[A-Za-z0-9]{6}_bot$')
     fail_msg: >-
       Profil n°{{ idx }} invalide : nom [a-z0-9_-] autre que default et present
       dans hermes_profile_reserved_ports, api_server_port egal a son port
       reserve, pas de telegram_allowed_users (liste blanche globale), aucune
-      cle TELEGRAM_* / API_SERVER_* / GATEWAY_ALLOW* dans env.
+      cle TELEGRAM_* / API_SERVER_* / GATEWAY_ALLOW* dans env,
+      telegram_bot_username au format <assistant>_<6 alphanum>_bot.
     quiet: true
   loop: "{{ range(hermes_profiles | length) | list }}"
   loop_control:
@@ -74,6 +82,21 @@
     that:
       - hermes_profiles[idx].telegram_bot_token | default('') | string | length > 0
     fail_msg: "Profil n°{{ idx }} sans telegram_bot_token."
+    quiet: true
+  loop: "{{ range(hermes_profiles | length) | list }}"
+  loop_control:
+    loop_var: idx
+    label: "{{ idx }}"
+  no_log: true
+
+# Une valeur vide retirerait la cle sans bruit (env_keys.yml : vide = retiree) :
+# un profil deploye sans sa cle de recherche web, par exemple.
+- name: Assert that each profile env value is set
+  ansible.builtin.assert:
+    that:
+      - hermes_profiles[idx].env | default({}) | dict2items | map(attribute='value')
+        | map('string') | map('trim') | select('equalto', '') | list | length == 0
+    fail_msg: "Profil n°{{ idx }} : une cle de env est vide."
     quiet: true
   loop: "{{ range(hermes_profiles | length) | list }}"
   loop_control:
