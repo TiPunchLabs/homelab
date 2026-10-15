@@ -5,9 +5,10 @@ Deploy Hermes Agent (v0.20.4, image `nousresearch/hermes-agent:v2026.8.18`) on
 **profiles**: one s6-supervised gateway and one Telegram bot per profile, all in
 the same container.
 
-> **Current state (mission M1).** Only the `default` profile exists.
-> `hermes_profiles: []` in `group_vars`. The profile machinery is in place and
-> tested, but deploys nothing until a later mission adds an entry.
+> **Current state (mission M2, phase A).** Only the `default` profile runs.
+> `hermes_profiles: []` in `group_vars`. **Kaféine** (`cafe-ia`) is fully
+> prepared (`hermes_profile_cafe_ia`, below) but not activated: it enters the
+> list in phase B, once its two vault keys exist.
 
 ## Mental Model
 
@@ -332,6 +333,211 @@ ssh ansible@hermes-30 'sudo shred -u /root/hermes-m1-backup/managed.env; sudo te
 and move the remaining non-secret files out (`trash` is not installed on the
 host; the directory removal is a deliberate manual step).
 
+## Kaféine — profile `cafe-ia` (mission M2)
+
+Assistant of the Café IA project: AI watch for a mixed audience, projects to
+present, meeting preparation, drafts. Identity: `files/profiles/cafe-ia/SOUL.md`
+(seeded once, D6). Declaration: `hermes_profile_cafe_ia` in `group_vars`.
+
+### What `hermes profile create cafe-ia --no-alias` really creates (v0.20.4)
+
+Observed in a throwaway container of the same image, with a lived-in fake
+`default` next to it:
+
+```text
+profiles/cafe-ia/
+├── .env            header only, 0600 (create_profile seeds it)
+├── SOUL.md         stock DEFAULT_SOUL_MD (sha256 2765a846…) → replaced by the seed
+├── profile.yaml    description
+├── memories/ sessions/ cron/ plans/ workspace/ home/ skins/ logs/   empty
+└── skills/         82 bundled skills of the image + .bundled_manifest
+```
+
+No `config.yaml` (written by the first `hermes config set`), no memory, no
+session, no cron job, no custom skill of `default` (checked by content). The
+s6 slot `gateway-cafe-ia` is registered `down`. The first gateway run adds its
+own runtime state (`state.db`, `gateway_state.json`, `response_store.db`,
+`sandboxes/`, `bin/`, `cache/`…). Nothing is ever copied from `default`
+(`--clone*` never used; `backfill_profile_envs`, which copies default's `.env`
+— token included — into a profile without one, only runs on `hermes update`,
+never used here, and the profile has its `.env` from creation anyway).
+
+### Architecture
+
+| Item | `default` | `cafe-ia` |
+|---|---|---|
+| HERMES_HOME | `/opt/data` | `/opt/data/profiles/cafe-ia` |
+| s6 service | `gateway-default` | `gateway-cafe-ia` (`hermes -p cafe-ia gateway run --replace`) |
+| API port | 8642, 127.0.0.1 | **8646, 127.0.0.1** (Hermes default bind; checked after start) |
+| Telegram bot | existing | **new** `kafeine_<6 alnum>_bot` (proposed: `kafeine_r64gnb_bot`) |
+| Token | `vault_hermes_telegram_bot_token` → `data/.env` | `vault_hermes_cafe_ia_telegram_bot_token` → `profiles/cafe-ia/.env` |
+| Allowlist, allow-all off | managed (shared) | managed (shared, verified effective in a lab container) |
+| `API_SERVER_KEY` | managed (wins) | managed (wins); never in the profile `.env` |
+| Web search | none configured | Tavily, `vault_hermes_cafe_ia_tavily_api_key` |
+| MCP | `kandidat` (in its own config.yaml) | **none** (`no_mcp`) |
+| Memory, sessions, cron | its own | its own, empty at start |
+
+### Tools (D5) — matrix
+
+Resolved with the gateway's own code (`tools_config._get_platform_tools`) in
+a lab container: telegram, cron, api_server **and cli** expose exactly
+`web_search, web_extract, memory, session_search, skills_list, skill_view,
+skill_manage, todo, clarify` (an unrestricted profile exposes 18 tools,
+`terminal`, `read_file`, `write_file`, `execute_code`, `delegate_task`… included).
+
+| Toolset | Allowed | Why | Risk |
+|---|---|---|---|
+| `web` (search, extract) | ✅ | the core of the mission | prompt injection from pages; SOUL tells it page content is data |
+| `memory` | ✅ | capitalise topics and meetings | low, own profile only |
+| `session_search` | ✅ | recall past conversations | low, own sessions only |
+| `skills` | ✅ ⚠️ | bundled research skills (`grounded-citations`, `arxiv`, `competitor-news-monitor`) | `skill_manage` can write persistent instructions in **its own** `skills/`; no executing tool to abuse them |
+| `todo`, `clarify` | ✅ | multi-step work, questions | none |
+| `terminal`, `process`, `code_execution` | ❌ | not needed | shell as UID 1000: every token of every profile, LAN |
+| `file` | ❌ | drafts go in the chat | `HERMES_WRITE_SAFE_ROOT=/opt/data` = all profiles; reads `/etc/hermes/.env` |
+| `browser`, `computer_use` | ❌ | `web_extract` reads pages | can fill and submit forms: publishing without validation |
+| `cronjob`, `kanban`, `delegation` | ❌ | no automation in M2 (M6) | recurring actions, sub-agents |
+| media, tts, vision, social/chat platforms, home automation | ❌ | not needed | outbound actions, cost |
+| MCP servers | ❌ (`no_mcp`) | no Kandidat (D5) | — |
+
+Two layers, both in the profile's `config.yaml` (never in managed, which
+would restrict `default` too): `platform_toolsets.{telegram,cron,api_server}`
+(allowlist) and `agent.disabled_toolsets` (denylist applied **last**, on every
+platform). Ansible sets them with `hermes config set`, type-strict compared, and
+`Verify that the declared tool restrictions are effective` re-resolves them
+with Hermes' code **before** the gateway starts. A toolset name unknown to
+Hermes would be dropped silently (#38798): the test suite pins the list of
+v0.20.4 names.
+
+> ⚠️ **SOUL.md is not a security boundary.** The limits that matter (no
+> shell, no files, no browser, no cron, no MCP) are technical. The others
+> (publish, contact, send) are enforced by the absence of any tool able to do
+> them; SOUL.md repeats them for the model.
+
+Isolation limit (unchanged, accepted): one container, one UID. The toolset
+restrictions are what keep Kaféine away from other profiles' `.env`; a future
+change that grants `terminal` or `file` would void them.
+
+### `API_SERVER_KEY` — the M1 anomaly, understood
+
+`docker/stage2-hook.sh` (v2026.8.18, `cont-init.d/01-hermes-setup`) does, as
+root, at **every container start**:
+
+```sh
+if [ -f "$HERMES_HOME/.env" ] && ! grep -q '^API_SERVER_KEY=..*' "$HERMES_HOME/.env"; then
+    printf 'API_SERVER_KEY=%s\n' "$random" >> "$HERMES_HOME/.env"
+fi
+```
+
+- `HERMES_HOME` is the container's, `/opt/data`: **only `/opt/data/.env`** is
+  ever touched, never `profiles/*/.env` (code + lab: profile `.env` checksum
+  unchanged across repeated dual-container boots).
+- Check-then-append is not atomic. `hermes` and `hermes-dashboard` share the
+  volume and both run the hook: when `data/.env` first appeared without the
+  key (M1), both appended → 2 lines. Not reproduced in 6 local dual boots: a
+  race, not a rule. Now that the line exists, the hook never fires again.
+- The dashboard container **skips** the profile reconciler (`reconcile:
+  skipping (dashboard container…)`, seen on hermes-30): it never starts a second
+  `gateway-cafe-ia`.
+- Every gateway loads its profile `.env`, then managed **last with
+  override**: the effective key is managed's, for `default` and `cafe-ia`
+  alike (verified by digest in the lab). With multiplexing off (default), the
+  api_server reads it from the process environment.
+
+**Decision: no fix to the image, no new secret, no cleanup of default's two
+lines.** Kaféine's configuration is deterministic by construction; it is
+*guarded*: `validate.yml` refuses any `API_SERVER_*` key in a profile `env`, and
+`Verify that API_SERVER_KEY comes from managed only` (before the gateway
+starts) fails if the profile `.env` carries one or if the effective key is not
+managed's. Default's duplicate stays as is (harmless, managed wins); removing a
+line from an agent-owned file is a separate decision.
+
+### Telegram bot — BotFather procedure (manual, phase B1)
+
+1. In Telegram, `@BotFather` → `/newbot`.
+2. Name: **Kaféine — Café IA**.
+3. Username: **`kafeine_r64gnb_bot`** (random code, not a security measure). If
+   taken, draw another code (`python3 -c "import secrets,string;
+   print(''.join(secrets.choice(string.ascii_lowercase+string.digits) for _ in range(6)))"`)
+   and update `telegram_bot_username` in `group_vars`.
+4. `/setdescription`: « Votre assistant pour découvrir l'IA, explorer des
+   projets et préparer les rencontres Café IA. » — optional `/setuserpic`.
+5. `/setjoingroups` → **Disable** (private use only).
+6. Store the token **straight into the vault**, never in a chat or a file:
+   `ansible-vault edit hermes/ansible/group_vars/hermes/vault/config.yml`, add
+   `vault_hermes_cafe_ia_telegram_bot_token: "<token>"` and
+   `vault_hermes_cafe_ia_tavily_api_key: "<key>"` (a dedicated Tavily key:
+   own quota, own revocation).
+7. From the allowlisted account, open the bot and send `/start`.
+
+Checks, without displaying the token: `validate.yml` (present, unique against
+default and every profile, username format), then `Verify that the token
+belongs to the declared bot` (`getMe` → username must match — catches a valid
+token pasted under the wrong key; tested for real: a bogus token is refused
+with 401 before anything starts).
+
+### Phase B — deployment order
+
+All from `hermes/`, each step on explicit approval.
+
+| Step | Command | Writes on hermes-30 |
+|---|---|---|
+| B1 | bot + vault keys + `/start` (above) | — |
+| B2 | `ansible-playbook ansible/m2-preflight.yml`, then add `- "{{ hermes_profile_cafe_ia }}"` to `hermes_profiles` (activation commit) | no |
+| B3 | `ansible-playbook ansible/deploy.yml --tags hermes --check --diff` | no |
+| B4 | `ansible-playbook ansible/deploy.yml --tags hermes` | `profiles/cafe-ia/` only |
+| B5 | automatic checks of B4 (below) | — |
+| B6 | message Kaféine from Telegram; and default | — |
+| B7 | isolation: ask Kaféine about something only default knows; check new memories land in `profiles/cafe-ia/memories/` | — |
+| B8 | restart test outside the cron windows: `m1-preflight.yml` GO, then `docker compose restart gateway` → both slots up | restart |
+| B9 | `deploy.yml --tags hermes` again → `changed=0` | no |
+
+`m2-preflight.yml` (read-only) = `preflight.yml` (default connected, host
+timezone, cron window) + `profile_preflight.yml`: the declaration added to the
+current profiles passes `validate.yml` (missing vault key = NO-GO), no
+`profiles/cafe-ia`, no s6 slot, port 8646 free; it prints container and
+gateway memory.
+
+**No restart of `default` is expected in B4**: managed files and Compose are
+unchanged by M2, so the `Restart hermes` handler does not fire. `--check`
+must show `changed` on none of them; otherwise stop.
+
+B4 order inside `profile.yml`: create → seed SOUL → `.env` keys → `config set`
+→ **bot identity, API key, effective tools** → `gateway start` (persists
+`desired_state=running`) → port 8646 listening, **loopback only** →
+Telegram connected (levels 1-3, same writer-pid rule as default). Then
+`main.yml` re-checks that **default is still connected with the same pid**
+(`--replace` would have killed it on a shared token).
+
+Resources (hermes-30, 2026-10-15 22:08 UTC): container `hermes` 359 MiB / 4 GiB,
+default gateway RSS 352 MiB, dashboard 277 MiB, VM 1.2 GiB used / 4.1 GiB.
+A second gateway (~350 MiB) keeps the container under 1 GiB of its 4 GiB.
+
+### Rollback of M2
+
+`ansible-playbook ansible/m2-rollback.yml` (`tasks/profile_rollback.yml`):
+
+1. refuses any name but a reserved additional profile (never `default`);
+2. `hermes -p cafe-ia gateway stop` if the slot is up **or** its
+   `gateway_state.json` still says `desired_state=running` — that file, not
+   the inventory, decides whether the boot reconciler restarts it;
+3. checks: slot `down`, `desired_state` ≠ `running`, nothing on 8646, default
+   still connected;
+4. reports whether `cafe-ia` is still in `hermes_profiles`. Then `git revert`
+   the activation commit and replay `deploy.yml --tags hermes` (`changed=0`).
+
+Never: delete `profiles/cafe-ia/`, revoke the token, delete the bot, restart
+the container. Played for real in a lab container: `changed=1` then `0`, and
+after a container restart `reconcile: profile=cafe-ia prior_state=stopped
+action=registered`, slot `down`, data intact. Independent of
+`/root/hermes-m1-backup/` (kept, not used).
+
+### Phase B only (not provable before deployment)
+
+Telegram really connected with the real token; a reply from DeepSeek through
+Kaféine (level 4, human); `default` still answering; memories written under
+`profiles/cafe-ia/`; restart persistence of both slots on hermes-30; resources
+measured after; the second `changed=0` on the real host.
+
 ## Tests
 
 ```bash
@@ -345,5 +551,6 @@ uv run pytest hermes/tests -q
 | `test_hermes_checks.py` | managed contract, Telegram verdict (connected / disconnected / unknown / absent / malformed / stale writer / dead pid), type-strict config comparison |
 | `test_inventory.py` | effective `hermes_profiles == []` (needs the vault password, skipped otherwise), definitive ids, no destructive task, `no_log` on every token task, task ordering, D1/D5 non-goals |
 | `test_tech_watch_collect.py` | the tech-watch collector |
+| `test_m2_cafe_ia.py` | Kaféine, T01-T24: blank creation, SOUL seed and keep, nothing inherited from a lived-in default, no MCP, tokens (distinct, missing, unresolved vault key), allowlist, ports, `API_SERVER_KEY` (verbatim stage2 block: absent / present / key / repeat / concurrent; profile `.env` never touched), caches, idempotence, username, tool lists and verdicts, s6/Telegram/getMe verdicts, **real** rollback and preflight against a fake `docker`/`ss`, loopback verdict, coexistence |
 
 Fake tokens only; nothing reaches hermes-30.
