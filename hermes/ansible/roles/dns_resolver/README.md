@@ -53,20 +53,50 @@ dnsmasq must answer **before** netplan points the system at it. The role:
 
 1. installs and configures dnsmasq, starts it;
 2. **proves** it answers, by querying `127.0.0.1` directly;
-3. only then writes the netplan override and applies it;
-4. verifies end-to-end through `getent` (the real path: nsswitch → resolved →
+3. pins cloud-init (see below) so that a later instance-id change cannot undo
+   step 4;
+4. only then strips `nameservers` from `50-cloud-init.yaml`, writes the netplan
+   override and applies it;
+5. verifies end-to-end through `getent` (the real path: nsswitch → resolved →
    dnsmasq), not through `dig`, which would bypass resolved.
 
 Step 2 is the guard rail: if it fails, netplan has not been touched and the VM
 still resolves exactly as before.
+
+## Cloud-init guard
+
+Stripping `nameservers` only holds while cloud-init believes it is on the same
+instance. Proxmox computes the NoCloud instance-id as
+`sha1(user-data . network-data)`, so **any** cloud-init change on the VM
+(`qm set --nameserver`, `--sshkeys`, `--ciupgrade`, or a `terraform apply` on
+`initialization {}`) gives a new id. At the next boot cloud-init would then:
+
+| Per-instance module | Effect without the guard | Guard |
+|---|---|---|
+| network rendering | rewrites `50-cloud-init.yaml` **with** `nameservers`; netplan merges → two DNS servers on the link | `99-disable-network-config.cfg` |
+| `ssh` | deletes and regenerates the SSH host keys | `99-preserve-ssh-host-keys.cfg` |
+| `package_update_upgrade_install` | `apt upgrade` during boot (Proxmox user-data carries `package_upgrade: true`) | **none** — user-data outranks `cloud.cfg.d` |
+| others (`users_groups`, `apt_configure`, `locale`, `set_passwords`...) | re-run with the same inputs, no expected change | — |
+
+Both files live in `/etc/cloud/cloud.cfg.d/` and only exist on VMs this role
+has run on, i.e. **after** their first boot. A fresh clone of template 9001
+still gets its network rendered and its own host keys generated — the template
+build (`proxmox/`, virt-customize) is untouched.
+
+> ⚠️ With network rendering disabled, `/etc/netplan` is the only source of
+> truth. It matches the NIC by MAC (`bc:24:11:c4:2d:d7`, pinned in Proxmox
+> `net0`). A plan that replaces the network device would leave the VM without
+> network at the next boot — rebuild instead.
 
 ## Terraform side
 
 `hermes/terraform/main.tf` keeps `vm_dns_servers = ["192.168.10.71"]` — **bootstrap
 only**. Do not point it at `127.0.0.1`: on first boot dnsmasq does not exist yet.
 
-> ⚠️ A change to `initialization {}` does **not** reach a running guest without
-> `terraform apply -replace=...`. The Ansible role is what fixes existing VMs.
+> ⚠️ A change to `initialization {}` does not reach a **running** guest, but it
+> does reach it at the **next boot**, through the instance-id change described
+> above. Lay the cloud-init guard before aligning Proxmox. Procedure:
+> [`docs/guides/guide-hermes-cloudinit-dns-drift.md`](../../../../docs/guides/guide-hermes-cloudinit-dns-drift.md).
 
 ## Usage
 
@@ -83,3 +113,12 @@ netplan apply
 ```
 
 The VM returns to the cloud-init resolver.
+
+To also hand the network and host keys back to cloud-init:
+
+```bash
+rm /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+rm /etc/cloud/cloud.cfg.d/99-preserve-ssh-host-keys.cfg
+```
+
+Effective at the next instance-id change only; nothing happens at a plain reboot.
