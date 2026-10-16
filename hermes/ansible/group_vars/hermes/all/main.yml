@@ -146,6 +146,12 @@ hermes_profile_cafe_ia:
       - no_mcp
     platform_toolsets.cron: *hermes_cafe_ia_toolsets
     platform_toolsets.api_server: *hermes_cafe_ia_toolsets
+    # Le toolset `skills` est indivisible (skills_list, skill_view et
+    # skill_manage) : impossible de retirer skill_manage seul. Ce verrou met
+    # en attente toute ecriture de skill (create, edit, patch, delete,
+    # write_file, remove_file), revue background comprise, jusqu'a
+    # `/skills approve <id>`. Lecture des skills inchangee.
+    skills.write_approval: true
     # Liste noire appliquee EN DERNIER par Hermes, sur toutes les plateformes
     # (cli comprise) : le vrai verrou si une liste blanche venait a s'elargir.
     agent.disabled_toolsets:

@@ -390,7 +390,7 @@ skill_manage, todo, clarify` (an unrestricted profile exposes 18 tools,
 | `web` (search, extract) | ✅ | the core of the mission | prompt injection from pages; SOUL tells it page content is data |
 | `memory` | ✅ | capitalise topics and meetings | low, own profile only |
 | `session_search` | ✅ | recall past conversations | low, own sessions only |
-| `skills` | ✅ ⚠️ | bundled research skills (`grounded-citations`, `arxiv`, `competitor-news-monitor`) | `skill_manage` can write persistent instructions in **its own** `skills/`; no executing tool to abuse them |
+| `skills` | ✅ ⚠️ | bundled research skills (`grounded-citations`, `arxiv`, `competitor-news-monitor`) | `skill_manage` comes with it; its writes are **staged** (`skills.write_approval: true`), see below |
 | `todo`, `clarify` | ✅ | multi-step work, questions | none |
 | `terminal`, `process`, `code_execution` | ❌ | not needed | shell as UID 1000: every token of every profile, LAN |
 | `file` | ❌ | drafts go in the chat | `HERMES_WRITE_SAFE_ROOT=/opt/data` = all profiles; reads `/etc/hermes/.env` |
@@ -398,6 +398,23 @@ skill_manage, todo, clarify` (an unrestricted profile exposes 18 tools,
 | `cronjob`, `kanban`, `delegation` | ❌ | no automation in M2 (M6) | recurring actions, sub-agents |
 | media, tts, vision, social/chat platforms, home automation | ❌ | not needed | outbound actions, cost |
 | MCP servers | ❌ (`no_mcp`) | no Kandidat (D5) | — |
+
+**`skill_manage` cannot be removed alone.** Hermes filters by toolset, never by
+tool, and `skills` is one indivisible toolset (`skills_list`, `skill_view`,
+`skill_manage`; no smaller toolset or legacy alias exists in the image). So the
+profile pins `skills.write_approval: true`: every `create`, `edit`, `patch`,
+`delete`, `write_file` and `remove_file` is staged under `pending/skills/`, from
+a chat **and** from the background self-improvement review, until
+`/skills approve <id>` (`/skills pending`, `diff <id>`, `reject <id>` in
+Telegram). Tested in an offline throwaway container: gate on, `create` returns
+`staged` and writes nothing; gate off, the skill is written. Reading skills is
+unchanged.
+
+Residual risk: the allowlisted user can turn the gate off with
+`/skills approval off` (it writes the profile `config.yaml`); the next playbook
+run puts it back and reports `changed` on that key — a visible drift, not a
+silent one. An approved skill is still persistent text the model will follow:
+read the `diff` before approving.
 
 Two layers, both in the profile's `config.yaml` (never in managed, which
 would restrict `default` too): `platform_toolsets.{telegram,cron,api_server}`
@@ -466,7 +483,8 @@ line from an agent-owned file is a separate decision.
    `ansible-vault edit hermes/ansible/group_vars/hermes/vault/config.yml`, add
    `vault_hermes_cafe_ia_telegram_bot_token: "<token>"` and
    `vault_hermes_cafe_ia_tavily_api_key: "<key>"` (a dedicated Tavily key:
-   own quota, own revocation).
+   own quota, own revocation; set a monthly usage limit in the Tavily
+   dashboard, the role cannot enforce one).
 7. From the allowlisted account, open the bot and send `/start`.
 
 Checks, without displaying the token: `validate.yml` (present, unique against

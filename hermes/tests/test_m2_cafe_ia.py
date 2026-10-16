@@ -536,7 +536,9 @@ def test_t15_second_run_changes_nothing(
     assert snapshot(data_dir) == before
 
 
-@pytest.mark.parametrize("key", ["web.backend", "platform_toolsets.telegram", "agent.disabled_toolsets"])
+@pytest.mark.parametrize(
+    "key", ["web.backend", "platform_toolsets.telegram", "agent.disabled_toolsets", "skills.write_approval"]
+)
 def test_t15_config_values_converge(cafe: dict[str, Any], key: str) -> None:
     """T15: what `config set` stores reads back equal (`config get --json`), so no perpetual change."""
     value = cafe["config"][key]
@@ -588,6 +590,12 @@ def test_t18_tool_lists_are_known_disjoint_and_least_privilege(cafe: dict[str, A
     assert SENSITIVE <= denied
     for platform in ("cron", "api_server"):
         assert cafe["config"][f"platform_toolsets.{platform}"] == cafe["config"]["platform_toolsets.telegram"]
+
+
+def test_t18_skill_writes_need_approval(cafe: dict[str, Any]) -> None:
+    """T18: `skills` cannot drop skill_manage alone, so every skill write is staged for approval."""
+    assert "skills" in cafe["config"]["platform_toolsets.telegram"]
+    assert cafe["config"]["skills.write_approval"] is True
 
 
 def test_t18_toolset_verdicts() -> None:
