@@ -500,7 +500,7 @@ All from `hermes/`, each step on explicit approval.
 | Step | Command | Writes on hermes-30 |
 |---|---|---|
 | B1 | bot + vault keys + `/start` (above) | — |
-| B2 | `ansible-playbook ansible/m2-preflight.yml`, then add `- "{{ hermes_profile_cafe_ia }}"` to `hermes_profiles` (activation commit) | no |
+| B2 | `ansible-playbook ansible/m2-preflight.yml` (needs `TF_VAR_pm_api_*` from `.envrc`: memory gate), then add `- "{{ hermes_profile_cafe_ia }}"` to `hermes_profiles` (activation commit) | no |
 | B3 | `ansible-playbook ansible/deploy.yml --tags hermes --check --diff` | no |
 | B4 | `ansible-playbook ansible/deploy.yml --tags hermes` | `profiles/cafe-ia/` only |
 | B5 | automatic checks of B4 (below) | — |
@@ -512,8 +512,8 @@ All from `hermes/`, each step on explicit approval.
 `m2-preflight.yml` (read-only) = `preflight.yml` (default connected, host
 timezone, cron window) + `profile_preflight.yml`: the declaration added to the
 current profiles passes `validate.yml` (missing vault key = NO-GO), no
-`profiles/cafe-ia`, no s6 slot, port 8646 free; it prints container and
-gateway memory.
+`profiles/cafe-ia`, no s6 slot, port 8646 free, **memory headroom** (below);
+it prints container and gateway memory.
 
 **No restart of `default` is expected in B4**: managed files and Compose are
 unchanged by M2, so the `Restart hermes` handler does not fire. `--check`
@@ -528,7 +528,95 @@ Telegram connected (levels 1-3, same writer-pid rule as default). Then
 
 Resources (hermes-30, 2026-10-15 22:08 UTC): container `hermes` 359 MiB / 4 GiB,
 default gateway RSS 352 MiB, dashboard 277 MiB, VM 1.2 GiB used / 4.1 GiB.
-A second gateway (~350 MiB) keeps the container under 1 GiB of its 4 GiB.
+A second gateway (~350 MiB) keeps the container under 1 GiB of its 4 GiB —
+but the **VM** is the limit, not the container: see below.
+
+### Memory: Proxmox ballooning and the M2 memory gate
+
+**Why hermes-30 ran short** (audit 2026-10-16, read-only). hermes-30 is the
+only VM of `pve` with a balloon device (`memory` 8192, floor `balloon` then
+2048). dockhost-90 (10240), bastion-60 (2048) and vpngate-50 (512) have
+`balloon: 0`: no device, so the host never takes back their guest page cache
+(dockhost: 3.7 GiB used in the guest, 6.6 GiB held on the host, +2.8 GiB in a
+week). Once `pve` passes its ballooning target (80 % by default, unset on the
+node), `pvestatd` shrinks the only VM it can: hermes-30, down to its floor.
+Komodo's 15-second history shows hermes-30 at its 2048 floor 35 to 84 % of
+the time over 15 days, with 0.16 GiB available at worst (2026-10-14).
+
+**The gate** (`tasks/memory_preflight.yml`, called by `profile_preflight.yml`):
+NO-GO unless `hermes_pf_min_available_mib` (1536) is available **now** and
+**at the balloon floor**. The floor is read from the effective Proxmox
+configuration through its API (`cluster/resources` → `config` →
+`status/current`, GET only, from the controller, `no_log`), with the
+Terraform token of `.envrc` — nothing is copied from the Terraform code, so a
+code/reality gap shows. Missing credentials, VM not found, unreadable config
+or unknown balloon size: NO-GO. The worst case is an **estimate**, not a
+guarantee: `floor − (balloon size − MemTotal) − used`, where the memory the
+guest never sees is measured at that moment (~251 MiB) and used memory is
+assumed not to grow. Proxmox only guarantees the floor on the host side.
+
+| Real run (2026-10-16) | Floor | Verdict |
+|---|---|---|
+| before | 2048 | NO-GO: 567 MiB now and at the floor |
+| after the changes below | 3584 | GO: 6726 MiB now, worst case ~2118 MiB |
+
+One more gateway only: a second one (M3) needs a floor around 4096.
+
+**Scenario A, applied 2026-10-16, 18:43–18:49 UTC** (authorized, without
+Terraform):
+
+- bastion-60 stopped cleanly (`qm shutdown`), `onboot 1 → 0`, its GitLab
+  runner 52153437 paused first. A **temporary** stop: bastion is being
+  retired, and Komodo deploys from homelab-gitops wait until the runner
+  moves. Frees ~1.9 GiB of host RSS.
+- `qm set 9030 --balloon 3584`, applied live: nothing pending, no reboot,
+  gateway pid 162 unchanged, crons unchanged.
+
+`hermes/terraform` now says `vm_memory_floating = 3584`, like Proxmox: its
+plan shows no `memory` change (only an older cloud-init DNS drift, to settle
+separately). `bpg/proxmox` 0.96.0 would **reboot** hermes-30 for a floor
+change that Proxmox applies live (`qemu-server`, PVE 9.1.1: only
+enabling/disabling the device is not hotpluggable; `reboot_after_update`
+defaults to `true`), so floor changes go through `qm set`, and **never
+`apply` hermes from a branch that still says 2048** (`main` before M2).
+
+**Not needed: A2** (balloon device on bastion): bastion is stopped.
+
+**Deferred, out of M2: A1**, a balloon device on dockhost (floor 6144: guest
+peak 4.16 GiB over 15 days in Komodo), so that its page cache stops weighing
+on the host. Nothing for dockhost is in the M2 code. Its Terraform state
+exists on **bastion-60** (local backend, copy in
+`~/.local/share/homelab-tfstate-backup/dockhost/`); a plan from the laptop,
+which has no state, wrongly proposes to create VM 9090. No `terraform import`
+is needed, nor wanted (two states for one VM). Enabling the device is not
+hotpluggable: shutdown then start of dockhost.
+
+#### A1 procedure, for reference (on explicit approval, after M2)
+
+Outside the cron windows of `default` (Mon 07:00 and Wed 07:00 UTC use
+Kandidat, Sat 08:00 UTC; ±2 h) and with no CI job running. Commands on `pve`
+(user `ansible`, sudo).
+
+1. **Pre-checks** — `free -m`, `cat /proc/pressure/memory`, swap unused;
+   `qm config 9090 | grep -E '^(memory|balloon)'` and `qm pending 9090` (no
+   other pending change); `m1-preflight.yml` GO.
+2. **Service baseline** — on dockhost `docker ps` (containers, restart
+   policies), Caddy-fronted URLs answer, Komodo sees both servers, Hermes
+   `default` connected (pid noted).
+3. **A1** — `qm set 9090 --balloon 6144` (stays pending), then
+   `qm shutdown 9090 --timeout 300 && qm start 9090`. Down meanwhile:
+   kandidat (app, db, MCP — Hermes' Kandidat tools fail), komodo
+   core/mongo/periphery, open-webui, portail-client (public), miniboard,
+   excalidraw, portainer, shared postgresql.
+4. **Check dockhost** — `qm config 9090` shows `balloon: 6144`, `qm status
+   9090 --verbose` has `ballooninfo`; all containers up; URLs, Komodo,
+   kandidat-mcp listening; Hermes reaches Kandidat again.
+5. **New `m2-preflight.yml`** — memory gate still GO; watch `pve`
+   (available, PSI, swap) for 24-48 h.
+
+Rollback: A1 `qm set 9090 --balloon 0` then shutdown/start again. Floor of
+hermes-30: `qm set 9030 --balloon 2048` (live). bastion:
+`qm set 9060 --onboot 1 && qm start 9060`, then unpause runner 52153437.
 
 ### Rollback of M2
 
@@ -569,6 +657,6 @@ uv run pytest hermes/tests -q
 | `test_hermes_checks.py` | managed contract, Telegram verdict (connected / disconnected / unknown / absent / malformed / stale writer / dead pid), type-strict config comparison |
 | `test_inventory.py` | effective `hermes_profiles == []` (needs the vault password, skipped otherwise), definitive ids, no destructive task, `no_log` on every token task, task ordering, D1/D5 non-goals |
 | `test_tech_watch_collect.py` | the tech-watch collector |
-| `test_m2_cafe_ia.py` | Kaféine, T01-T24: blank creation, SOUL seed and keep, nothing inherited from a lived-in default, no MCP, tokens (distinct, missing, unresolved vault key), allowlist, ports, `API_SERVER_KEY` (verbatim stage2 block: absent / present / key / repeat / concurrent; profile `.env` never touched), caches, idempotence, username, tool lists and verdicts, s6/Telegram/getMe verdicts, **real** rollback and preflight against a fake `docker`/`ss`, loopback verdict, coexistence |
+| `test_m2_cafe_ia.py` | Kaféine, T01-T24: blank creation, SOUL seed and keep, nothing inherited from a lived-in default, no MCP, tokens (distinct, missing, unresolved vault key), allowlist, ports, `API_SERVER_KEY` (verbatim stage2 block: absent / present / key / repeat / concurrent; profile `.env` never touched), caches, idempotence, username, tool lists and verdicts, s6/Telegram/getMe verdicts, **real** rollback and preflight against a fake `docker`/`ss`, loopback verdict, coexistence; memory gate: balloon floor parsing, verdicts on the 2026-10-16 measurements, the real preflight against a fake Proxmox API (GET only, token never printed, missing credentials / unknown VM = NO-GO) |
 
 Fake tokens only; nothing reaches hermes-30.
