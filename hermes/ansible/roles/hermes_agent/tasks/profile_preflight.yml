@@ -12,7 +12,9 @@
 #     vault manquante echoue des la resolution : c'est le verrou voulu ;
 #   - le profil existe deja sur l'hote (la phase B part d'une page blanche) ;
 #   - un slot s6 gateway-<name> existe deja dans le conteneur ;
-#   - quelque chose ecoute deja sur son port.
+#   - quelque chose ecoute deja sur son port ;
+#   - moins de hermes_pf_min_available_mib MiB disponibles, a l'instant ou au
+#     plancher du ballooning Proxmox (memory_preflight.yml).
 # N'affiche que des noms, des etats et des compteurs — jamais une valeur.
 # =============================================================================
 
@@ -56,6 +58,9 @@
   register: hermes_pf_profile_port
   changed_when: false
   check_mode: false
+
+- name: Check the memory headroom for the candidate gateway
+  ansible.builtin.include_tasks: memory_preflight.yml
 
 # Reference avant/apres : la seconde gateway doit tenir dans la limite du
 # conteneur sans peser sur default.

@@ -1,0 +1,110 @@
+---
+# =============================================================================
+# Memoire pour une gateway de plus : LECTURE SEULE, jouee par
+# profile_preflight.yml avant tout demarrage d'un nouveau profil.
+#
+# MemAvailable a l'instant ne suffit pas : pvestatd peut ramener la VM a son
+# minimum de ballooning a tout moment (hote au-dessus de sa cible, 80 % par
+# defaut). Le minimum est lu dans la configuration EFFECTIVE de Proxmox, par
+# son API, avec le jeton deja utilise par Terraform (TF_VAR_pm_api_*, .envrc) :
+# rien n'est recopie du code Terraform, et un ecart code/realite se voit.
+#
+# Le pire cas calcule reste une ESTIMATION (hermes_checks.memory_verdict) :
+# Proxmox garantit le plancher cote hote, pas la memoire libre de l'invite.
+# =============================================================================
+
+- name: Assert that the Proxmox API credentials are in the environment
+  ansible.builtin.assert:
+    that:
+      - lookup('ansible.builtin.env', item) | length > 0
+    fail_msg: >-
+      NO-GO : {{ item }} absent de l'environnement (.envrc, direnv). Sans l'API
+      Proxmox, le plancher memoire de la VM n'est pas verifiable.
+    quiet: true
+  loop: [TF_VAR_pm_api_url, TF_VAR_pm_api_token_id, TF_VAR_pm_api_token_secret]
+
+# no_log : l'en-tete porte le jeton. failed_when: false + assertion ensuite,
+# pour un message d'erreur qui ne soit pas censure.
+- name: Read the Proxmox VM list
+  ansible.builtin.uri:
+    url: "{{ hermes_pf_pve_api }}/cluster/resources?type=vm"
+    headers: "{{ hermes_pf_pve_headers }}"
+    # Meme choix que le provider Terraform (insecure = true) : certificat
+    # auto-signe de pve.
+    validate_certs: false
+  vars: &hermes_pf_pve
+    hermes_pf_pve_api: "{{ lookup('ansible.builtin.env', 'TF_VAR_pm_api_url') | regex_replace('/+$', '') }}"
+    hermes_pf_pve_headers:
+      Authorization: >-
+        PVEAPIToken={{ lookup('ansible.builtin.env', 'TF_VAR_pm_api_token_id') }}={{
+        lookup('ansible.builtin.env', 'TF_VAR_pm_api_token_secret') }}
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  failed_when: false
+  no_log: true
+  register: hermes_pf_pve_vms
+
+- name: Find this VM in Proxmox
+  ansible.builtin.set_fact:
+    hermes_pf_pve_vm: >-
+      {{ (hermes_pf_pve_vms.json.data | default([]))
+         | selectattr('type', 'eq', 'qemu')
+         | selectattr('name', 'eq', hermes_pf_pve_vm_name) | list }}
+
+- name: Assert that this VM is found exactly once in Proxmox
+  ansible.builtin.assert:
+    that:
+      - hermes_pf_pve_vms.status | default(0) == 200
+      - hermes_pf_pve_vm | length == 1
+    fail_msg: >-
+      NO-GO : API Proxmox (HTTP {{ hermes_pf_pve_vms.status | default('?') }}),
+      {{ hermes_pf_pve_vm | length }} VM nommee {{ hermes_pf_pve_vm_name }}.
+    quiet: true
+
+- name: Read the Proxmox memory configuration and balloon size of this VM
+  ansible.builtin.uri:
+    url: "{{ hermes_pf_pve_api }}/nodes/{{ hermes_pf_pve_vm[0].node }}/qemu/{{ hermes_pf_pve_vm[0].vmid }}/{{ item }}"
+    headers: "{{ hermes_pf_pve_headers }}"
+    validate_certs: false
+  vars: *hermes_pf_pve
+  loop: [config, status/current]
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  failed_when: false
+  no_log: true
+  register: hermes_pf_pve_memory
+
+- name: Assert that the Proxmox memory configuration was read
+  ansible.builtin.assert:
+    that:
+      - hermes_pf_pve_memory.results | map(attribute='status', default=0) | list == [200, 200]
+    fail_msg: >-
+      NO-GO : configuration memoire illisible dans Proxmox (HTTP
+      {{ hermes_pf_pve_memory.results | map(attribute='status', default='?') | list }}).
+    quiet: true
+
+# Le verdict tourne sur la VM : il lit /proc/meminfo de l'invite.
+- name: Verify the memory headroom for one more gateway, now and at the balloon floor
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - memory
+      - "{{ hermes_pf_pve_config.memory | default('') | string }}"
+      - "{{ hermes_pf_pve_config.balloon | default('') | string }}"
+      - "{{ hermes_pf_pve_status.ballooninfo.actual | default('') | string }}"
+      - "{{ hermes_pf_min_available_mib }}"
+      - "{{ hermes_pf_meminfo_path }}"
+  vars:
+    hermes_pf_pve_config: "{{ hermes_pf_pve_memory.results[0].json.data }}"
+    hermes_pf_pve_status: "{{ hermes_pf_pve_memory.results[1].json.data }}"
+  register: hermes_pf_memory
+  changed_when: false
+  check_mode: false
+
+- name: Report the memory preflight
+  ansible.builtin.debug:
+    msg: "{{ hermes_pf_memory.stdout_lines }}"

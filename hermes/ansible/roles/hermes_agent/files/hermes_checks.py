@@ -17,6 +17,8 @@ Usage (argv after `-c`):
     toolsets <allowed,csv> <denied,csv> <no_mcp> (HERMES_HOME = the profile)
     bot-identity <profile .env> <expected bot username>
     listen <port>                                (on the HOST: reads `ss`)
+    memory <memory> <balloon> <balloon bytes> <required MiB> [meminfo]
+                                                 (on the HOST: Proxmox values)
 
 `schedule-window` is read-only: it reads the profile's jobs.json and prints
 names, schedules and timestamps only, never a prompt. `bot-identity` calls
@@ -283,6 +285,63 @@ def listen_errors(ss_output: str, port: int) -> list[str]:
     return []
 
 
+def _meminfo_mib(text: str) -> dict[str, int]:
+    """Parse /proc/meminfo into MiB per key (kB lines only)."""
+    values = {}
+    for line in text.splitlines():
+        key, _, rest = line.partition(":")
+        fields = rest.split()
+        if len(fields) == 2 and fields[1] == "kB" and fields[0].isdigit():
+            values[key] = int(fields[0]) // 1024
+    return values
+
+
+def balloon_floor_mib(memory_cfg: str, balloon_cfg: str) -> int | None:
+    """Return the Proxmox ballooning floor in MiB, or None when the device is off.
+
+    `memory` reads "8192" or "current=8192"; an absent `balloon` means "equal
+    to memory" (device on, nothing reclaimed); 0 removes the device, so the
+    guest keeps all its memory and nothing can be taken back.
+    """
+    memory = int(memory_cfg.split(",")[0].removeprefix("current="))
+    if not balloon_cfg:
+        return memory
+    balloon = int(balloon_cfg)
+    return None if balloon == 0 else balloon
+
+
+def memory_verdict(
+    meminfo: str, floor_mib: int | None, balloon_mib: int | None, required_mib: int
+) -> tuple[list[str], str]:
+    """Judge the memory headroom for one more gateway, now and at the balloon floor.
+
+    The worst case is an ESTIMATE: Proxmox only guarantees the floor on the
+    host side. The memory the guest never sees (kernel, balloon driver) is
+    measured now as balloon size minus MemTotal, and assumed constant; the
+    used memory is assumed not to grow. Returns (errors, summary).
+    """
+    info = _meminfo_mib(meminfo)
+    total, available = info["MemTotal"], info["MemAvailable"]
+    used = total - available
+    errors = []
+    if available < required_mib:
+        errors.append(f"MemAvailable {available} MiB < {required_mib} MiB required now")
+    if floor_mib is None:
+        worst: int | None = available
+        detail = "ballooning off, nothing can be reclaimed"
+    elif balloon_mib is None or balloon_mib < total:
+        worst, detail = None, "balloon size unknown"
+        errors.append("balloon size unknown: the worst case cannot be estimated")
+    else:
+        unseen = balloon_mib - total
+        worst = floor_mib - unseen - used
+        detail = f"floor {floor_mib}, balloon now {balloon_mib}, unseen by the guest ~{unseen}, used {used}"
+        if worst < required_mib:
+            errors.append(f"at the balloon floor ~{worst} MiB would remain < {required_mib} MiB required (estimate)")
+    summary = f"MemAvailable {available} MiB; worst case ~{worst} MiB ({detail}, MiB); required {required_mib} MiB"
+    return errors, summary
+
+
 def _report(errors: list[str], ok_message: str) -> int:
     """Print the outcome and return the process exit code."""
     if errors:
@@ -404,6 +463,13 @@ def main(argv: list[str]) -> int:
 
         ss = subprocess.run(["ss", "-Hltn"], capture_output=True, text=True, check=False)
         return _report(listen_errors(ss.stdout, int(argv[1])), f"port {argv[1]} listens on loopback only")
+    if mode == "memory" and len(argv) in (5, 6):
+        meminfo = Path(argv[5] if len(argv) == 6 else "/proc/meminfo").read_text()
+        floor = balloon_floor_mib(argv[1], argv[2])
+        balloon = int(argv[3]) // 1048576 if argv[3] else None
+        errors, summary = memory_verdict(meminfo, floor, balloon, int(argv[4]))
+        print(summary)
+        return _report(errors, "GO: memory headroom for one more gateway")
     print(f"usage error: {argv!r}")
     return 2
 

@@ -867,10 +867,14 @@ def test_preflight_m2_is_read_only() -> None:
         "ansible.builtin.lineinfile",
         "community.docker.docker_compose_v2",
     }
-    for task in yaml.safe_load((TASKS / "profile_preflight.yml").read_text()):
-        assert not write_modules & task.keys(), task["name"]
-        if "ansible.builtin.command" in task:
-            assert task["changed_when"] is False and task["check_mode"] is False, task["name"]
+    for path in ("profile_preflight.yml", "memory_preflight.yml"):
+        for task in yaml.safe_load((TASKS / path).read_text()):
+            assert not write_modules & task.keys(), task["name"]
+            if "ansible.builtin.command" in task:
+                assert task["changed_when"] is False and task["check_mode"] is False, task["name"]
+            if "ansible.builtin.uri" in task:
+                assert task["ansible.builtin.uri"].get("method", "GET") == "GET", task["name"]
+                assert task["no_log"] is True and task["delegate_to"] == "localhost", task["name"]
 
 
 # --- T22 réseau ---------------------------------------------------------------
@@ -944,17 +948,67 @@ def preflight(run: RunTasks, group_vars: dict[str, Any], host: dict[str, Path], 
             "hermes_telegram_bot_token": FAKE_TOKEN,
             "hermes_telegram_allowed_users": "1111111111",
             "hermes_profile_reserved_ports": group_vars["hermes_profile_reserved_ports"],
+            "hermes_pf_meminfo_path": str(host["meminfo"]),
         },
     )
 
 
+FAKE_PVE_SECRET = "FAKE-pve-secret-for-tests-only"
+MIB = 1048576
+
+
+def meminfo(total_mib: int, available_mib: int) -> str:
+    """A /proc/meminfo excerpt with the two lines the verdict reads."""
+    return f"MemTotal:       {total_mib * 1024} kB\nMemFree:  1 kB\nMemAvailable:   {available_mib * 1024} kB\n"
+
+
 @pytest.fixture
-def blank_host(fake_host: dict[str, Path]) -> dict[str, Path]:
-    """No cafe-ia yet: no directory, no s6 slot, port free."""
+def fake_pve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """A local fake of the three Proxmox API reads; GET only, every request recorded."""
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    pve: dict[str, Any] = {"vm_name": "localhost", "memory": "8192", "balloon": 3584, "actual": 3584, "requests": []}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            """Answer the three reads the gate makes; 404 for anything else."""
+            pve["requests"].append((self.command, self.path, self.headers.get("Authorization")))
+            routes = {
+                "/api2/json/cluster/resources?type=vm": [
+                    {"type": "lxc", "name": pve["vm_name"], "node": "pve", "vmid": 1070},
+                    {"type": "qemu", "name": pve["vm_name"], "node": "pve", "vmid": 9030},
+                ],
+                "/api2/json/nodes/pve/qemu/9030/config": {"memory": pve["memory"]}
+                | ({} if pve["balloon"] is None else {"balloon": pve["balloon"]}),
+                "/api2/json/nodes/pve/qemu/9030/status/current": {"ballooninfo": {"actual": pve["actual"] * MIB}},
+            }
+            body = json.dumps({"data": routes[self.path]}).encode() if self.path in routes else b"{}"
+            self.send_response(200 if self.path in routes else 404)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: Any) -> None:
+            """Keep the test output quiet."""
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("TF_VAR_pm_api_url", f"http://127.0.0.1:{server.server_port}/api2/json/")
+    monkeypatch.setenv("TF_VAR_pm_api_token_id", "terraform@pve!tests")
+    monkeypatch.setenv("TF_VAR_pm_api_token_secret", FAKE_PVE_SECRET)
+    yield pve
+    server.shutdown()
+
+
+@pytest.fixture
+def blank_host(fake_host: dict[str, Path], fake_pve: dict[str, Any], tmp_path: Path) -> dict[str, Path]:
+    """No cafe-ia yet: no directory, no s6 slot, port free; floor 3584 MiB, 2 GiB available."""
     import shutil
 
     shutil.rmtree(fake_host["data"] / "profiles")
     fake_host["state"].write_text(json.dumps({"svstat": {"gateway-default": "up (pid 162) 9 seconds"}, "listen": ""}))
+    fake_host["meminfo"] = tmp_path / "meminfo"
+    fake_host["meminfo"].write_text(meminfo(3333, 2123))
     return fake_host
 
 
@@ -1001,3 +1055,142 @@ def test_b2_preflight_no_go_when_the_port_is_taken(
     """B2: something already on 8646 is a NO-GO."""
     blank_host["state"].write_text(json.dumps({"svstat": {}, "listen": "LISTEN 0 5 127.0.0.1:8646 0.0.0.0:*\n"}))
     assert_fails_quietly(preflight(run_tasks, group_vars, blank_host, resolved(cafe)))
+
+
+# --- B2 memoire : plancher du ballooning Proxmox (memory_preflight.yml) -------
+
+# Mesures de hermes-30, 2026-10-16 : ballon au plancher de 2048 MiB.
+PROD_2026_10_16 = "MemTotal:        1840316 kB\nMemAvailable:     629392 kB\n"
+
+
+@pytest.mark.parametrize(
+    ("memory", "balloon", "floor"),
+    [("8192", "2048", 2048), ("current=8192", "3584", 3584), ("8192", "", 8192), ("8192", "0", None)],
+    ids=["floor", "pve9-memory-string", "balloon-absent-equals-memory", "device-off"],
+)
+def test_b2_balloon_floor(memory: str, balloon: str, floor: int | None) -> None:
+    """B2: the floor is read from the effective Proxmox configuration, in every form it takes."""
+    assert hc.balloon_floor_mib(memory, balloon) == floor
+
+
+def test_b2_memory_no_go_on_the_2026_10_16_measurements() -> None:
+    """B2: today's hermes-30 (629 MiB available, at a 2048 MiB floor) is a NO-GO, now and at the floor."""
+    errors, summary = hc.memory_verdict(PROD_2026_10_16, 2048, 2048, 1536)
+    assert errors == [
+        "MemAvailable 614 MiB < 1536 MiB required now",
+        "at the balloon floor ~614 MiB would remain < 1536 MiB required (estimate)",
+    ]
+    assert "unseen by the guest ~251" in summary
+
+
+def test_b2_memory_go_with_a_3584_floor() -> None:
+    """B2: at a 3584 MiB floor with today's usage, ~2 GiB remain: GO."""
+    errors, summary = hc.memory_verdict(meminfo(3333, 2123), 3584, 3584, 1536)
+    assert errors == []
+    assert "worst case ~2123 MiB" in summary
+
+
+def test_b2_memory_a_good_reading_is_not_a_guarantee() -> None:
+    """B2: plenty available NOW (balloon inflated to 8 GiB) but a 2048 floor: NO-GO on the floor alone."""
+    errors, _ = hc.memory_verdict(meminfo(7946, 6700), 2048, 8192, 1536)
+    assert errors == ["at the balloon floor ~556 MiB would remain < 1536 MiB required (estimate)"]
+
+
+def test_b2_memory_without_ballooning_only_now_counts() -> None:
+    """B2: no balloon device, nothing can be reclaimed: the current reading is the worst case."""
+    assert hc.memory_verdict(meminfo(9945, 6211), None, None, 1536)[0] == []
+    assert hc.memory_verdict(meminfo(9945, 1000), None, None, 1536)[0] == [
+        "MemAvailable 1000 MiB < 1536 MiB required now"
+    ]
+
+
+def test_b2_memory_unknown_balloon_size_is_a_no_go() -> None:
+    """B2: without ballooninfo the worst case cannot be estimated: refuse rather than guess."""
+    errors, _ = hc.memory_verdict(meminfo(3333, 2123), 3584, None, 1536)
+    assert errors == ["balloon size unknown: the worst case cannot be estimated"]
+
+
+def test_b2_memory_cli(tmp_path: Path) -> None:
+    """B2: the CLI mode reads a meminfo file and Proxmox's raw values (balloon size in bytes)."""
+    path = tmp_path / "meminfo"
+    path.write_text(meminfo(3333, 2123))
+    script = ROLE / "files/hermes_checks.py"
+    ok = subprocess.run(
+        [sys.executable, str(script), "memory", "8192", "3584", str(3584 * MIB), "1536", str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert ok.returncode == 0 and "GO: memory headroom" in ok.stdout
+    path.write_text(PROD_2026_10_16)
+    ko = subprocess.run(
+        [sys.executable, str(script), "memory", "8192", "2048", str(2048 * MIB), "1536", str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert ko.returncode == 1 and "1536 MiB required" in ko.stdout
+
+
+def test_b2_preflight_reads_proxmox_and_hides_the_token(
+    run_tasks: RunTasks,
+    group_vars: dict[str, Any],
+    blank_host: dict[str, Path],
+    cafe: dict[str, Any],
+    fake_pve: dict[str, Any],
+) -> None:
+    """B2: GO at a 3584 floor; three GETs with the Terraform token, which is never printed."""
+    result = preflight(run_tasks, group_vars, blank_host, resolved(cafe))
+    assert result.returncode == 0, result.stdout
+    assert "GO: memory headroom for one more gateway" in result.stdout
+    assert [(method, path) for method, path, _ in fake_pve["requests"]] == [
+        ("GET", "/api2/json/cluster/resources?type=vm"),
+        ("GET", "/api2/json/nodes/pve/qemu/9030/config"),
+        ("GET", "/api2/json/nodes/pve/qemu/9030/status/current"),
+    ]
+    assert all(auth == f"PVEAPIToken=terraform@pve!tests={FAKE_PVE_SECRET}" for *_, auth in fake_pve["requests"])
+    assert FAKE_PVE_SECRET not in result.stdout + result.stderr
+
+
+def test_b2_preflight_no_go_at_a_2048_floor(
+    run_tasks: RunTasks,
+    group_vars: dict[str, Any],
+    blank_host: dict[str, Path],
+    cafe: dict[str, Any],
+    fake_pve: dict[str, Any],
+) -> None:
+    """B2: same guest reading, but Proxmox may take it back to 2048 MiB: NO-GO."""
+    fake_pve.update(balloon=2048, actual=8192)
+    blank_host["meminfo"].write_text(meminfo(7946, 6700))
+    result = preflight(run_tasks, group_vars, blank_host, resolved(cafe))
+    assert result.returncode != 0
+    assert "at the balloon floor ~556 MiB would remain" in result.stdout
+    assert FAKE_PVE_SECRET not in result.stdout + result.stderr
+
+
+def test_b2_preflight_no_go_without_proxmox_credentials(
+    run_tasks: RunTasks,
+    group_vars: dict[str, Any],
+    blank_host: dict[str, Path],
+    cafe: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """B2: no API token in the environment, the floor cannot be checked: NO-GO."""
+    monkeypatch.delenv("TF_VAR_pm_api_token_secret")
+    result = preflight(run_tasks, group_vars, blank_host, resolved(cafe))
+    assert result.returncode != 0
+    assert "TF_VAR_pm_api_token_secret absent" in result.stdout
+
+
+def test_b2_preflight_no_go_when_the_vm_is_not_in_proxmox(
+    run_tasks: RunTasks,
+    group_vars: dict[str, Any],
+    blank_host: dict[str, Path],
+    cafe: dict[str, Any],
+    fake_pve: dict[str, Any],
+) -> None:
+    """B2: the inventory name must match exactly one Proxmox VM (an LXC of the same name does not count)."""
+    fake_pve["vm_name"] = "another-vm"
+    result = preflight(run_tasks, group_vars, blank_host, resolved(cafe))
+    assert result.returncode != 0
+    assert "0 VM nommee localhost" in result.stdout
