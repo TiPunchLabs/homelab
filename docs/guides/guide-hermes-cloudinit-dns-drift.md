@@ -3,23 +3,26 @@
 > **Objective**: make Terraform, Proxmox and the guest agree on hermes-30's
 > cloud-init DNS **without** changing how the guest resolves names today.
 >
-> **Prerequisites**: LAN access to `pve` and `hermes-30`; vault password; a branch
-> that contains **both** this fix and the M2 ballooning change (`9ef229c`,
-> `vm_memory_floating = 3584`) — see §1.3.
+> **Prerequisites**: LAN access to `pve` and `hermes-30`; vault password; the
+> preconditions of Chapter 3 all green. Every step needs an explicit human
+> go — nothing here is run by CI.
 >
-> **Duration**: ~20 min, no reboot required. The guard is only exercised at the
-> next planned reboot (§5).
+> **Duration**: ~20 min for stages 1 and 2, no reboot. Stage 3 (Terraform) is
+> **blocked** until the memory divergence is resolved (§1.3).
 
 ## Table of contents
 
 1. Mental Model
 2. Chapter 1: The drift
-3. Chapter 2: Baseline
-4. Chapter 3: Apply
-5. Chapter 4: Verify
-6. Chapter 5: The next reboot
-7. Rollback
-8. Remaining risks
+3. Chapter 2: Historical evidence
+4. Chapter 3: Preconditions
+5. Chapter 4: Baseline
+6. Chapter 5: Deploy
+7. Chapter 6: Verify
+8. Chapter 7: The next reboot
+9. Rollback
+10. Remaining risks
+11. Resources
 
 ------
 
@@ -34,9 +37,17 @@
  qm set --nameserver ──► user/network-data change
                      ──► instance-id = sha1(user . network) changes
                      ──► next boot: cloud-init thinks "new instance"
-                           ├─ re-renders netplan with nameservers   ✗ → guard 1
-                           ├─ regenerates SSH host keys             ✗ → guard 2
-                           └─ apt upgrade (package_upgrade: true)   ✗ → §3.2 decision
+                           ├─ re-renders netplan with nameservers   ✗ → guard 1 (Ansible)
+                           ├─ regenerates SSH host keys             ✗ → guard 2 (Ansible)
+                           └─ apt dist-upgrade (package_upgrade)    ✗ → --ciupgrade 0 (Proxmox)
+```
+
+Three stages, strictly in this order, each one gated:
+
+```
+ Stage 1 — Ansible   lay the guards on the guest        this branch, independent of M2
+ Stage 2 — Proxmox   qm set --nameserver --ciupgrade 0   only after stage 1 is verified
+ Stage 3 — Terraform plan, then apply -refresh-only      BLOCKED until §1.3 is resolved
 ```
 
 > **Analogy**: changing the cloud-init drive is like handing the VM a new birth
@@ -65,20 +76,106 @@ on 2026-08-23 and never applied, on purpose — the role fixed the guest instead
 
 - bpg defaults to `reboot_after_update = true`: the apply would most likely reboot
   the VM;
-- that reboot happens **with a new instance-id** — every effect of §5 at once,
-  in the middle of an apply.
+- that reboot happens **with a new instance-id** — every effect of Chapter 7 at
+  once, in the middle of an apply;
+- bpg ≥ 0.75 no longer manages `ciupgrade`, so Terraform alone could not even
+  switch the boot-time upgrade off.
 
-### 1.3 ⚠️ Branch and ballooning
+### 1.3 ⛔ Blocking condition: the memory divergence
 
-`main` still carries `vm_memory_floating = 2048`; the M2 branch carries `3584`,
-which matches production (`balloon: 3584`). A plan run from a branch **without**
-`9ef229c` shows a second, unrelated change (`floating 3584 → 2048`) that bpg
-would apply **with a reboot**. Only plan from a branch that has both changes, and
-never apply from this one.
+| Where | `vm_memory_floating` |
+|---|---|
+| `main` (`bae2686`) and this branch | `2048` |
+| `feat/hermes-cafe-ia` (`9ef229c`, not merged) | `3584` |
+| Production (`qm config 9030`) | `balloon: 3584` |
+
+This branch deliberately stays on `main` and is **not** rebased onto the M2
+branch. Consequence: a plan from this branch shows a second, unrelated change
+(`floating 3584 → 2048`) that bpg would apply **with a reboot**.
+
+> ⛔ **No Terraform operation** — not even `plan` used as a go signal, and never
+> `apply` — until `main` carries `vm_memory_floating = 3584`, i.e. until
+> `9ef229c` is merged. Stages 1 and 2 do not depend on it.
+
+Also note that the hermes Terraform state and `.terraform/` are local and
+gitignored: they live in the **main checkout** (`homelab/hermes/terraform/`),
+not in a worktree. Stage 3 runs there, on an up-to-date `main`.
 
 ------
 
-## 📊 Chapter 2: Baseline (before any change)
+## 📜 Chapter 2: Historical evidence
+
+This fix does not invent a mechanism. It **codifies** a protection that has
+been running by hand on two VMs for six months.
+
+### 2.1 🗓️ The 2026-04-28 network migration
+
+During the `192.168.1.x → 192.168.10.x` renumbering, the guests were edited in
+place (netplan) instead of being re-provisioned. To stop cloud-init from
+rewriting that netplan, the same file was laid manually on each VM:
+
+- design: `docs/superpowers/specs/2026-04-28-network-migration-192-168-10-design.md:147`;
+- plan: `docs/superpowers/plans/2026-04-28-network-migration-192-168-10.md:386, 418, 606, 669, 750`;
+- generic procedure: `docs/guides/guide-vm-reconfig-via-qemu-agent.md:245, 315`.
+
+Proxmox `ipconfig0` was **not** updated at the time — see Chapter 10.
+
+### 2.2 🔍 Observed on 2026-10-16 (read-only)
+
+| VM | `99-disable-network-config.cfg` | cloud-init at the last boot (2026-10-09) | SSH key guard |
+|---|---|---|---|
+| dockhost-90 | ✅ `network: {config: disabled}`, 28 bytes, 2026-04-28 | `network config is disabled by system_cfg` | ❌ |
+| vpngate-50 | ✅ same file, same date | `network config is disabled by system_cfg` | ❌ |
+| bastion-60 | ❓ VM stopped, not inspected | — | ❓ |
+| hermes-30 | ❌ created 2026-08-20, after the migration | — | ❌ |
+
+Two conclusions:
+
+- the guard **works on this exact stack** (template 9001, PVE 9.1.1, NoCloud):
+  it is not a theoretical setting;
+- hermes-30 lacks it only because the guard lived in a runbook, not in code.
+  Created after the migration, it never received it.
+
+### 2.3 ✅ What this change adds
+
+| | Before | After |
+|---|---|---|
+| Network guard | manual, 2 VMs, outside the repo | Ansible (`dns_resolver`), hermes-30 only, re-applied at each run |
+| SSH host key guard | none anywhere | Ansible, hermes-30 only |
+| Boot-time `dist-upgrade` | on for every VM | off for 9030 only (`--ciupgrade 0`) |
+
+The YAML is written block-style (`network:\n  config: disabled`) instead of the
+manual inline form; both parse to the same value. Generalizing to the other VMs
+is a separate effort: [`docs/backlog/cloud-init-guards-and-network-drift.md`](../backlog/cloud-init-guards-and-network-drift.md).
+
+------
+
+## ✅ Chapter 3: Preconditions
+
+All must be true before stage 1. Values recorded on 2026-10-16.
+
+| # | Check | Command | Expected |
+|---|---|---|---|
+| P1 | Proxmox cloud-init inputs unchanged | `ssh pve 'sudo /usr/sbin/qm cloudinit pending 9030'` | only `cur` lines; `nameserver: 192.168.10.71 1.1.1.1` |
+| P2 | `ciupgrade` not set (default 1) | `ssh pve 'sudo /usr/sbin/qm config 9030 \| grep ciupgrade'` | no output |
+| P3 | Guest and Proxmox agree on the instance-id | `ssh hermes-30 'cat /run/cloud-init/.instance-id'` and `ssh pve 'sudo /usr/sbin/qm cloudinit dump 9030 meta'` | both `73c90b4ec3002c9cc64c363a2cc223584ad64f13` |
+| P4 | No guard yet on the guest | `ssh hermes-30 'ls /etc/cloud/cloud.cfg.d/'` | `05_logging.cfg 90_dpkg.cfg 99-proxmox.cfg README` |
+| P5 | Guest resolver in target state | `ssh hermes-30 'resolvectl dns eth0'` | `127.0.0.1` only |
+| P6 | NIC MAC unchanged | `ssh pve 'sudo /usr/sbin/qm config 9030 \| grep ^net0'` | `virtio=BC:24:11:C4:2D:D7` |
+| P7 | Branch is clean and local | `git status; git log origin/main..HEAD` | clean; only this fix's commits |
+| P8 | Playbook parses, tasks in order | `cd hermes && ansible-playbook ansible/deploy.yml --syntax-check --list-tasks --tags dns` | the two guard tasks listed **before** `Strip the nameservers...` |
+| P9 | Inventory and vault readable | `cd hermes && ansible-inventory --graph && ansible-inventory --host hermes-30 >/dev/null` | group `hermes` → `hermes-30` only; no decryption error |
+
+> 💡 **Note**: `--tags dns` also runs the two timezone `pre_tasks` (tagged with
+> every role). They are idempotent: `ok` expected, `America/Guadeloupe` already
+> set. The M2 branch changes neither those tasks nor any `dns_*` variable, so
+> running stage 1 from this branch does not roll back anything M2 deployed.
+
+If any precondition differs, **stop**: the drift has moved since this audit.
+
+------
+
+## 📊 Chapter 4: Baseline (before any change)
 
 ```bash
 # Host keys — reference values recorded on 2026-10-16
@@ -87,30 +184,31 @@ ssh hermes-30 'for k in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf "$k"; don
 #   SHA256:cctlNVjXKZ/eD2AUktIhQRPhKrKxfb+APbHvifUpV+U (ED25519)
 #   SHA256:zV4Yh9o6mmFToFKPHJQfDiAD7lJmT/qcKBpnlLUx2nI (RSA)
 
-# Cloud-init identity — today guest and Proxmox agree
-ssh hermes-30 'cat /run/cloud-init/.instance-id'      # 73c90b4e...
-ssh pve 'sudo /usr/sbin/qm cloudinit dump 9030 meta'   # same id
-
 # Network and resolver
-ssh hermes-30 'sudo netplan get; resolvectl dns; ls /etc/cloud/cloud.cfg.d/'
+ssh hermes-30 'sudo netplan get; stat -c "%y %n" /etc/netplan/*.yaml'
 ```
+
+> ⚠️ **Warning**: every `ansible.cfg` sets `host_key_checking = False`, and
+> `~/.ssh/known_hosts` has no entry for hermes-30. A changed host key would go
+> unnoticed by Ansible: the fingerprints above are the only reference.
 
 ------
 
-## 🛠️ Chapter 3: Apply
+## 🛠️ Chapter 5: Deploy
 
-### 3.1 📝 Lay the guard (Ansible)
+### 5.1 📝 Stage 1 — lay the guards (Ansible)
 
 ```bash
 cd hermes
-ansible-playbook ansible/deploy.yml --tags dns --check --diff   # expect 2 new files only
+ansible-playbook ansible/deploy.yml --tags dns --check --diff   # dry run
 ansible-playbook ansible/deploy.yml --tags dns
 ```
 
-Expected: two `changed` on the new `cloud.cfg.d` files, **no** `netplan apply`
-(both netplan files are already in their target state), final assert green.
+Expected in both runs: exactly **two** `changed`, the new `cloud.cfg.d` files.
+Everything else `ok`; no `netplan apply`; final assert green. Any other
+`changed` → stop and investigate.
 
-Check that cloud-init's own config loader sees them, without rebooting:
+Check that cloud-init's own config loader sees the files, without rebooting:
 
 ```bash
 ssh hermes-30 "sudo /usr/bin/python3 -c 'from cloudinit import util; \
@@ -123,46 +221,58 @@ ssh hermes-30 "sudo /usr/bin/python3 -c 'from cloudinit import util; \
 > here: instance-data is a snapshot written at boot, it will only show the new
 > files after the next boot.
 
-### 3.2 ⚠️ Decide on `package_upgrade` (open decision)
+Go/no-go for stage 2: the check above prints the expected line **and** Chapter 6
+passes (except the Terraform row).
 
-Proxmox user-data carries `package_upgrade: true` (`ciupgrade` defaults to 1).
-User-data outranks `cloud.cfg.d`, so the role **cannot** neutralize it. At the
-next reboot after §3.3, cloud-init would run an `apt upgrade` during boot
-(Docker included). Choose one before §3.3:
+### 5.2 📝 Stage 2 — align Proxmox (decision A: `--ciupgrade 0`)
 
-| Option | Effect | Trade-off |
-|---|---|---|
-| A. `--ciupgrade 0` in the same `qm set` | user-data no longer asks for an upgrade | an extra Proxmox change; bpg ≥ 0.75 does not manage `upgrade`, so no new drift expected (check in §4) |
-| B. `manual_cache_clean: true` in `cloud.cfg.d` | cloud-init never detects a new instance again: **no** per-instance module re-runs | broader; future cloud-init changes only reach the guest after `cloud-init clean` or a rebuild (already the de facto rule) |
-| C. Accept it | one boot-time upgrade at the next reboot | uncontrolled upgrade window on a 24/7 agent |
-
-### 3.3 📝 Align Proxmox
+Proxmox renders `package_upgrade: true` into user-data whenever `ciupgrade` is
+unset or 1 (`/usr/share/perl5/PVE/QemuServer/Cloudinit.pm:162`). User-data
+outranks `cloud.cfg.d`, so only Proxmox can switch it off. Setting both values
+in **one** `qm set` changes the instance-id once, not twice.
 
 ```bash
-# Option A shown; drop --ciupgrade 0 for options B and C
 ssh pve 'sudo /usr/sbin/qm set 9030 --nameserver 192.168.10.71 --ciupgrade 0'
-ssh pve 'sudo /usr/sbin/qm cloudinit pending 9030'   # new nameserver shown, nothing else
+ssh pve 'sudo /usr/sbin/qm cloudinit pending 9030'
+ssh pve 'sudo /usr/sbin/qm config 9030 | grep -E "^(nameserver|ciupgrade|ipconfig0|net0|searchdomain)"'
 ```
 
-No reboot: the cloud-init drive is regenerated at the next VM start.
+Expected:
 
-### 3.4 🔍 Plan
+- `pending` shows the new `nameserver: 192.168.10.71` and `ciupgrade: 0`, and
+  nothing else;
+- `ipconfig0`, `net0` and `searchdomain` identical to the baseline;
+- the VM keeps running. The cloud-init drive is regenerated at the next start;
+  the guest is not affected before that.
+
+> ⚠️ **Warning**: do not reboot hermes-30 to "test" this. The reboot is
+> Chapter 7, at a planned moment.
+
+### 5.3 ⛔ Stage 3 — Terraform (blocked)
+
+Only once §1.3 is resolved (`main` has `vm_memory_floating = 3584`) **and** this
+branch is merged. From the main checkout, on an up-to-date `main`:
 
 ```bash
 cd hermes/terraform
 terraform plan -lock=false
 ```
 
-Expected: `No changes`. Then persist the refreshed values (balloon 3584 and the
-DNS) into the local state, which still dates from 2026-08-20:
+Expected: `No changes`. `ciupgrade` must not appear (bpg does not manage it).
+Any planned change — memory, network device, anything — → stop, no apply.
+
+Only then, persist the refreshed values into the local state (still dated
+2026-08-20):
 
 ```bash
-terraform apply -refresh-only    # review: only state values, no infrastructure action
+terraform apply -refresh-only    # review: state values only, no infrastructure action
 ```
 
 ------
 
-## ✅ Chapter 4: Verify
+## ✅ Chapter 6: Verify
+
+After stage 1, and again after stage 2:
 
 ```bash
 ssh hermes-30 '
@@ -173,9 +283,8 @@ ssh hermes-30 '
   dig +short hermes.internal @127.0.0.1            # dnsmasq answers directly
   systemctl is-active dnsmasq systemd-resolved
   ls -l /etc/cloud/cloud.cfg.d/99-*.cfg
-  for k in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf "$k"; done   # = §2
+  for k in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf "$k"; done   # = Chapter 4
 '
-ssh -o StrictHostKeyChecking=yes hermes-30 true    # no host key warning
 ```
 
 | Check | Expected |
@@ -183,59 +292,72 @@ ssh -o StrictHostKeyChecking=yes hermes-30 true    # no host key warning
 | Link DNS | `127.0.0.1` only |
 | Internal / public resolution | both answer |
 | dnsmasq | `active` |
-| Host key fingerprints | identical to §2 |
-| `terraform plan` | `No changes` |
+| Guard files | both present, `root:root 0644` |
+| Host key fingerprints | identical to Chapter 4 |
+| Running instance-id | still `73c90b4e...` (unchanged until the next boot) |
+| `terraform plan` (stage 3 only) | `No changes` |
 
 ------
 
-## 🔁 Chapter 5: The next reboot
+## 🔁 Chapter 7: The next reboot
 
 Not part of this change. When hermes-30 is next rebooted for another reason,
-the instance-id changes for real. Run §4 again, plus:
+the instance-id changes for real. Run Chapter 6 again, plus:
 
 ```bash
 ssh hermes-30 'cat /run/cloud-init/.instance-id'     # new id (≠ 73c90b4e...)
 ssh hermes-30 'stat -c %y /etc/netplan/50-cloud-init.yaml'   # unchanged (2026-08-23)
 ssh hermes-30 'grep -c nameservers /etc/netplan/50-cloud-init.yaml'   # 0
-ssh hermes-30 'sudo grep -i "network config is disabled\|Generating public/private" /var/log/cloud-init.log | tail'
+ssh hermes-30 'sudo grep -iE "network config is disabled|Generating public/private|dist-upgrade" /var/log/cloud-init.log | tail'
+#   expected: "network config is disabled by system_cfg"; no key generation; no dist-upgrade
 ```
 
 ------
 
 ## 🔙 Rollback
 
-| Step undone | Command |
-|---|---|
-| Proxmox alignment | `ssh pve 'sudo /usr/sbin/qm set 9030 --nameserver "192.168.10.71 1.1.1.1" --ciupgrade 1'` |
-| Guard files | `ssh hermes-30 'sudo rm /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg /etc/cloud/cloud.cfg.d/99-preserve-ssh-host-keys.cfg'` |
-| Code | revert the commit, then re-run `--tags dns` (it re-lays the files unless reverted) |
+Undo in **reverse order**, only as far as needed.
 
-> ⚠️ **Warning**: restoring the old `nameserver` restores the old instance-id
-> only if **every** other cloud-init input is identical. If a reboot already
-> happened with the new id, rolling back changes the id once more — keep the
-> guard files in place until Proxmox is settled.
+| Stage undone | Command | Effect |
+|---|---|---|
+| 3 — state refresh | none needed | `-refresh-only` writes state values only; the previous state is kept as `terraform.tfstate.backup` |
+| 2 — Proxmox | `ssh pve 'sudo /usr/sbin/qm set 9030 --nameserver "192.168.10.71 1.1.1.1" --delete ciupgrade'` | restores the exact previous config (`ciupgrade` absent, not `1`) |
+| 1 — guard files | `ssh hermes-30 'sudo rm /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg /etc/cloud/cloud.cfg.d/99-preserve-ssh-host-keys.cfg'` | cloud-init owns network and keys again at the next new instance |
+| Code | revert the commit **before** re-running `--tags dns` | otherwise the role lays the files again |
+
+Verify a stage-2 rollback with P1–P3 of Chapter 3: same `pending`, same
+instance-id `73c90b4e...` in `qm cloudinit dump 9030 meta`.
+
+> ⚠️ **Warning**: restoring the old values restores the old instance-id only if
+> **every** other cloud-init input is identical. If a reboot already happened with
+> the new id, rolling back changes the id once more — and without the guards that
+> means netplan rewritten, new host keys and a `dist-upgrade`. Keep the guard
+> files in place until Proxmox is settled: roll back stage 2 before stage 1,
+> never the reverse.
 
 ------
 
 ## ⚠️ Remaining risks
 
-- **NIC MAC change**: with network rendering disabled, netplan matches
-  `bc:24:11:c4:2d:d7` only. A plan touching `network_device` must be refused.
-- **`package_upgrade`** until §3.2 is decided.
-- **Other per-instance modules** (`users_groups`, `apt_configure`, `locale`,
-  `set_passwords`, `mounts`) re-run at the next new instance with the same inputs;
-  no change expected, not proven until §5.
-- **The other 8 machines** share the same mechanism but are out of scope.
+| Risk | Scope | Mitigation |
+|---|---|---|
+| NIC MAC change: with rendering disabled, netplan matches `bc:24:11:c4:2d:d7` only | hermes-30 | refuse any plan touching `network_device`; rebuild instead |
+| Other per-instance modules (`users_groups`, `apt_configure`, `locale`, `set_passwords`, `mounts`) re-run at the next new instance | hermes-30 | same inputs, no change expected; proven only at Chapter 7 |
+| Ansible blind to host key changes (`host_key_checking = False`) | all projects | manual fingerprint check (Chapter 4); backlog |
+| Memory divergence `main` ↔ M2 | Terraform on hermes | stage 3 blocked (§1.3) |
+| Stale `ipconfig0` (`192.168.1.x`) on 9050, 9060, 9090; no SSH key guard; boot-time upgrade still on | other VMs, **out of scope** | [backlog](../backlog/cloud-init-guards-and-network-drift.md) |
 
 ------
 
 ## 📚 Resources
 
 - `hermes/ansible/roles/dns_resolver/README.md` — role and guard
-- cloud-init docs: *First boot determination* (`manual_cache_clean`), *Network
-  configuration* (`network: {config: disabled}`), `cc_ssh` (`ssh_deletekeys`)
-- PVE source: `PVE/QemuServer/Cloudinit.pm`, `nocloud_gen_metadata`
+- `hermes/tests/test_dns_resolver_cloud_init.py` — guard content, order, scope
+- cloud-init docs: *First boot determination*, *Network configuration*
+  (`network: {config: disabled}`), `cc_ssh` (`ssh_deletekeys`)
+- PVE source: `PVE/QemuServer/Cloudinit.pm` — `package_upgrade` (line 162),
+  `nocloud_gen_metadata` (line 579)
 
 > **Document created on**: 2026-10-16
 > **Author**: Xavier Gueret, with Claude Code
-> **Version**: 1.0
+> **Version**: 1.1 — decision A, historical evidence, explicit preconditions, Terraform gate

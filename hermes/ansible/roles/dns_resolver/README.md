@@ -75,7 +75,7 @@ instance. Proxmox computes the NoCloud instance-id as
 |---|---|---|
 | network rendering | rewrites `50-cloud-init.yaml` **with** `nameservers`; netplan merges → two DNS servers on the link | `99-disable-network-config.cfg` |
 | `ssh` | deletes and regenerates the SSH host keys | `99-preserve-ssh-host-keys.cfg` |
-| `package_update_upgrade_install` | `apt upgrade` during boot (Proxmox user-data carries `package_upgrade: true`) | **none** — user-data outranks `cloud.cfg.d` |
+| `package_update_upgrade_install` | `apt dist-upgrade` during boot (Proxmox user-data carries `package_upgrade: true`) | **not in this role** — user-data outranks `cloud.cfg.d`; switched off on the Proxmox side (`qm set 9030 --ciupgrade 0`, see the guide) |
 | others (`users_groups`, `apt_configure`, `locale`, `set_passwords`...) | re-run with the same inputs, no expected change | — |
 
 Both files live in `/etc/cloud/cloud.cfg.d/` and only exist on VMs this role
