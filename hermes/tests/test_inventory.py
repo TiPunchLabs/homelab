@@ -1,6 +1,6 @@
 """Inventory and static guards for the M1 foundation.
 
-T15 (no profile deployed), T16 (definitive ids), static halves of T17/T18,
+T15 (cafe-ia alone deployed, M2 phase B), T16 (definitive ids), static halves of T17/T18,
 and the M1 non-goals: no timezone (D1), no toolsets (D5), no MCP in managed.
 """
 
@@ -46,21 +46,22 @@ ALL_TASKS = [(path.name, task) for path in TASKS for task in iter_tasks(yaml.saf
 # --- T15 --------------------------------------------------------------------
 
 
-def test_t15_group_vars_declare_no_profile(group_vars: dict[str, Any]) -> None:
-    """T15: the inventory itself pins an empty list, not only the role default."""
+def test_t15_group_vars_declare_only_cafe_ia(group_vars: dict[str, Any]) -> None:
+    """T15 (M2 phase B): the inventory itself pins cafe-ia alone, by reference to its declaration."""
     assert "hermes_profiles" in group_vars
-    assert group_vars["hermes_profiles"] == []
+    assert group_vars["hermes_profiles"] == ["{{ hermes_profile_cafe_ia }}"]
 
 
-def test_t15_effective_value_is_empty() -> None:
-    """T15: the value Ansible actually resolves for hermes-30 is empty.
+def test_t15_effective_value_is_only_cafe_ia() -> None:
+    """T15 (M2 phase B): the profiles Ansible actually resolves for hermes-30 are cafe-ia alone.
 
     Needs the vault password (pass) to load group_vars; skipped without it.
-    Prints the profile names only, never a secret.
+    Prints the profile names only: the resolved list carries the tokens.
     """
     ansible = Path(sys.executable).parent / "ansible"
+    names = "{{ hermes_profiles | map(attribute='name') | list | to_json }}"
     result = subprocess.run(
-        [str(ansible), "hermes", "-m", "ansible.builtin.debug", "-a", "msg=PROFILES={{ hermes_profiles | to_json }}"],
+        [str(ansible), "hermes", "-m", "ansible.builtin.debug", "-a", f"msg=PROFILES={names}"],
         cwd=HERMES,
         env={**os.environ, "ANSIBLE_NOCOLOR": "1"},
         stdin=subprocess.DEVNULL,
@@ -71,7 +72,7 @@ def test_t15_effective_value_is_empty() -> None:
     if result.returncode != 0 and re.search(r"[Vv]ault|[Dd]ecrypt|password", result.stdout + result.stderr):
         pytest.skip("vault password unavailable: effective inventory not resolvable here")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '"msg": "PROFILES=[]"' in result.stdout
+    assert '"msg": "PROFILES=[\\"cafe-ia\\"]"' in result.stdout
 
 
 # --- T16 --------------------------------------------------------------------

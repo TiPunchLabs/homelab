@@ -346,10 +346,9 @@ def test_t09_empty_search_key_is_refused(run_tasks: RunTasks, group_vars: dict[s
     assert_fails_quietly(validate(run_tasks, group_vars, [resolved(cafe) | {"env": {"TAVILY_API_KEY": " "}}]))
 
 
-def test_t09_not_active_until_phase_b(group_vars: dict[str, Any], cafe: dict[str, Any]) -> None:
-    """Phase A: prepared, not in hermes_profiles."""
-    assert cafe not in group_vars["hermes_profiles"]
-    assert group_vars["hermes_profiles"] == []
+def test_t09_active_alone_in_phase_b(group_vars: dict[str, Any]) -> None:
+    """Phase B: cafe-ia is the only profile in hermes_profiles; tech-watch stays out until M3."""
+    assert group_vars["hermes_profiles"] == ["{{ hermes_profile_cafe_ia }}"]
 
 
 # --- T10 / T11 politique Telegram commune -----------------------------------
