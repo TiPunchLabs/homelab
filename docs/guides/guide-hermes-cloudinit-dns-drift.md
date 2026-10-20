@@ -10,17 +10,18 @@
 > **Duration**: ~20 min for stages 1 and 2, no reboot. Stage 3 (Terraform) runs
 > once this branch is merged (§5.3).
 
-> **Status on 2026-10-19**:
+> **Status on 2026-10-20 — ✅ CLOSED**:
 >
 > | Stage | State |
 > |---|---|
-> | 1 — Ansible guards | ✅ executed and verified on hermes-30 |
-> | 2 — Proxmox `qm set` | ✅ executed and verified; Proxmox instance-id now `75b6756e...` |
-> | 3 — Terraform | ⏳ to reconcile — no longer blocked by memory (§1.3), see §1.4 and §5.3 |
-> | Chapter 7 — next reboot | ⏳ not done; hermes-30 has not rebooted since the fix |
+> | 1 — Ansible guards | ✅ executed and verified on hermes-30 (2026-10-19) |
+> | 2 — Proxmox `qm set` | ✅ executed and verified; Proxmox instance-id now `75b6756e...` (2026-10-19) |
+> | 3 — Terraform | ✅ state reconciled by `apply` of a reviewed `-refresh-only` plan (serial 4 → 5, 2026-10-19) |
+> | Chapter 7 — reboot | ✅ `qm reboot 9030` on 2026-10-20 12:05 AST — all checks PASS, Telegram confirmed by the user |
 >
-> Bastion-60 is **stopped**, and no manual sync with it was done. It plays no
-> role in stages 1–3 (hermes Terraform state is local to the main checkout).
+> Follow-ups (not part of this fix): deferred deletion of snapshot `pre-ch7`
+> (§7.4), the `degraded done` deprecation notice (§7.3), Renovate MR !60, and
+> the absence of any backup of hermes-30.
 
 ## Table of contents
 
@@ -31,7 +32,7 @@
 5. Chapter 4: Baseline
 6. Chapter 5: Deploy
 7. Chapter 6: Verify
-8. Chapter 7: The next reboot
+8. Chapter 7: The reboot with the new instance-id
 9. Rollback
 10. Remaining risks
 11. Resources
@@ -42,9 +43,9 @@
 
 ```
  Terraform config ──── ["192.168.10.71"]                 (code, since aaa5a94)
- Terraform state  ──── ["192.168.10.71", "1.1.1.1"]     stale — stage 3 refreshes it
+ Terraform state  ──── ["192.168.10.71"]                refreshed by stage 3 (serial 5, 2026-10-19)
  Proxmox qm config ─── 192.168.10.71                    aligned by stage 2 (2026-10-19)
- Guest (netplan) ───── 127.0.0.1 → dnsmasq             (dns_resolver role)
+ Guest (netplan) ───── 127.0.0.1 → dnsmasq             (dns_resolver role, kept across the 2026-10-20 reboot)
 
  qm set --nameserver ──► user/network-data change
                      ──► instance-id = sha1(user . network) changes
@@ -59,7 +60,8 @@ Three stages, strictly in this order, each one gated:
 ```
  Stage 1 — Ansible   lay the guards on the guest        ✅ done 2026-10-19
  Stage 2 — Proxmox   qm set --nameserver --ciupgrade 0   ✅ done 2026-10-19
- Stage 3 — Terraform plan, then apply -refresh-only      ⏳ after merge, with bpg 0.96.0 (§1.4)
+ Stage 3 — Terraform plan, then apply -refresh-only      ✅ done 2026-10-19, bpg 0.96.0
+ Chapter 7 — qm reboot 9030 with the new instance-id      ✅ done 2026-10-20
 ```
 
 > **Analogy**: changing the cloud-init drive is like handing the VM a new birth
@@ -293,7 +295,7 @@ Expected:
 > `75b6756e73e189a59cacadd1ab132970521a3337`. `pending` showed only the two
 > expected values; the VM kept running.
 
-### 5.3 ⏳ Stage 3 — Terraform (to reconcile)
+### 5.3 ✅ Stage 3 — Terraform (reconciled)
 
 Gates:
 
@@ -317,6 +319,13 @@ Only then, persist the refreshed values into the local state (still dated
 ```bash
 terraform apply -refresh-only    # review: state values only, no infrastructure action
 ```
+
+> ✅ **Executed 2026-10-19** (bpg `0.96.0`, MR !60 not merged). `plan` → `No
+> changes`. `plan -refresh-only` showed `floating 2048 → 3584`, `dns -1.1.1.1`
+> plus expected computed noise (`ipv4/ipv6/mac_addresses`,
+> `network_interface_names`, `cpu.flags null → []`). The saved plan file was
+> applied: serial 4 → 5, lineage unchanged, Proxmox and guest untouched. A plain
+> `plan` then returned `No changes`.
 
 ------
 
@@ -352,18 +361,103 @@ Both runs (after stage 1, after stage 2) were green on 2026-10-19.
 
 ------
 
-## 🔁 Chapter 7: The next reboot
+## 🔁 Chapter 7: The reboot with the new instance-id
 
-Not part of this change, and **still pending**: hermes-30 has not rebooted since
-stage 2. When it is next rebooted for another reason, the instance-id changes
-for real. Run Chapter 6 again, plus:
+### 7.1 🔁 How to reboot (reproducible)
+
+Only a reboot **through Proxmox** rebuilds the cloud-init drive: `qm reboot`
+stops QEMU, and `vm_start` → `apply_cloudinit_config` regenerates the ISO. QEMU
+runs without `-no-reboot`, so `sudo reboot` inside the guest keeps the same
+process and the old drive — every check would pass without testing anything.
 
 ```bash
-ssh hermes-30 'cat /run/cloud-init/.instance-id'     # 75b6756e73e189a59cacadd1ab132970521a3337
-ssh hermes-30 'stat -c %y /etc/netplan/50-cloud-init.yaml'   # unchanged (2026-08-23)
-ssh hermes-30 'grep -c nameservers /etc/netplan/50-cloud-init.yaml'   # 0
-ssh hermes-30 'sudo grep -iE "network config is disabled|Generating public/private|dist-upgrade" /var/log/cloud-init.log | tail'
-#   expected: "network config is disabled by system_cfg"; no key generation; no dist-upgrade
+ssh pve 'sudo /usr/sbin/qm reboot 9030 --timeout 180'   # never `sudo reboot` in the guest
+```
+
+Capture a baseline first (host key fingerprints, `wc -l /var/log/cloud-init.log`
+= `N`, sha256 of the watched files) and read only log lines after `N`.
+
+### 7.2 ✅ Checks (reproducible)
+
+Run Chapter 6 again, plus:
+
+```bash
+N=<cloud-init.log line count captured before the reboot>
+ssh hermes-30 "
+  cat /run/cloud-init/.instance-id                       # C1a: 75b6756e73e189a59cacadd1ab132970521a3337
+  sudo blkid /dev/sr0                                    # C1b: UUID dated the day of the reboot
+  ls /var/lib/cloud/instances/                           # C1c: old and new instance directories
+  sudo tail -n +\$((N+1)) /var/log/cloud-init.log | grep 'previous iid found'   # C1d: first line = OLD id
+  cloud-init status --long | head -7                     # C1e: status done, errors []
+  sudo tail -n +\$((N+1)) /var/log/cloud-init.log | grep -c 'network config is disabled'   # >= 1
+  sudo tail -n +\$((N+1)) /var/log/cloud-init.log | grep -cE 'Generating public/private|Package upgrade'   # 0
+  sudo sha256sum /etc/netplan/*.yaml                     # identical to the baseline
+"
+ssh pve 'sudo /usr/sbin/qm cloudinit pending 9030 | grep -E "^(new|del)"'   # nothing pending
+```
+
+> ⚠️ **Warning**: `/var/lib/cloud/data/previous-instance-id` is **not** evidence
+> of the old instance. cloud-init writes it at every stage: `init-local` records
+> the old id, then `init` (network stage), two seconds later, reads the id that
+> was just switched and overwrites the file with the **new** id. After the
+> reboot both files hold `75b6756e...`. The transition is proven by the first
+> `previous iid found to be <old id>` line after `N` and by the two directories
+> under `/var/lib/cloud/instances/`.
+
+### 7.3 📜 Observed on 2026-10-20 (historical record, not a guarantee)
+
+`qm reboot 9030 --timeout 180` at 12:05:37 AST: `qmreboot OK`, `qmstart OK`
+(12:05:44), SSH back at 12:06:12. A disk-only snapshot `pre-ch7` was taken at
+11:52:57, just before.
+
+| Check | Result |
+|---|---|
+| Instance-id | `75b6756e...` active; log: `previous iid found to be 73c90b4e...` (init-local, 16:06:02 UTC) |
+| Drive | UUID `2026-10-20-12-05-44-00`; nothing pending in Proxmox |
+| Network guard | `network config is disabled by system_cfg` ×2 |
+| Netplan, `ubuntu.sources`, `/etc/hosts`, dnsmasq, Hermes compose and managed config | sha256 identical to the baseline (13 files) — even though `apt_configure` re-ran |
+| IP / route / DNS | `192.168.10.30/24`, default via `.1`, `DNS=127.0.0.1` only; internal and public names resolve |
+| SSH host keys | the 3 fingerprints of Chapter 4, file mtimes unchanged (2026-08-20) |
+| Upgrade | `package_update_upgrade_install` skipped; no apt run after the reboot |
+| Kernel | `6.8.0-146` → `6.8.0-147` (pending update, accepted beforehand) |
+| Hermes | 3 containers `Up`, gateway running, 2 Telegram `ESTAB`, profile `default` running, 3 crons with unchanged `Next run`, no catch-up run |
+| Telegram | the user confirmed the bot answers |
+| Terraform | `plan -refresh=false -lock=false` → `No changes`, state unchanged (serial 5) |
+| cloud-init status | `done`, `errors: []`, `extended_status: degraded done` — see below |
+
+**`degraded done`** comes only from two `DEPRECATED` recoverable entries (stages
+`init` and `modules-final`): *"'user' of type string is deprecated in 22.2 and
+scheduled to be removed in 27.2"*. The key is generated by Proxmox itself
+(`PVE/QemuServer/Cloudinit.pm:141`, `user: <ciuser>`, qemu-server 9.0.30) from
+`ciuser`, which Terraform sets through `user_account.username`; no `cicustom`.
+The same notice is in the log of the first boot (2026-08-20, cloud-init 25.3)
+and absent from the 12 same-instance boots in between: it is emitted when
+user-data is processed for a **new** instance. No functional impact. Risk: only
+once cloud-init ≥ 27.2 drops the key, and only at a new instance — `users:
+[default]` would then fall back to the image's default user. Watch the
+Proxmox/cloud-init release notes; nothing to change today.
+
+### 7.4 📸 Snapshot `pre-ch7`
+
+| | |
+|---|---|
+| Purpose | local undo point for the Chapter 7 reboot |
+| Taken | 2026-10-20 11:52:57 AST, disk only (`--vmstate 0`), guest FS frozen by the agent |
+| Parent | `base-clean` (2026-08-20, **pre-Hermes**: never a recovery point for this VM) |
+| Limits | same thin pool as the disk: **not a backup**; LVM thin with no autoextend |
+| Rollback effect | disk back to 11:52:57: everything Hermes wrote since (sessions, memory, cron state) is lost; Proxmox still serves `75b6756e...` at the next start |
+
+Keep it temporarily. Deferred deletion, only when **all** of the following hold:
+
+1. Hermes stable since the reboot (gateway running, Telegram `ESTAB`, no incident);
+2. each of the 3 crons has run once after 2026-10-20 with `ok` (`hermes cron list`
+   → `Last run`), i.e. after Saturday 2026-10-24 08:00 UTC at the earliest;
+3. no incident recorded on hermes-30 since the reboot;
+4. a **new explicit human authorization**.
+
+```bash
+ssh pve 'sudo /usr/sbin/qm listsnapshot 9030'          # pre-ch7 present, current is its child
+ssh pve 'sudo /usr/sbin/qm delsnapshot 9030 pre-ch7'   # only after 1–4; never base-clean in the same step
 ```
 
 ------
@@ -396,10 +490,12 @@ instance-id `73c90b4e...` in `qm cloudinit dump 9030 meta`.
 | Risk | Scope | Mitigation |
 |---|---|---|
 | NIC MAC change: with rendering disabled, netplan matches `bc:24:11:c4:2d:d7` only | hermes-30 | refuse any plan touching `network_device`; rebuild instead |
-| Other per-instance modules (`users_groups`, `apt_configure`, `locale`, `set_passwords`, `mounts`) re-run at the next new instance | hermes-30 | same inputs, no change expected; proven only at Chapter 7 |
+| Other per-instance modules (`users_groups`, `apt_configure`, `locale`, `set_passwords`, `mounts`) re-run at each new instance | hermes-30 | re-ran on 2026-10-20 with no file change (§7.3); same proof needed after any cloud-init input change |
 | Ansible blind to host key changes (`host_key_checking = False`) | all projects | manual fingerprint check (Chapter 4); backlog |
-| Provider bump `0.96.0 → 0.117.0` (MR !60) before stage 3 | Terraform on hermes | run stage 3 first; otherwise separate review (§1.4) |
-| Guards and `--ciupgrade 0` unproven until a real boot with the new id | hermes-30 | Chapter 7 at the next planned reboot |
+| Provider bump `0.96.0 → 0.117.0` (MR !60) | Terraform on hermes | separate review; first plan must be `No changes` (§1.4) |
+| `ciupgrade` not modelled by bpg: a `-replace` would recreate 9030 with the default (`package_upgrade: true`) | hermes-30 | re-run `qm set 9030 --ciupgrade 0` after any rebuild |
+| `user:` string deprecated (removal in cloud-init 27.2), generated by Proxmox | all VMs | watch release notes (§7.3) |
+| No backup of hermes-30 at all; `pre-ch7` and `base-clean` are on the same thin pool | hermes-30 | separate backup effort |
 | Stale `ipconfig0` (`192.168.1.x`) on 9050, 9060, 9090; no SSH key guard; boot-time upgrade still on | other VMs, **out of scope** | [backlog](../backlog/cloud-init-guards-and-network-drift.md) |
 
 ------
@@ -415,4 +511,5 @@ instance-id `73c90b4e...` in `qm cloudinit dump 9030 meta`.
 
 > **Document created on**: 2026-10-16
 > **Author**: Xavier Gueret, with Claude Code
-> **Version**: 1.2 — 2026-10-19: stages 1–2 executed, memory gate lifted (MR !61), provider risk (MR !60), P8 split
+> **Version**: 1.3 — 2026-10-20: stage 3 and Chapter 7 executed, C1 corrected (`previous-instance-id`), `degraded done` analysed, `pre-ch7` documented — closed
+> (1.2 — 2026-10-19: stages 1–2 executed, memory gate lifted (MR !61), provider risk (MR !60), P8 split)
