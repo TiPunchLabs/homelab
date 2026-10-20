@@ -12,9 +12,15 @@ module "hermes_vm" {
   vm_baseid      = 9030
   vm_ip_start    = 30
 
-  vm_cpu_cores       = 4
-  vm_memory          = 8192
-  vm_memory_floating = 2048
+  vm_cpu_cores = 4
+  vm_memory    = 8192
+  # Plancher du ballooning (2026-10-16) : hermes-30 est la seule VM
+  # ballonnee de pve ; a 2048, pvestatd l'y ramenait des que l'hote passait 80 %
+  # (35 a 84 % du temps selon Komodo). 3584 laisse ~2 Gio a l'invite avec deux
+  # gateways. Applique a chaud par `qm set 9030 --balloon 3584`, pas par
+  # Terraform : bpg v0.96 redemarrerait la VM pour ce changement
+  # (reboot_after_update = true par defaut). Ce code s'aligne sur la production.
+  vm_memory_floating = 3584
 
   # 32 Go : local-lvm est en thin provisioning et deja a ~67 % d'occupation.
   # Agrandir plus tard est non destructif (qm resize + growpart), pas l'inverse.

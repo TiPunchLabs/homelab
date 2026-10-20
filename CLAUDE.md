@@ -262,7 +262,7 @@ hermes/
 ```
 
 ### Specs VM
-- CPU: 4 cores (type host) | RAM: 8192 MB (ballooning min 2048) | Disk: 32 GB SSD
+- CPU: 4 cores (type host) | RAM: 8192 MB (ballooning min 3584) | Disk: 32 GB SSD
 - Template ID: 9001 | VMID: 9030 | IP: 192.168.10.30
 - Disque: `discard=on`, `ssd=1`, `iothread=1` avec controleur `virtio-scsi-single`
 - Demarrage automatique au boot du noeud (`on_boot`, startup order 10 / up 30 / down 60)
