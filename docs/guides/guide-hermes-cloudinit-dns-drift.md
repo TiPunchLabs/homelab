@@ -7,8 +7,20 @@
 > preconditions of Chapter 3 all green. Every step needs an explicit human
 > go — nothing here is run by CI.
 >
-> **Duration**: ~20 min for stages 1 and 2, no reboot. Stage 3 (Terraform) is
-> **blocked** until the memory divergence is resolved (§1.3).
+> **Duration**: ~20 min for stages 1 and 2, no reboot. Stage 3 (Terraform) runs
+> once this branch is merged (§5.3).
+
+> **Status on 2026-10-19**:
+>
+> | Stage | State |
+> |---|---|
+> | 1 — Ansible guards | ✅ executed and verified on hermes-30 |
+> | 2 — Proxmox `qm set` | ✅ executed and verified; Proxmox instance-id now `75b6756e...` |
+> | 3 — Terraform | ⏳ to reconcile — no longer blocked by memory (§1.3), see §1.4 and §5.3 |
+> | Chapter 7 — next reboot | ⏳ not done; hermes-30 has not rebooted since the fix |
+>
+> Bastion-60 is **stopped**, and no manual sync with it was done. It plays no
+> role in stages 1–3 (hermes Terraform state is local to the main checkout).
 
 ## Table of contents
 
@@ -30,8 +42,8 @@
 
 ```
  Terraform config ──── ["192.168.10.71"]                 (code, since aaa5a94)
- Terraform state  ──── ["192.168.10.71", "1.1.1.1"]  ┐
- Proxmox qm config ─── 192.168.10.71 1.1.1.1         ┘  never applied
+ Terraform state  ──── ["192.168.10.71", "1.1.1.1"]     stale — stage 3 refreshes it
+ Proxmox qm config ─── 192.168.10.71                    aligned by stage 2 (2026-10-19)
  Guest (netplan) ───── 127.0.0.1 → dnsmasq             (dns_resolver role)
 
  qm set --nameserver ──► user/network-data change
@@ -45,9 +57,9 @@
 Three stages, strictly in this order, each one gated:
 
 ```
- Stage 1 — Ansible   lay the guards on the guest        this branch, independent of M2
- Stage 2 — Proxmox   qm set --nameserver --ciupgrade 0   only after stage 1 is verified
- Stage 3 — Terraform plan, then apply -refresh-only      BLOCKED until §1.3 is resolved
+ Stage 1 — Ansible   lay the guards on the guest        ✅ done 2026-10-19
+ Stage 2 — Proxmox   qm set --nameserver --ciupgrade 0   ✅ done 2026-10-19
+ Stage 3 — Terraform plan, then apply -refresh-only      ⏳ after merge, with bpg 0.96.0 (§1.4)
 ```
 
 > **Analogy**: changing the cloud-init drive is like handing the VM a new birth
@@ -81,25 +93,37 @@ on 2026-08-23 and never applied, on purpose — the role fixed the guest instead
 - bpg ≥ 0.75 no longer manages `ciupgrade`, so Terraform alone could not even
   switch the boot-time upgrade off.
 
-### 1.3 ⛔ Blocking condition: the memory divergence
+### 1.3 ✅ Resolved: the memory divergence
 
 | Where | `vm_memory_floating` |
 |---|---|
-| `main` (`bae2686`) and this branch | `2048` |
-| `feat/hermes-cafe-ia` (`9ef229c`, not merged) | `3584` |
+| `main` since MR !61 (`cd9e06f`, `fix/hermes-memory-floor`) | `3584` |
+| This branch (rebased onto `cd9e06f`) | `3584` |
 | Production (`qm config 9030`) | `balloon: 3584` |
 
-This branch deliberately stays on `main` and is **not** rebased onto the M2
-branch. Consequence: a plan from this branch shows a second, unrelated change
-(`floating 3584 → 2048`) that bpg would apply **with a reboot**.
-
-> ⛔ **No Terraform operation** — not even `plan` used as a go signal, and never
-> `apply` — until `main` carries `vm_memory_floating = 3584`, i.e. until
-> `9ef229c` is merged. Stages 1 and 2 do not depend on it.
+Until 2026-10-19, `main` carried `2048` while production ran `3584`: a plan would
+have shown an unrelated `floating 3584 → 2048` change that bpg applies **with a
+reboot**. MR !61 brought the floor to `main` on its own, without the rest of M2.
+This branch was rebased onto it and contains no M2 change.
 
 Also note that the hermes Terraform state and `.terraform/` are local and
 gitignored: they live in the **main checkout** (`homelab/hermes/terraform/`),
 not in a worktree. Stage 3 runs there, on an up-to-date `main`.
+
+### 1.4 ⚠️ Provider upgrade pending: Renovate MR !60
+
+MR !60 (Renovate, open) bumps `bpg/proxmox` from `0.96.0` to `0.117.0` in every
+`providers.tf`, `hermes/terraform/` included. Every plan in this guide was
+audited with `0.96.0`.
+
+If !60 is merged before stage 3, a `plan` mixes two unrelated sources of change:
+the DNS reconciliation and 21 minor versions of provider behavior (new defaults,
+attribute normalization, schema changes). An unexpected diff could then not be
+attributed — and bpg applies some VM changes **with a reboot**.
+
+> ⛔ **Run stage 3 with `0.96.0`**, before !60 is merged. If !60 lands first,
+> treat its plan on hermes as a separate review: any diff → stop, no apply,
+> no `-refresh-only`.
 
 ------
 
@@ -152,7 +176,9 @@ is a separate effort: [`docs/backlog/cloud-init-guards-and-network-drift.md`](..
 
 ## ✅ Chapter 3: Preconditions
 
-All must be true before stage 1. Values recorded on 2026-10-16.
+All must be true before stage 1. Values recorded on 2026-10-16, re-checked
+all green on 2026-10-19 just before stage 1. P1–P4 now describe the state
+**before** the fix: after stage 2 they no longer hold (see Chapter 6).
 
 | # | Check | Command | Expected |
 |---|---|---|---|
@@ -163,13 +189,21 @@ All must be true before stage 1. Values recorded on 2026-10-16.
 | P5 | Guest resolver in target state | `ssh hermes-30 'resolvectl dns eth0'` | `127.0.0.1` only |
 | P6 | NIC MAC unchanged | `ssh pve 'sudo /usr/sbin/qm config 9030 \| grep ^net0'` | `virtio=BC:24:11:C4:2D:D7` |
 | P7 | Branch is clean and local | `git status; git log origin/main..HEAD` | clean; only this fix's commits |
-| P8 | Playbook parses, tasks in order | `cd hermes && ansible-playbook ansible/deploy.yml --syntax-check --list-tasks --tags dns` | the two guard tasks listed **before** `Strip the nameservers...` |
+| P8 | Playbook parses, tasks in order | `cd hermes && ansible-playbook ansible/deploy.yml --syntax-check` then `ansible-playbook ansible/deploy.yml --list-tasks --tags dns` | `playbook: ansible/deploy.yml`, then the two guard tasks listed **before** `Strip the nameservers...` |
 | P9 | Inventory and vault readable | `cd hermes && ansible-inventory --graph && ansible-inventory --host hermes-30 >/dev/null` | group `hermes` → `hermes-30` only; no decryption error |
 
 > 💡 **Note**: `--tags dns` also runs the two timezone `pre_tasks` (tagged with
 > every role). They are idempotent: `ok` expected, `America/Guadeloupe` already
 > set. The M2 branch changes neither those tasks nor any `dns_*` variable, so
 > running stage 1 from this branch does not roll back anything M2 deployed.
+
+> ⚠️ **Warning**: run the two P8 commands separately. Combined,
+> `--syntax-check` wins and `--list-tasks` prints nothing: the order check
+> silently does not happen.
+
+> 💡 **Note**: in a git worktree, `.envrc` (gitignored) is absent, so direnv
+> does not activate `.venv` and `ansible-playbook` may resolve to another
+> install. Check `which ansible-playbook` → `<repo>/.venv/bin/` before P8.
 
 If any precondition differs, **stop**: the drift has moved since this audit.
 
@@ -224,6 +258,10 @@ ssh hermes-30 "sudo /usr/bin/python3 -c 'from cloudinit import util; \
 Go/no-go for stage 2: the check above prints the expected line **and** Chapter 6
 passes (except the Terraform row).
 
+> ✅ **Executed 2026-10-19**: dry run then real run, both `changed=2` (the two
+> `cloud.cfg.d` files, laid 19:22 AST), `failed=0`, no `netplan apply`, dnsmasq
+> not restarted, final assert green. Loader check: `{'config': 'disabled'} False`.
+
 ### 5.2 📝 Stage 2 — align Proxmox (decision A: `--ciupgrade 0`)
 
 Proxmox renders `package_upgrade: true` into user-data whenever `ciupgrade` is
@@ -248,10 +286,22 @@ Expected:
 > ⚠️ **Warning**: do not reboot hermes-30 to "test" this. The reboot is
 > Chapter 7, at a planned moment.
 
-### 5.3 ⛔ Stage 3 — Terraform (blocked)
+> ✅ **Executed 2026-10-19**. `qm set` has no dry run: the resulting
+> instance-id was first predicted by rebuilding user-data and network-data from
+> `qm cloudinit dump` (sha1 of both, each **without** the trailing newline the CLI
+> adds). Predicted and actual Proxmox instance-id:
+> `75b6756e73e189a59cacadd1ab132970521a3337`. `pending` showed only the two
+> expected values; the VM kept running.
 
-Only once §1.3 is resolved (`main` has `vm_memory_floating = 3584`) **and** this
-branch is merged. From the main checkout, on an up-to-date `main`:
+### 5.3 ⏳ Stage 3 — Terraform (to reconcile)
+
+Gates:
+
+- §1.3 resolved — ✅ `main` has `vm_memory_floating = 3584` (MR !61);
+- this branch merged;
+- provider still `0.96.0` — MR !60 not merged yet (§1.4).
+
+From the main checkout, on an up-to-date `main`:
 
 ```bash
 cd hermes/terraform
@@ -277,7 +327,7 @@ After stage 1, and again after stage 2:
 ```bash
 ssh hermes-30 '
   resolvectl dns                                   # Link eth0: 127.0.0.1 only
-  grep "^DNS=" /run/systemd/network/10-netplan-eth0.network   # DNS=127.0.0.1
+  sudo grep "^DNS=" /run/systemd/network/10-netplan-eth0.network   # DNS=127.0.0.1 (root-only file)
   getent hosts hermes.internal kandidat.internal   # internal, via resolved → dnsmasq
   getent hosts api.deepseek.com                    # public
   dig +short hermes.internal @127.0.0.1            # dnsmasq answers directly
@@ -295,17 +345,21 @@ ssh hermes-30 '
 | Guard files | both present, `root:root 0644` |
 | Host key fingerprints | identical to Chapter 4 |
 | Running instance-id | still `73c90b4e...` (unchanged until the next boot) |
+| Proxmox instance-id (`qm cloudinit dump 9030 meta`, after stage 2) | `75b6756e...` |
 | `terraform plan` (stage 3 only) | `No changes` |
+
+Both runs (after stage 1, after stage 2) were green on 2026-10-19.
 
 ------
 
 ## 🔁 Chapter 7: The next reboot
 
-Not part of this change. When hermes-30 is next rebooted for another reason,
-the instance-id changes for real. Run Chapter 6 again, plus:
+Not part of this change, and **still pending**: hermes-30 has not rebooted since
+stage 2. When it is next rebooted for another reason, the instance-id changes
+for real. Run Chapter 6 again, plus:
 
 ```bash
-ssh hermes-30 'cat /run/cloud-init/.instance-id'     # new id (≠ 73c90b4e...)
+ssh hermes-30 'cat /run/cloud-init/.instance-id'     # 75b6756e73e189a59cacadd1ab132970521a3337
 ssh hermes-30 'stat -c %y /etc/netplan/50-cloud-init.yaml'   # unchanged (2026-08-23)
 ssh hermes-30 'grep -c nameservers /etc/netplan/50-cloud-init.yaml'   # 0
 ssh hermes-30 'sudo grep -iE "network config is disabled|Generating public/private|dist-upgrade" /var/log/cloud-init.log | tail'
@@ -344,7 +398,8 @@ instance-id `73c90b4e...` in `qm cloudinit dump 9030 meta`.
 | NIC MAC change: with rendering disabled, netplan matches `bc:24:11:c4:2d:d7` only | hermes-30 | refuse any plan touching `network_device`; rebuild instead |
 | Other per-instance modules (`users_groups`, `apt_configure`, `locale`, `set_passwords`, `mounts`) re-run at the next new instance | hermes-30 | same inputs, no change expected; proven only at Chapter 7 |
 | Ansible blind to host key changes (`host_key_checking = False`) | all projects | manual fingerprint check (Chapter 4); backlog |
-| Memory divergence `main` ↔ M2 | Terraform on hermes | stage 3 blocked (§1.3) |
+| Provider bump `0.96.0 → 0.117.0` (MR !60) before stage 3 | Terraform on hermes | run stage 3 first; otherwise separate review (§1.4) |
+| Guards and `--ciupgrade 0` unproven until a real boot with the new id | hermes-30 | Chapter 7 at the next planned reboot |
 | Stale `ipconfig0` (`192.168.1.x`) on 9050, 9060, 9090; no SSH key guard; boot-time upgrade still on | other VMs, **out of scope** | [backlog](../backlog/cloud-init-guards-and-network-drift.md) |
 
 ------
@@ -360,4 +415,4 @@ instance-id `73c90b4e...` in `qm cloudinit dump 9030 meta`.
 
 > **Document created on**: 2026-10-16
 > **Author**: Xavier Gueret, with Claude Code
-> **Version**: 1.1 — decision A, historical evidence, explicit preconditions, Terraform gate
+> **Version**: 1.2 — 2026-10-19: stages 1–2 executed, memory gate lifted (MR !61), provider risk (MR !60), P8 split
