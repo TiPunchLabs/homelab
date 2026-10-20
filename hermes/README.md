@@ -83,7 +83,8 @@ Each role is deployed in this order by `deploy.yml`:
 - Template ID: 9001 | VMID: 9030 | IP: 192.168.10.30
 - Disk: `discard=on`, `ssd=1`, `iothread=1` with a `virtio-scsi-single` controller
 - Autostart on node boot (`on_boot`, startup order 10 / up 30 / down 60)
-- DNS: Pi-hole `192.168.10.71` + `1.1.1.1` fallback, search domain `internal`
+- DNS (cloud-init, bootstrap only): Pi-hole `192.168.10.71`, search domain `internal`;
+  the `dns_resolver` role then switches the guest to dnsmasq on `127.0.0.1`
 
 ## 📋 Prerequisites
 
@@ -104,11 +105,14 @@ terraform plan
 terraform apply
 ```
 
-> ⚠️ **Changing `initialization {}` does not reach a running guest.** `terraform plan`
-> reports `update in-place` for DNS or user changes, and reports success — but
-> cloud-init only renders `/etc/netplan/50-cloud-init.yaml` at first boot and never
-> reads it again. The IaC declares compliance while the machine disagrees. Force a
-> rebuild instead:
+> ⚠️ **Changing `initialization {}` does not reach a running guest — until its next
+> boot.** `terraform plan` reports `update in-place` for DNS or user changes. Nothing
+> changes while the VM runs, but Proxmox derives the cloud-init instance-id from that
+> content: at the next boot cloud-init sees a new instance and re-runs its
+> per-instance modules (network, SSH host keys, `apt upgrade`). The `dns_resolver`
+> role pins the first two; see
+> [`docs/guides/guide-hermes-cloudinit-dns-drift.md`](../docs/guides/guide-hermes-cloudinit-dns-drift.md)
+> before aligning Proxmox. To really re-provision from cloud-init, rebuild:
 >
 > ```bash
 > terraform apply -replace='module.hermes_vm.proxmox_virtual_environment_vm.vm[0]'
