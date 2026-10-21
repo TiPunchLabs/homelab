@@ -89,7 +89,45 @@
 # reseau qu'une fois par instance-id (verifie : mtime du 50-cloud-init anterieur
 # de trois jours au dernier boot). Un rebuild repart de
 # `vm_dns_servers` cote Terraform, puis ce role rejoue.
+#
+# ⚠️ « Une fois par instance-id » n'est PAS « une fois pour toutes ». Proxmox
+# calcule l'instance-id comme sha1(user-data . network-data) : TOUTE
+# modification cloud-init de la VM (nameserver, cle SSH, ciupgrade...) change
+# l'id, et au boot suivant cloud-init se croit sur une nouvelle instance. Il
+# reecrirait alors 50-cloud-init.yaml AVEC nameservers — netplan fusionnant,
+# le lien reprendrait deux serveurs — et regenererait les cles d'hote SSH.
+#
+# D'ou les deux fichiers ci-dessous, poses AVANT de toucher netplan. Ils ne
+# concernent que les VMs deja provisionnees : ce role ne tourne qu'apres le
+# premier boot, qui a deja rendu le reseau et genere des cles propres a la VM.
+# Le template 9001 (proxmox/, virt-customize) n'en sait rien.
 # ---------------------------------------------------------------------------
+- name: Stop cloud-init from rendering the network configuration again
+  ansible.builtin.copy:
+    content: |
+      # Ansible managed — role dns_resolver.
+      # /etc/netplan est desormais la seule source de verite reseau : un
+      # changement d'instance-id ne doit pas y remettre les nameservers.
+      network:
+        config: disabled
+    dest: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+    owner: root
+    group: root
+    mode: '0644'
+
+# Sans risque ici : les cles actuelles ont ete generees au premier boot de
+# CETTE VM, elles ne viennent pas du template. Les conserver evite seulement
+# un changement d'empreinte silencieux au prochain changement d'instance-id.
+- name: Keep the SSH host keys across a cloud-init instance-id change
+  ansible.builtin.copy:
+    content: |
+      # Ansible managed — role dns_resolver.
+      ssh_deletekeys: false
+    dest: /etc/cloud/cloud.cfg.d/99-preserve-ssh-host-keys.cfg
+    owner: root
+    group: root
+    mode: '0644'
+
 - name: Read the cloud-init netplan configuration
   ansible.builtin.slurp:
     src: /etc/netplan/50-cloud-init.yaml

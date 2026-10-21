@@ -14,7 +14,7 @@ module "hermes_vm" {
 
   vm_cpu_cores = 4
   vm_memory    = 8192
-  # Plancher du ballooning (2026-10-16, M2) : hermes-30 est la seule VM
+  # Plancher du ballooning (2026-10-16) : hermes-30 est la seule VM
   # ballonnee de pve ; a 2048, pvestatd l'y ramenait des que l'hote passait 80 %
   # (35 a 84 % du temps selon Komodo). 3584 laisse ~2 Gio a l'invite avec deux
   # gateways. Applique a chaud par `qm set 9030 --balloon 3584`, pas par
