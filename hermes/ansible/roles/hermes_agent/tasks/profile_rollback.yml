@@ -1,0 +1,134 @@
+---
+# =============================================================================
+# Rollback d'un profil : ARRETER son gateway et l'empecher de repartir, sans
+# rien supprimer et sans toucher a default.
+#
+# Entree : hermes_rb_profile_name (ex. cafe-ia).
+#
+# Pourquoi pas « retirer le profil de hermes_profiles » : le slot s6 est
+# recree au boot par cont-init.d/02-reconcile-profiles, et redemarre si le
+# gateway_state.json du profil porte desired_state=running. Seul
+# `hermes -p <name> gateway stop` (mecanisme natif) ecrit desired_state=
+# stopped : verifie en labo, le slot reste alors `down` apres un redemarrage
+# du conteneur.
+#
+# Ne fait JAMAIS : supprimer profiles/<name>/, revoquer ou effacer le jeton,
+# supprimer le bot (BotFather), redemarrer le conteneur ou default. Ces gestes
+# demandent une decision distincte.
+# =============================================================================
+
+- name: Refuse to roll back anything but an additional profile
+  ansible.builtin.assert:
+    that:
+      - hermes_rb_profile_name is match('^[a-z0-9][a-z0-9_-]*$')
+      - hermes_rb_profile_name != 'default'
+      - hermes_rb_profile_name in hermes_profile_reserved_ports
+    fail_msg: "profile_rollback.yml n'arrete qu'un profil supplementaire, jamais default ({{ hermes_rb_profile_name }})."
+    quiet: true
+
+- name: Read the gateway supervision state of {{ hermes_rb_profile_name }}
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - /command/s6-svstat
+      - "/run/service/gateway-{{ hermes_rb_profile_name }}"
+  register: hermes_rb_svstat
+  changed_when: false
+  failed_when: false
+
+- name: Read the persisted run intent of {{ hermes_rb_profile_name }}
+  ansible.builtin.slurp:
+    path: "{{ hermes_data_dir }}/profiles/{{ hermes_rb_profile_name }}/gateway_state.json"
+  register: hermes_rb_state
+  failed_when: false
+
+- name: Stop the gateway and persist desired_state=stopped for {{ hermes_rb_profile_name }}
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - hermes
+      - -p
+      - "{{ hermes_rb_profile_name }}"
+      - gateway
+      - stop
+  when: >-
+    hermes_rb_svstat.stdout is match('^up')
+    or hermes_rb_desired == 'running'
+  vars:
+    hermes_rb_desired: "{{ (hermes_rb_state.content | b64decode | from_json).desired_state | default('') if hermes_rb_state.content is defined else '' }}"
+  changed_when: true
+
+- name: Read the gateway supervision state after the stop
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - /command/s6-svstat
+      - "/run/service/gateway-{{ hermes_rb_profile_name }}"
+  register: hermes_rb_svstat_after
+  changed_when: false
+  failed_when: hermes_rb_svstat_after.stdout is match('^up')
+  until: hermes_rb_svstat_after.stdout is not match('^up')
+  retries: "{{ hermes_rb_stop_retries | default(6) }}"
+  delay: "{{ hermes_rb_stop_delay | default(5) }}"
+
+- name: Read the persisted run intent after the stop
+  ansible.builtin.slurp:
+    path: "{{ hermes_data_dir }}/profiles/{{ hermes_rb_profile_name }}/gateway_state.json"
+  register: hermes_rb_state_after
+  failed_when: false
+
+# Absent = jamais demarre : rien ne le relancera non plus.
+- name: Assert that nothing restarts at the next boot for {{ hermes_rb_profile_name }}
+  ansible.builtin.assert:
+    that:
+      - hermes_rb_state_after.content is not defined
+        or (hermes_rb_state_after.content | b64decode | from_json).desired_state | default('stopped') != 'running'
+    fail_msg: "{{ hermes_rb_profile_name }} garde desired_state=running : il repartirait au prochain boot."
+    quiet: true
+
+- name: Read the listeners on the API port of {{ hermes_rb_profile_name }}
+  ansible.builtin.command:
+    argv: [ss, -Hltn, "sport = :{{ hermes_profile_reserved_ports[hermes_rb_profile_name] }}"]
+  register: hermes_rb_port
+  changed_when: false
+  failed_when: hermes_rb_port.stdout | trim | length > 0
+
+- name: Verify that the default gateway is still connected (levels 2-3)
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - telegram
+      - /opt/data/gateway_state.json
+      - gateway-default
+  register: hermes_rb_default
+  changed_when: false
+  when: hermes_telegram_enabled
+
+- name: Report the rollback
+  ansible.builtin.debug:
+    msg:
+      - "{{ hermes_rb_profile_name }} : {{ hermes_rb_svstat_after.stdout | trim }}, port libre, donnees conservees"
+      - "default                : {{ hermes_rb_default.stdout | default('telegram desactive') }}"
+      - >-
+        {{ 'A FAIRE : retirer ' ~ hermes_rb_profile_name ~ ' de hermes_profiles (group_vars) avant le prochain deploy.yml, sinon il serait redemarre.'
+        if hermes_rb_profile_name in (hermes_profiles | map(attribute='name') | list)
+        else 'Inventaire coherent : ' ~ hermes_rb_profile_name ~ ' absent de hermes_profiles.' }}

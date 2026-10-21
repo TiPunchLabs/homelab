@@ -1,0 +1,109 @@
+---
+# =============================================================================
+# Preflight d'un NOUVEAU profil : LECTURE SEULE, a jouer apres preflight.yml
+# (sante de default, fuseau, fenetre cron) et avant `--check`.
+#
+# Entree : hermes_pf_profile, la declaration du profil candidat
+# (ex. hermes_profile_cafe_ia), pas encore dans hermes_profiles.
+#
+# NO-GO si :
+#   - la declaration, ajoutee aux profils existants, ne passe pas validate.yml
+#     (jeton absent ou partage, cle de env vide, port, nom du bot...). Une cle
+#     vault manquante echoue des la resolution : c'est le verrou voulu ;
+#   - le profil existe deja sur l'hote (la phase B part d'une page blanche) ;
+#   - un slot s6 gateway-<name> existe deja dans le conteneur ;
+#   - quelque chose ecoute deja sur son port ;
+#   - moins de hermes_pf_min_available_mib MiB disponibles, a l'instant ou au
+#     plancher du ballooning Proxmox (memory_preflight.yml).
+# N'affiche que des noms, des etats et des compteurs — jamais une valeur.
+# =============================================================================
+
+# Le candidat remplace son eventuelle entree deja ajoutee a hermes_profiles :
+# preflight jouable avant ou apres l'ajout. set_fact d'abord : une variable
+# d'include `hermes_profiles` definie a partir d'elle-meme boucle (« Recursive
+# loop detected »). no_log : les jetons resolus y figurent.
+- name: Combine the deployed profiles with the candidate one
+  ansible.builtin.set_fact:
+    hermes_pf_profiles_all: "{{ (hermes_profiles | rejectattr('name', 'eq', hermes_pf_profile.name) | list) + [hermes_pf_profile] }}"  # noqa: jinja[invalid]
+  no_log: true
+
+- name: Validate the inventory with the candidate profile added
+  ansible.builtin.include_tasks: validate.yml
+  vars:
+    hermes_profiles: "{{ hermes_pf_profiles_all }}"
+
+- name: Check that the candidate profile does not exist on the host yet
+  ansible.builtin.stat:
+    path: "{{ hermes_data_dir }}/profiles/{{ hermes_pf_profile.name }}"
+    get_checksum: false
+  register: hermes_pf_profile_dir
+
+- name: Check that no s6 slot exists yet for the candidate profile
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - hermes
+      - test
+      - -e
+      - "/run/service/gateway-{{ hermes_pf_profile.name }}"
+  register: hermes_pf_profile_slot
+  changed_when: false
+  check_mode: false
+  failed_when: hermes_pf_profile_slot.rc > 1
+
+- name: Read the listeners on the candidate API port
+  ansible.builtin.command:
+    argv: [ss, -Hltn, "sport = :{{ hermes_pf_profile.api_server_port }}"]
+  register: hermes_pf_profile_port
+  changed_when: false
+  check_mode: false
+
+- name: Check the memory headroom for the candidate gateway
+  ansible.builtin.include_tasks: memory_preflight.yml
+
+# Reference avant/apres : la seconde gateway doit tenir dans la limite du
+# conteneur sans peser sur default.
+- name: Read the container resource usage
+  ansible.builtin.command:
+    argv: [docker, stats, --no-stream, --format, "{{ '{{.Name}} mem={{.MemUsage}} cpu={{.CPUPerc}} pids={{.PIDs}}' }}"]
+  register: hermes_pf_stats
+  changed_when: false
+  check_mode: false
+
+- name: Read the gateway processes (RSS in KiB)
+  ansible.builtin.command:
+    argv: [docker, exec, hermes, ps, -eo, "pid,rss,args"]
+  register: hermes_pf_ps
+  changed_when: false
+  check_mode: false
+
+- name: Read the VM memory
+  ansible.builtin.command:
+    argv: [free, -m]
+  register: hermes_pf_free
+  changed_when: false
+  check_mode: false
+
+- name: Report the candidate profile preflight
+  ansible.builtin.debug:
+    msg:
+      - "profil candidat        : {{ hermes_pf_profile.name }} (port {{ hermes_pf_profile.api_server_port }})"
+      - "repertoire sur l'hote  : {{ 'PRESENT' if hermes_pf_profile_dir.stat.exists else 'absent' }}"
+      - "slot s6                : {{ 'PRESENT' if hermes_pf_profile_slot.rc == 0 else 'absent' }}"
+      - "port                   : {{ 'OCCUPE' if hermes_pf_profile_port.stdout | trim else 'libre' }}"
+      - "{{ hermes_pf_stats.stdout_lines }}"
+      - "{{ hermes_pf_ps.stdout_lines | select('search', 'gateway run') | list }}"
+      - "{{ hermes_pf_free.stdout_lines }}"
+
+- name: Assert that the candidate profile starts from a blank page
+  ansible.builtin.assert:
+    that:
+      - not hermes_pf_profile_dir.stat.exists
+      - hermes_pf_profile_slot.rc == 1
+      - hermes_pf_profile_port.stdout | trim | length == 0
+    fail_msg: >-
+      NO-GO : {{ hermes_pf_profile.name }} existe deja (repertoire, slot s6 ou
+      port {{ hermes_pf_profile.api_server_port }} occupe). Comprendre d'ou il
+      vient avant tout deploiement ; ne rien supprimer sans decision.
+    quiet: true

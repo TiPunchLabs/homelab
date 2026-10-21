@@ -110,6 +110,86 @@
     - item.rc == 1 or not (item.stdout | hermes_config_equal(item.item.value))
   register: hermes_profile_config_set
 
+# =============================================================================
+# Controles AVANT le demarrage du gateway : un jeton qui serait celui d'un
+# autre bot, une cle d'API non deterministe ou des outils plus larges que
+# declares arretent le playbook tant que rien n'ecoute ni ne poll.
+# =============================================================================
+
+# getMe et non getUpdates : identite seule, aucun message vole. Rattrape un
+# jeton valide colle sous la mauvaise cle du vault, que l'unicite ne voit pas.
+- name: "Verify that the token belongs to the declared bot ({{ hermes_profile.name }})"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - bot-identity
+      - "/opt/data/profiles/{{ hermes_profile.name }}/.env"
+      - "{{ hermes_profile.telegram_bot_username }}"
+  register: hermes_profile_bot_identity
+  changed_when: false
+  until: hermes_profile_bot_identity.rc == 0 or 'refused' in hermes_profile_bot_identity.stdout
+  retries: 3
+  delay: 5
+  when:
+    - not ansible_check_mode
+    - hermes_profile.telegram_bot_username is defined
+
+# Le hook stage2 de l'image n'ecrit que dans /opt/data/.env ; la cle du
+# gateway de profil doit venir du managed (charge en dernier), jamais d'un
+# .env de profil.
+- name: "Verify that API_SERVER_KEY comes from managed only ({{ hermes_profile.name }})"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - -e
+      - "HERMES_HOME=/opt/data/profiles/{{ hermes_profile.name }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - api-key
+      - "/opt/data/profiles/{{ hermes_profile.name }}/.env"
+  changed_when: false
+  when: not ansible_check_mode
+
+# Meme chemin de code que le gateway (tools_config._get_platform_tools) :
+# prouve que les restrictions DECLAREES sont EFFECTIVES, plateforme par
+# plateforme (telegram, cron, api_server, cli).
+- name: "Verify that the declared tool restrictions are effective ({{ hermes_profile.name }})"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - -e
+      - "HERMES_HOME=/opt/data/profiles/{{ hermes_profile.name }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - toolsets
+      - "{{ hermes_allowed | reject('eq', 'no_mcp') | join(',') }}"
+      - "{{ hermes_profile.config['agent.disabled_toolsets'] | join(',') }}"
+      - "{{ 'true' if 'no_mcp' in hermes_allowed else 'false' }}"
+  vars:
+    hermes_allowed: "{{ hermes_profile.config['platform_toolsets.telegram'] | default([]) }}"
+  register: hermes_profile_toolsets
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - "'agent.disabled_toolsets' in (hermes_profile.config | default({}))"
+
 # s6-svstat plutot que `hermes gateway status` : sortie stable et non decoree.
 - name: "Read the gateway supervision state of profile {{ hermes_profile.name }}"
   ansible.builtin.command:
@@ -171,6 +251,19 @@
     host: 127.0.0.1
     port: "{{ hermes_profile.api_server_port }}"
     timeout: 120
+  when: not ansible_check_mode
+
+# network_mode: host : un bind hors loopback serait sur l'interface LAN de la
+# VM. UFW le bloquerait, mais l'API d'un profil ne doit pas y ecouter du tout.
+- name: "Verify that the API listens on loopback only for profile {{ hermes_profile.name }}"
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - listen
+      - "{{ hermes_profile.api_server_port }}"
+  changed_when: false
   when: not ansible_check_mode
 
 - name: "Wait until Telegram is connected for profile {{ hermes_profile.name }}"

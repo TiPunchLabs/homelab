@@ -122,6 +122,17 @@ hermes_managed_owner: root
 # controle Telegram (niveaux 1-3).
 hermes_m1_rollback_restart: true
 
+# ============================================================
+# Preflight memoire d'une gateway supplementaire (M2)
+# ============================================================
+# MiB disponibles exiges AVANT de demarrer une gateway, a l'instant ET au
+# plancher du ballooning Proxmox (memory_preflight.yml). 1,5 Gio : la VM n'a
+# pas de swap, une gateway pese ~350 Mo, il reste ~1,15 Gio apres.
+hermes_pf_min_available_mib: 1536
+hermes_pf_meminfo_path: /proc/meminfo
+# Nom de la VM dans Proxmox (cluster/resources) : celui de l'inventaire.
+hermes_pf_pve_vm_name: "{{ inventory_hostname }}"
+
 hermes_dashboard_username: "admin"
 hermes_dashboard_public_url: "https://hermes.internal"
 

@@ -288,6 +288,14 @@ ansible-playbook ansible/deploy.yml --tags komodo-periphery
 > aucune regle UFW a ajouter. La cle d'onboarding est a **usage unique** —
 > voir `hermes/ansible/roles/komodo_periphery/README.md`.
 
+> 🧬 **Multiprofils** : deux gateways dans le conteneur `hermes` — `default`
+> (:8642) et **Kaféine** `cafe-ia` (:8646, deploye le 2026-10-20, M2), un bot
+> Telegram par profil. Activation = entree dans `hermes_profiles` par commit
+> dedie ; `ansible/m2-preflight.yml` (GO obligatoire, hors fenetres cron) puis
+> `--tags hermes` ; retrait = `ansible/m2-rollback.yml` puis revert. Ne jamais
+> lancer `hermes update` sans controler les `.env` de profil — voir
+> `hermes/ansible/roles/hermes_agent/README.md`.
+
 ---
 
 ## Sous-projet : caddy/

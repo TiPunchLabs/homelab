@@ -77,10 +77,13 @@ hermes_telegram_bot_token: "{{ vault_hermes_telegram_bot_token }}"
 # Un profil = une gateway s6, un bot Telegram, un port d'API, dans le meme
 # conteneur. Contenu livre : roles/hermes_agent/files/profiles/<name>/.
 #
-# ⚠️ AUCUN PROFIL DEPLOYE (mission M1). La liste reste vide ici, explicitement,
-# et non par la valeur par defaut du role. Chaque profil y entre lors de SA
-# mission (M2 cafe-ia, M3 tech-watch, M4 daily-life, M5 job-search).
-hermes_profiles: []
+# ⚠️ La liste est declaree ici, explicitement, et non par la valeur par
+# defaut du role. Chaque profil y entre lors de la phase de deploiement de SA
+# mission (M2 cafe-ia, M3 tech-watch, M4 daily-life, M5 job-search), une fois
+# son jeton au vault, par un commit dedie : le revert de ce commit est le
+# rollback declaratif (apres m2-rollback.yml).
+hermes_profiles:
+  - "{{ hermes_profile_cafe_ia }}"
 
 # Ports figes par profil (default = hermes_gateway_port, 8642). API en
 # 127.0.0.1 : rien a ouvrir en UFW, rien a changer dans Caddy.
@@ -109,6 +112,73 @@ hermes_profile_tech_watch:
     # arrive avec le brief en contexte. Ne vaut que pour les taches creees
     # depuis le chat Telegram (cron/scheduler.py, _target_matches_origin).
     cron.mirror_delivery: true
+
+# Kaféine — Café IA (veille IA grand public, preparation des rencontres).
+# DEPLOYE le 2026-10-20 (M2), active par le commit e07b385. Ses deux cles
+# vault sont obligatoires : si l'une manque, la declaration ne se resout pas et
+# le playbook echoue avant toute ecriture.
+#
+# Outils (D5) : recherche et lecture web, memoire, skills, rien d'autre. Ni
+# terminal, ni fichiers, ni navigateur, ni cron, ni MCP (donc pas Kandidat).
+# Matrice et justifications : roles/hermes_agent/README.md, section Kaféine.
+hermes_profile_cafe_ia:
+  name: cafe-ia
+  description: "Kaféine — veille IA, projets à présenter et préparation des rencontres Café IA."
+  # Propose, a confirmer dans BotFather (code aleatoire, pas une securite).
+  # Verifie par getMe avant tout demarrage du gateway.
+  telegram_bot_username: kafeine_r64gnb_bot
+  telegram_bot_token: "{{ vault_hermes_cafe_ia_telegram_bot_token }}"
+  api_server_port: 8646
+  env:
+    # Aucun backend web dans l'image sans cle (ddgs absent, lazy installs
+    # coupes) : sans elle, Kaféine ne pourrait pas chercher.
+    TAVILY_API_KEY: "{{ vault_hermes_cafe_ia_tavily_api_key }}"
+  config:
+    web.backend: tavily
+    # Liste blanche par plateforme ; `no_mcp` exclut tout serveur MCP.
+    platform_toolsets.telegram: &hermes_cafe_ia_toolsets
+      - web
+      - skills
+      - memory
+      - session_search
+      - todo
+      - clarify
+      - no_mcp
+    platform_toolsets.cron: *hermes_cafe_ia_toolsets
+    platform_toolsets.api_server: *hermes_cafe_ia_toolsets
+    # Le toolset `skills` est indivisible (skills_list, skill_view et
+    # skill_manage) : impossible de retirer skill_manage seul. Ce verrou met
+    # en attente toute ecriture de skill (create, edit, patch, delete,
+    # write_file, remove_file), revue background comprise, jusqu'a
+    # `/skills approve <id>`. Lecture des skills inchangee.
+    skills.write_approval: true
+    # Liste noire appliquee EN DERNIER par Hermes, sur toutes les plateformes
+    # (cli comprise) : le vrai verrou si une liste blanche venait a s'elargir.
+    agent.disabled_toolsets:
+      - terminal
+      - file
+      - code_execution
+      - browser
+      - computer_use
+      - delegation
+      - cronjob
+      - kanban
+      - homeassistant
+      - image_gen
+      - video
+      - video_gen
+      - bfl
+      - tts
+      - x_search
+      - vision
+      - spotify
+      - discord
+      - discord_admin
+      - yuanbao
+      - feishu_doc
+      - feishu_drive
+      - desktop_ui
+      - project
 
 # ============================================================
 # 👁️ Komodo Periphery - Role komodo_periphery
