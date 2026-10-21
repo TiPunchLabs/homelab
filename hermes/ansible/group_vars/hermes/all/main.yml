@@ -84,6 +84,7 @@ hermes_telegram_bot_token: "{{ vault_hermes_telegram_bot_token }}"
 # rollback declaratif (apres m2-rollback.yml ou m3-rollback.yml).
 hermes_profiles:
   - "{{ hermes_profile_cafe_ia }}"
+  - "{{ hermes_profile_tech_watch }}"
 
 # Ports figes par profil (default = hermes_gateway_port, 8642). API en
 # 127.0.0.1 : rien a ouvrir en UFW, rien a changer dans Caddy.
@@ -93,24 +94,24 @@ hermes_profile_reserved_ports:
   job-search: 8645
   cafe-ia: 8646
 
-# Néo — veille technique. PREPARE (M3.2), NON ACTIVE : n'entre dans
-# hermes_profiles qu'au commit d'activation de M3.3.
+# Néo — veille technique. Preparee en M3.2, activee en M3.3 (2026-10-21) par
+# son entree dans hermes_profiles.
 #
-# Prerequis M3.3, tous deux bloquants tant qu'ils manquent :
+# Prerequis M3.3 (poses le 2026-10-21) :
 #   - hermes_tech_watch_telegram_bot_username : nom du bot NEUF cree dans
-#     BotFather (D2 : neo_<6 alphanum>_bot). Volontairement NON defini ici :
-#     tant qu'il manque, la declaration ne se resout pas (preflight NO-GO).
-#     `mandatory` est indispensable : une simple reference a une variable
-#     indefinie serait vue comme « telegram_bot_username non defini », que
-#     validate.yml accepte et qui fait SAUTER le controle getMe de profile.yml ;
-#   - vault_hermes_tech_watch_telegram_bot_token : porte encore le jeton de
-#     l'ancien bot « veille », a remplacer par celui de Néo. L'ancien bot n'est
-#     supprime (BotFather) qu'apres validation de Néo.
+#     BotFather (D2 : neo_<6 alphanum>_bot). `mandatory` reste indispensable :
+#     une simple reference a une variable indefinie serait vue comme
+#     « telegram_bot_username non defini », que validate.yml accepte et qui
+#     fait SAUTER le controle getMe de profile.yml ;
+#   - vault_hermes_tech_watch_telegram_bot_token : jeton de Néo (remplace
+#     celui de l'ancien bot « veille », qui n'est supprime dans BotFather
+#     qu'apres validation de Néo).
 #
 # Outils : meme matrice que Kaféine (D5) — recherche et lecture web, memoire,
 # skills sous approbation. Ni terminal, ni fichiers, ni cron, ni MCP. Les
 # scripts de collecte livres (files/profiles/tech-watch/scripts/) restent
 # INACTIFS : aucun cron ne les appelle et Néo ne peut pas en creer.
+hermes_tech_watch_telegram_bot_username: neo_r64gnb_bot
 hermes_profile_tech_watch:
   name: tech-watch
   description: "Néo — veille technique : IA et agents, IA locale, DevOps et cloud, développement, open source."

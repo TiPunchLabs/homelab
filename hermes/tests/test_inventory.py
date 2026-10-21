@@ -46,14 +46,14 @@ ALL_TASKS = [(path.name, task) for path in TASKS for task in iter_tasks(yaml.saf
 # --- T15 --------------------------------------------------------------------
 
 
-def test_t15_group_vars_declare_only_cafe_ia(group_vars: dict[str, Any]) -> None:
-    """T15 (M2 phase B): the inventory itself pins cafe-ia alone, by reference to its declaration."""
+def test_t15_group_vars_declare_cafe_ia_then_tech_watch(group_vars: dict[str, Any]) -> None:
+    """T15 (M3.3): the inventory itself pins cafe-ia then tech-watch, by reference to their declarations."""
     assert "hermes_profiles" in group_vars
-    assert group_vars["hermes_profiles"] == ["{{ hermes_profile_cafe_ia }}"]
+    assert group_vars["hermes_profiles"] == ["{{ hermes_profile_cafe_ia }}", "{{ hermes_profile_tech_watch }}"]
 
 
-def test_t15_effective_value_is_only_cafe_ia() -> None:
-    """T15 (M2 phase B): the profiles Ansible actually resolves for hermes-30 are cafe-ia alone.
+def test_t15_effective_value_is_cafe_ia_then_tech_watch() -> None:
+    """T15 (M3.3): the profiles Ansible actually resolves for hermes-30 are cafe-ia then tech-watch.
 
     Needs the vault password (pass) to load group_vars; skipped without it.
     Prints the profile names only: the resolved list carries the tokens.
@@ -72,7 +72,7 @@ def test_t15_effective_value_is_only_cafe_ia() -> None:
     if result.returncode != 0 and re.search(r"[Vv]ault|[Dd]ecrypt|password", result.stdout + result.stderr):
         pytest.skip("vault password unavailable: effective inventory not resolvable here")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '"msg": "PROFILES=[\\"cafe-ia\\"]"' in result.stdout
+    assert '"msg": "PROFILES=[\\"cafe-ia\\", \\"tech-watch\\"]"' in result.stdout
 
 
 # --- T16 --------------------------------------------------------------------

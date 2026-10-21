@@ -1,7 +1,6 @@
 """M3 — Néo (profile tech-watch): declaration, identity, tools, context, preflight, rollback.
 
-Prepared, not activated (M3.2): tech-watch stays out of hermes_profiles until the
-M3.3 activation commit. Everything runs against throwaway directories, fake
+Prepared in M3.2, activated in M3.3 by its entry in hermes_profiles. Everything runs against throwaway directories, fake
 tokens and a fake `docker`/`ss` on PATH; nothing reaches hermes-30. The context
 tests also run the real Hermes image, offline and throwaway, when it is present
 locally: they prove what Hermes actually loads, not that a file exists.
@@ -114,9 +113,9 @@ def test_n01_identity_and_port(group_vars: dict[str, Any], neo: dict[str, Any]) 
     assert neo["api_server_port"] == group_vars["hermes_profile_reserved_ports"]["tech-watch"] == 8643
 
 
-def test_n01_prepared_not_activated(group_vars: dict[str, Any]) -> None:
-    """M3.2: cafe-ia is still the only deployed profile; activation is the M3.3 commit."""
-    assert group_vars["hermes_profiles"] == ["{{ hermes_profile_cafe_ia }}"]
+def test_n01_activated_after_cafe_ia(group_vars: dict[str, Any]) -> None:
+    """M3.3: tech-watch is appended after cafe-ia; no other profile (daily-life, job-search) yet."""
+    assert group_vars["hermes_profiles"] == ["{{ hermes_profile_cafe_ia }}", "{{ hermes_profile_tech_watch }}"]
 
 
 def test_n02_no_functional_alex_or_veille_left(neo: dict[str, Any]) -> None:
@@ -136,17 +135,19 @@ def test_n02_no_functional_alex_or_veille_left(neo: dict[str, Any]) -> None:
 # --- Telegram : getMe et prerequis M3.3 ----------------------------------------
 
 
-def test_n03_bot_username_is_a_hard_m33_prerequisite(group_vars: dict[str, Any], neo: dict[str, Any]) -> None:
-    """No invented bot name: it comes from a variable no file defines yet, behind `mandatory`."""
+def test_n03_bot_username_is_declared_once_behind_mandatory(group_vars: dict[str, Any], neo: dict[str, Any]) -> None:
+    """The BotFather name lives in one variable, Néo's own, and `mandatory` still fails hard if it goes away."""
     assert "hermes_tech_watch_telegram_bot_username" in neo["telegram_bot_username"]
     assert "mandatory(" in neo["telegram_bot_username"]
-    assert "hermes_tech_watch_telegram_bot_username" not in group_vars
-    for path in (HERMES / "ansible").rglob("*.yml"):
-        assert not re.search(
-            r"^\s*hermes_tech_watch_telegram_bot_username\s*:",
-            path.read_text(),
-            re.MULTILINE,
-        ), path
+    username = group_vars["hermes_tech_watch_telegram_bot_username"]
+    assert re.fullmatch(r"neo_[A-Za-z0-9]{6}_bot", username)
+    assert username != group_vars["hermes_profile_cafe_ia"]["telegram_bot_username"]
+    declared = [
+        path
+        for path in (HERMES / "ansible").rglob("*.yml")
+        if re.search(r"^\s*hermes_tech_watch_telegram_bot_username\s*:", path.read_text(), re.MULTILINE)
+    ]
+    assert declared == [HERMES / "ansible/group_vars/hermes/all/main.yml"]
 
 
 def test_n03_missing_bot_name_blocks_instead_of_skipping_getme(
