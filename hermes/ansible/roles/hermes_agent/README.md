@@ -5,10 +5,12 @@ Deploy Hermes Agent (v0.20.4, image `nousresearch/hermes-agent:v2026.8.18`) on
 **profiles**: one s6-supervised gateway and one Telegram bot per profile, all in
 the same container.
 
-> **Current state (mission M2, phase A).** Only the `default` profile runs.
-> `hermes_profiles: []` in `group_vars`. **Kaféine** (`cafe-ia`) is fully
-> prepared (`hermes_profile_cafe_ia`, below) but not activated: it enters the
-> list in phase B, once its two vault keys exist.
+> **Current state (mission M2 deployed, 2026-10-20).** Two profiles run in the
+> container: `default` (unchanged, bot of its own, 3 crons) and **Kaféine**
+> (`cafe-ia`, `gateway-cafe-ia`, `127.0.0.1:8646`, bot `kafeine_r64gnb_bot`),
+> the only entry of `hermes_profiles`. `tech-watch` is prepared, reserved for
+> M3, not active. What was proven and what was not:
+> [Phase B — as executed](#phase-b--as-executed-2026-10-20).
 
 ## Mental Model
 
@@ -637,12 +639,64 @@ after a container restart `reconcile: profile=cafe-ia prior_state=stopped
 action=registered`, slot `down`, data intact. Independent of
 `/root/hermes-m1-backup/` (kept, not used).
 
-### Phase B only (not provable before deployment)
+### Phase B — as executed (2026-10-20)
 
-Telegram really connected with the real token; a reply from DeepSeek through
-Kaféine (level 4, human); `default` still answering; memories written under
-`profiles/cafe-ia/`; restart persistence of both slots on hermes-30; resources
-measured after; the second `changed=0` on the real host.
+Activation commit `e07b385` (the only entry of `hermes_profiles`; its revert
+is the declarative rollback). Deployed 22:51 UTC (18:51 AST), outside the
+cron windows, from `feat/hermes-cafe-ia`. The `--check` step was run without
+`--diff`.
+
+| Step | Result |
+|---|---|
+| `m2-preflight.yml` | GO: worst case ~2301 MiB at the 3584 floor, default connected (pid 160), no `profiles/cafe-ia`, no slot, 8646 free, ESTOP absent |
+| `deploy.yml --tags hermes` (1st) | `changed=5` exactly: create, SOUL seed, `.env` (3 keys), `config set` (6 keys), `gateway start`; **no handler**; every built-in check `ok` (getMe, managed-only `API_SERVER_KEY`, effective tools, loopback, Telegram connected, default same pid) |
+| `deploy.yml --tags hermes` (2nd) | `changed=0` |
+| `default` | same container (started 16:06:11, 0 restarts), gateway pid 160 continuous, Telegram ESTAB kept; `data/.env`, `data/config.yaml`, `SOUL.md`, managed `.env` and `config.yaml`, `cron/jobs.json` identical by sha256; 3 crons unchanged |
+| `cafe-ia` | slot up, `desired_state=running`, Telegram `connected`, own lock (`gateway-locks/`, two files now), `127.0.0.1:8646` only; `.env` 0600 with `TELEGRAM_BOT_TOKEN`, `API_SERVER_PORT`, `TAVILY_API_KEY` only (no `API_SERVER_KEY` appended); 0 memories, 0 sessions, own `state.db`, no `cron/jobs.json`; `mcp_servers` empty; config = declaration (`web.backend`, toolsets, 24 disabled, `skills.write_approval: true`) |
+| Resources | MemAvailable 7094 → ~6900 MiB; Kaféine gateway ~170 MB RSS, container 324 → 468 MiB; PSI 0, no swap, no OOM |
+| Telegram, human (level 4) | **default and Kaféine both answered** — confirmed by the user |
+
+**Not proven yet** — do not read them as validated:
+
+- **Restart persistence** of `gateway-cafe-ia`. The slot shows `normally
+  down`, which is expected (s6 does not restart it; `02-reconcile-profiles`
+  does, from `desired_state=running`), but no container restart or reboot has
+  happened since. Check at the next **organic** one: both slots up, both bots
+  connected. Step B8 was not run.
+- **B7 isolation by conversation** (Kaféine asked about something only default
+  knows; new memories landing under `profiles/cafe-ia/memories/`). Isolation is
+  proven by construction and by files only.
+
+## Operating profiles
+
+All from `hermes/`, with `direnv` loaded (the memory gate reads
+`TF_VAR_pm_api_*`). Never inside the cron windows of `default` (Mon/Wed 07:00
+UTC, Sat 08:00 UTC, ±2 h); `deploy.yml` does **not** check them, only the
+preflights do.
+
+| Goal | How |
+|---|---|
+| Activate a profile | its vault keys exist; add `- "{{ hermes_profile_<name> }}"` to `hermes_profiles` in **a dedicated commit**; port from `hermes_profile_reserved_ports` |
+| Check before | `m2-preflight.yml` (adapt `hermes_pf_profile` for a new one) — GO required |
+| Deploy changes | `ansible-playbook ansible/deploy.yml --tags hermes`, then again: `changed=0` |
+| Check state | `docker exec hermes /command/s6-svstat /run/service/gateway-<name>`; `profiles/<name>/gateway_state.json` (`desired_state`, Telegram `state`); `ss -ltn` → `127.0.0.1:864x` only; `ss -tnp` ESTAB to 149.154.x / 91.108.x |
+| Deactivate / roll back | `m2-rollback.yml` (stop + persist `stopped`, deletes nothing, default untouched), **then** `git revert` of the activation commit and `deploy.yml --tags hermes` (`changed=0`). Removing a profile from the list alone does **not** stop it |
+| Check isolation | profile `.env` holds only its declared keys; `mcp_servers` empty unless declared; one lock per bot in `/opt/data/.local/state/hermes/gateway-locks/` |
+| Avoid token conflicts | one **new** bot per profile (D2); `validate.yml` refuses duplicates and `getMe` the wrong bot — a shared token would let `--replace` kill the other gateway |
+
+## Limits and follow-up (after M2)
+
+- **No independent backup of `/opt/hermes/data`** — both profiles, memories,
+  sessions, crons (Known Gaps of [`hermes/README.md`](../../../README.md)).
+  Snapshot `pre-ch7` (2026-10-20) is kept for now; it is not a backup (same
+  host, same storage) and is deleted only on explicit approval.
+- **`hermes update`** runs `backfill_profile_envs`, which copies default's
+  `.env` — Telegram token included — into a profile **without** `.env`. Never
+  run it without checking every profile `.env` first.
+- **Restart persistence** of the profile slots: see "Not proven yet" above.
+- **Memory**: one more gateway fits the 3584 floor; **M3** (tech-watch, port
+  8643, reserved, still on the old bot's vault key) needs a floor around 4096.
+- Other profiles (daily-life, job-search) are out of M2.
 
 ## Tests
 
@@ -655,7 +709,7 @@ uv run pytest hermes/tests -q
 | `test_role_tasks.py` | runs the **real** `env_keys`, `soul_seed`, `profile_content`, `validate` task files with `ansible-playbook` on a throwaway directory: key preservation, idempotence, duplicates, check mode, no token in output (even `--diff -v`), seed-once, bytecode exclusion, guards |
 | `test_m1_operations.py` | backup/rollback of `data/.env` (absent, present with/without token), post-M1 backup refused, cron restart window, `deploy.yml` timezone pre_task under `--check`, read-only preflight |
 | `test_hermes_checks.py` | managed contract, Telegram verdict (connected / disconnected / unknown / absent / malformed / stale writer / dead pid), type-strict config comparison |
-| `test_inventory.py` | effective `hermes_profiles == []` (needs the vault password, skipped otherwise), definitive ids, no destructive task, `no_log` on every token task, task ordering, D1/D5 non-goals |
+| `test_inventory.py` | effective `hermes_profiles` names `== ["cafe-ia"]` (needs the vault password, skipped otherwise; prints names only), definitive ids, no destructive task, `no_log` on every token task, task ordering, D1/D5 non-goals |
 | `test_tech_watch_collect.py` | the tech-watch collector |
 | `test_m2_cafe_ia.py` | Kaféine, T01-T24: blank creation, SOUL seed and keep, nothing inherited from a lived-in default, no MCP, tokens (distinct, missing, unresolved vault key), allowlist, ports, `API_SERVER_KEY` (verbatim stage2 block: absent / present / key / repeat / concurrent; profile `.env` never touched), caches, idempotence, username, tool lists and verdicts, s6/Telegram/getMe verdicts, **real** rollback and preflight against a fake `docker`/`ss`, loopback verdict, coexistence; memory gate: balloon floor parsing, verdicts on the 2026-10-16 measurements, the real preflight against a fake Proxmox API (GET only, token never printed, missing credentials / unknown VM = NO-GO) |
 

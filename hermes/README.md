@@ -21,6 +21,7 @@ This project automates the deployment of [Hermes Agent](https://github.com/nousr
                               │  UFW: 22/tcp · 9119/tcp from .70     │
    caddy-70 ──────────────────┼─► hermes-dashboard   0.0.0.0:9119    │
    https://hermes.internal    │   hermes (gateway)   127.0.0.1:8642  │
+                              │     └ gateway-cafe-ia 127.0.0.1:8646 │
    (internal CA, basic auth)  │        │                             │
                               │        ├── /opt/hermes/managed  → /etc/hermes:ro
    dns-71 ────────────────────┤        │    ├── config.yaml  ← Ansible (root)
@@ -163,7 +164,8 @@ cd ../caddy  && ansible-playbook ansible/deploy.yml --tags caddy    # vhost → 
 | Control | Implementation |
 |---|---|
 | Firewall | UFW default deny in — `22/tcp` (any) + `9119/tcp` (**from `192.168.10.70` only**) |
-| Gateway API | Binds `127.0.0.1:8642`; `API_SERVER_KEY` as defense in depth |
+| Gateway API | Binds `127.0.0.1:8642` (default) and `127.0.0.1:8646` (Kaféine); `API_SERVER_KEY` as defense in depth |
+| Profiles | One gateway and **one Telegram bot per profile** (distinct tokens, checked by `getMe`); Kaféine: no MCP (no Kandidat), restricted toolsets, `skills.write_approval` — see [`roles/hermes_agent/README.md`](ansible/roles/hermes_agent/README.md) |
 | Dashboard | Username/password, session-signing secret, TLS terminated by Caddy |
 | Secrets | Ansible Vault → managed `.env` (`0640 root:1000`, read-only mount) — the agent can read it, **not rewrite it**; never in `config.yaml`. Exception: each profile's **Telegram bot token** lives in that profile's own `.env` (`0600`), written key by key — see [`roles/hermes_agent/README.md`](ansible/roles/hermes_agent/README.md) |
 | Telegram | One shared allowlist, pinned in the managed layer for every profile; `*_ALLOW_ALL_USERS` pinned to `false` |
@@ -249,13 +251,15 @@ platforms       : {"telegram": {"enabled": true}}   ← survives untouched
 │           │   ├── validate.yml                # inventory guards, before any write
 │           │   ├── env_keys.yml                # .env keys, one by one, no_log
 │           │   ├── soul_seed.yml               # SOUL.md seeded once
-│           │   ├── profiles.yml, profile.yml   # additional profiles (none yet)
+│           │   ├── profiles.yml, profile.yml   # additional profiles (cafe-ia deployed)
 │           │   └── profile_content.yml         # owned content, no bytecode
 │           ├── handlers/main.yml
 │           ├── filter_plugins/hermes_profiles.py
 │           ├── files/
 │           │   ├── hermes_checks.py            # checks run inside the container
-│           │   └── profiles/tech-watch/        # prepared, not deployed
+│           │   └── profiles/
+│           │       ├── cafe-ia/                # Kaféine — deployed (M2)
+│           │       └── tech-watch/             # prepared, not deployed (M3)
 │           └── templates/
 │               ├── docker-compose.yml.j2
 │               ├── config.yaml.j2              # Managed layer — no secrets
@@ -323,7 +327,7 @@ the client machine, same as `portail-client.internal`.
 
 ```bash
 ssh hermes-30 'sudo docker compose -f /opt/hermes/docker-compose.yml ps'
-ssh hermes-30 'sudo ss -tlnp | grep -E "8642|9119"'
+ssh hermes-30 'sudo ss -tlnp | grep -E "8642|8646|9119"'
 ssh hermes-30 'sudo ufw status numbered'
 ssh hermes-30 'sudo docker logs hermes --tail 50'
 ```

@@ -114,9 +114,9 @@ hermes_profile_tech_watch:
     cron.mirror_delivery: true
 
 # Kaféine — Café IA (veille IA grand public, preparation des rencontres).
-# PREPARE, NON DEPLOYE (M2 phase A) : n'entre dans hermes_profiles qu'en
-# phase B, une fois les deux cles vault creees. Tant qu'elles manquent, la
-# declaration ne se resout pas et le profil ne peut pas etre active.
+# DEPLOYE le 2026-10-20 (M2), active par le commit e07b385. Ses deux cles
+# vault sont obligatoires : si l'une manque, la declaration ne se resout pas et
+# le playbook echoue avant toute ecriture.
 #
 # Outils (D5) : recherche et lecture web, memoire, skills, rien d'autre. Ni
 # terminal, ni fichiers, ni navigateur, ni cron, ni MCP (donc pas Kandidat).
