@@ -8,8 +8,9 @@ the same container.
 > **Current state (mission M2 deployed, 2026-10-20).** Two profiles run in the
 > container: `default` (unchanged, bot of its own, 3 crons) and **Kaféine**
 > (`cafe-ia`, `gateway-cafe-ia`, `127.0.0.1:8646`, bot `kafeine_r64gnb_bot`),
-> the only entry of `hermes_profiles`. `tech-watch` is prepared, reserved for
-> M3, not active. What was proven and what was not:
+> the only entry of `hermes_profiles`. **Néo** (`tech-watch`) is prepared
+> (M3.2), not active — see [Néo](#néo--profile-tech-watch-mission-m3-prepared-not-active).
+> What was proven and what was not:
 > [Phase B — as executed](#phase-b--as-executed-2026-10-20).
 
 ## Mental Model
@@ -667,6 +668,61 @@ cron windows, from `feat/hermes-cafe-ia`. The `--check` step was run without
   knows; new memories landing under `profiles/cafe-ia/memories/`). Isolation is
   proven by construction and by files only.
 
+## Néo — profile `tech-watch` (mission M3, prepared, not active)
+
+Technical watch for Xavier: AI and agents, local AI, DevOps and cloud,
+development, open source. Declared in `hermes_profile_tech_watch`, port 8643,
+**not** in `hermes_profiles` until the M3.3 activation commit.
+
+**Tools**: Kaféine's matrix, unchanged (`web`, `skills` with
+`skills.write_approval: true`, `memory`, `session_search`, `todo`, `clarify`,
+`no_mcp`; the same 24-entry `agent.disabled_toolsets`). No cron key, no
+`cronjob`: the shipped collection scripts (`files/profiles/tech-watch/scripts/`)
+are deployed with the profile but nothing calls them — kept for a later
+automation mission. SOUL.md promises no schedule, file or attachment.
+
+**User context — `agent.environment_hint`, not a file.** Néo has no `file`
+toolset, so an `ENVIRONMENT.md` would never be read. Hermes v0.20.4 appends
+`agent.environment_hint` (string-typed) from the **profile's** `config.yaml` to
+the stable part of the system prompt (`prompt_builder.build_environment_hints`,
+called unconditionally by `system_prompt.build_system_prompt_parts`). Hence:
+present from the first conversation, scoped to tech-watch, independent of the
+agent's memory (never overwritten, never overwriting), updated by editing the
+group_vars and replaying `--tags hermes` (`config set`, then the gateway
+restarts). Proven offline on the real image by `test_m3_tech_watch.py`
+(Telegram system prompt of tech-watch carries SOUL.md + context; default's
+carries neither). It must stay free of secrets and addresses: it is plain
+prompt text. Neither the managed layer nor `HERMES_ENVIRONMENT_HINT` (which
+would win, for every profile) may carry it.
+
+**M3.3 prerequisites** (each one a NO-GO of `m3-preflight.yml` while missing):
+
+| Prerequisite | Where |
+|---|---|
+| Bot created in BotFather, `neo_<6 alphanum>_bot` (D2) | `hermes_tech_watch_telegram_bot_username` in group_vars — deliberately undefined until then |
+| Its token replaces the old « veille » bot's | `vault_hermes_tech_watch_telegram_bot_token` |
+| Tavily key, dedicated, with a monthly limit | `vault_hermes_tech_watch_tavily_api_key` (presence not verified in M3.2) |
+
+> ⚠️ `telegram_bot_username` goes through `mandatory`. A bare reference to an
+> undefined variable reads as "no username": `validate.yml` accepts it and
+> `profile.yml` **skips** getMe. Keep `mandatory` for any future profile whose
+> bot name is filled in later.
+
+**Preflight** — `m3-preflight.yml`: `preflight.yml` (default, timezone, cron
+window), then `deployed_profiles_preflight.yml` (every profile already in
+`hermes_profiles` — cafe-ia — connected, no cron due in its own
+`HERMES_HOME`, no `ESTOP` on default, the deployed profiles or the candidate),
+then `profile_preflight.yml` for tech-watch (validation with cafe-ia, blank
+page, port, memory gate). Never pass `hermes_profiles` as `-e` to a
+preflight: extra vars outrank the list it composes with the candidate.
+
+**Rollback** — `m3-rollback.yml`: `profile_rollback.yml` for tech-watch, then
+`profile_telegram_check.yml` on every other deployed profile. Deletes nothing.
+
+**Isolation limit (unchanged)**: one container, one UID. Profiles are separated
+by `HERMES_HOME` and by the toolset restrictions, not by the operating system;
+granting `terminal` or `file` to Néo would expose every profile's `.env`.
+
 ## Operating profiles
 
 All from `hermes/`, with `direnv` loaded (the memory gate reads
@@ -694,8 +750,9 @@ preflights do.
   `.env` — Telegram token included — into a profile **without** `.env`. Never
   run it without checking every profile `.env` first.
 - **Restart persistence** of the profile slots: see "Not proven yet" above.
-- **Memory**: one more gateway fits the 3584 floor; **M3** (tech-watch, port
-  8643, reserved, still on the old bot's vault key) needs a floor around 4096.
+- **Memory**: one more gateway fits the 3584 floor. For **M3** the 4096
+  estimate was revisited on 2026-10-21 (worst case at the floor ~2160 MiB
+  before Néo, ~1800-1900 after): the M3 preflight decides on deployment day.
 - Other profiles (daily-life, job-search) are out of M2.
 
 ## Tests
@@ -712,5 +769,6 @@ uv run pytest hermes/tests -q
 | `test_inventory.py` | effective `hermes_profiles` names `== ["cafe-ia"]` (needs the vault password, skipped otherwise; prints names only), definitive ids, no destructive task, `no_log` on every token task, task ordering, D1/D5 non-goals |
 | `test_tech_watch_collect.py` | the tech-watch collector |
 | `test_m2_cafe_ia.py` | Kaféine, T01-T24: blank creation, SOUL seed and keep, nothing inherited from a lived-in default, no MCP, tokens (distinct, missing, unresolved vault key), allowlist, ports, `API_SERVER_KEY` (verbatim stage2 block: absent / present / key / repeat / concurrent; profile `.env` never touched), caches, idempotence, username, tool lists and verdicts, s6/Telegram/getMe verdicts, **real** rollback and preflight against a fake `docker`/`ss`, loopback verdict, coexistence; memory gate: balloon floor parsing, verdicts on the 2026-10-16 measurements, the real preflight against a fake Proxmox API (GET only, token never printed, missing credentials / unknown VM = NO-GO) |
+| `test_m3_tech_watch.py` | Néo, prepared: identity, bot name as a hard M3.3 prerequisite (`mandatory`, getMe not skippable), SOUL.md (five domains, local AI, no Caribbean axis, no cron/file promise), Kaféine's tool matrix, Tavily, convergence, inactive scripts, context facts; **real image, offline** (skipped without it): config applied and converging, SOUL.md + context in the Telegram system prompt, effective toolsets; preflight of the deployed profiles (cafe-ia connected, cron, ESTOP) and of the candidate (shared token, port, existing profile, memory), rollback targeting tech-watch only |
 
 Fake tokens only; nothing reaches hermes-30.
