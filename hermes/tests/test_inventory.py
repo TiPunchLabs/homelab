@@ -89,13 +89,15 @@ def test_t16_reserved_ports_use_definitive_ids(group_vars: dict[str, Any]) -> No
 
 
 def test_t16_tech_watch_is_prepared_not_active(group_vars: dict[str, Any]) -> None:
-    """T16/D2: Alex is tech-watch, reuses the ex-veille vault token, stays out of the list."""
-    alex = group_vars["hermes_profile_tech_watch"]
-    assert alex["name"] == "tech-watch"
-    assert alex["api_server_port"] == group_vars["hermes_profile_reserved_ports"]["tech-watch"]
-    assert alex["telegram_bot_token"] == "{{ vault_hermes_tech_watch_telegram_bot_token }}"
-    assert "telegram_allowed_users" not in alex
-    assert alex not in group_vars["hermes_profiles"]
+    """T16/D2: Néo is tech-watch, on its own vault keys and bot name, still out of the list."""
+    neo = group_vars["hermes_profile_tech_watch"]
+    assert neo["name"] == "tech-watch"
+    assert neo["description"].startswith("Néo — ")
+    assert neo["api_server_port"] == group_vars["hermes_profile_reserved_ports"]["tech-watch"]
+    assert neo["telegram_bot_token"] == "{{ vault_hermes_tech_watch_telegram_bot_token }}"
+    assert "hermes_tech_watch_telegram_bot_username" in neo["telegram_bot_username"]
+    assert "telegram_allowed_users" not in neo
+    assert neo not in group_vars["hermes_profiles"]
 
 
 def test_t16_no_veille_identifier_left() -> None:
@@ -120,9 +122,12 @@ def test_t16_no_veille_identifier_left() -> None:
 
 
 def test_t16_prepared_profile_passes_the_guards(run_tasks: RunTasks, group_vars: dict[str, Any]) -> None:
-    """The prepared tech-watch definition is valid as is (fake token substituted)."""
-    alex = group_vars["hermes_profile_tech_watch"] | {"telegram_bot_token": FAKE_TOKEN_2}
-    alex["env"] = {"TAVILY_API_KEY": "fake"}
+    """The prepared tech-watch definition is valid as is (fake token and bot name substituted)."""
+    neo = group_vars["hermes_profile_tech_watch"] | {
+        "telegram_bot_token": FAKE_TOKEN_2,
+        "telegram_bot_username": "neo_FAKE00_bot",
+    }
+    neo["env"] = {"TAVILY_API_KEY": "fake"}
     result = run_tasks(
         "validate.yml",
         {
@@ -130,7 +135,7 @@ def test_t16_prepared_profile_passes_the_guards(run_tasks: RunTasks, group_vars:
             "hermes_telegram_bot_token": FAKE_TOKEN,
             "hermes_telegram_allowed_users": group_vars["hermes_telegram_allowed_users"],
             "hermes_profile_reserved_ports": group_vars["hermes_profile_reserved_ports"],
-            "hermes_profiles": [alex],
+            "hermes_profiles": [neo],
         },
     )
     assert result.returncode == 0, result.stdout

@@ -145,7 +145,7 @@ def test_env_keys_check_mode_writes_nothing(run_tasks: RunTasks, data_dir: Path)
 
 # --- SOUL.md seed -----------------------------------------------------------
 
-SEED = "Tu es **Alex**.\n"
+SEED = "Tu es **Néo**.\n"
 STOCK = "You are Hermes Agent, an intelligent AI assistant created by Nous Research."
 
 
@@ -179,7 +179,7 @@ def profile_soul(data_dir: Path) -> Path:
 def test_t05_customised_soul_is_never_touched(run_tasks: RunTasks, tmp_path: Path, profile_soul: Path) -> None:
     """T05: a SOUL.md edited by the user keeps its content, mode and mtime."""
     dest = profile_soul
-    dest.write_text("Tu es Alex, version retouchee depuis le dashboard.\n")
+    dest.write_text("Tu es Néo, version retouchee depuis le dashboard.\n")
     dest.chmod(0o640)
     before = (dest.read_bytes(), dest.stat().st_mode, dest.stat().st_mtime_ns)
     result = seed(run_tasks, tmp_path, dest)

@@ -1,0 +1,96 @@
+---
+# =============================================================================
+# Preflight des profils DEJA deployes : LECTURE SEULE, a jouer apres
+# preflight.yml (qui couvre default) et avant profile_preflight.yml.
+#
+# Entree : hermes_pf_candidate_name, le profil sur le point d'etre ajoute ;
+# il est exclu de la boucle (pas encore deploye).
+#
+# NO-GO si, pour un profil de hermes_profiles autre que le candidat :
+#   - sa gateway n'est pas supervisee ET connectee a Telegram (niveaux 1-3) :
+#     on n'ajoute pas un profil a cote d'un autre deja en panne ;
+#   - un de ses jobs cron pourrait partir maintenant (meme verdict que pour
+#     default, lu dans SON HERMES_HOME) ;
+# ou si un ESTOP est pose sur default, un profil deploye ou le candidat : un
+# arret d'urgence est une decision humaine en cours, pas un etat a ignorer.
+# N'affiche que des noms, des etats et des horodatages — jamais une valeur.
+# =============================================================================
+
+- name: Check that each deployed profile gateway is connected to Telegram
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - telegram
+      - "/opt/data/profiles/{{ item }}/gateway_state.json"
+      - "gateway-{{ item }}"
+  loop: "{{ hermes_pf_deployed }}"
+  register: hermes_pf_deployed_telegram
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  vars: &hermes_pf_deployed_names
+    hermes_pf_deployed: "{{ hermes_profiles | map(attribute='name') | reject('eq', hermes_pf_candidate_name) | list }}"
+
+- name: Check that no cron job of a deployed profile can fire now
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - -e
+      - "HERMES_HOME=/opt/data/profiles/{{ item }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - schedule-window
+      - "{{ hermes_restart_safety_window_minutes }}"
+  loop: "{{ hermes_pf_deployed }}"
+  register: hermes_pf_deployed_schedule
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  vars: *hermes_pf_deployed_names
+
+# noqa jinja[invalid] : ansible-lint rend hermes_pf_deployed avec une valeur
+# factice de type chaine, que la concatenation de listes refuse.
+- name: Look for an emergency stop on default, the deployed profiles and the candidate  # noqa: jinja[invalid]
+  ansible.builtin.stat:
+    path: "{{ item }}/ESTOP"
+    get_checksum: false
+  loop: >-
+    {{ [hermes_data_dir]
+       + (hermes_pf_deployed + [hermes_pf_candidate_name])
+         | map('regex_replace', '^', hermes_data_dir ~ '/profiles/') | list }}
+  register: hermes_pf_estop
+  vars: *hermes_pf_deployed_names
+
+- name: Report the deployed profiles state
+  ansible.builtin.debug:
+    msg:
+      - "{{ hermes_pf_deployed_telegram.results | map(attribute='item') | zip(hermes_pf_deployed_telegram.results
+          | map(attribute='stdout')) | map('join', ' : telegram ') | list }}"
+      - "{{ hermes_pf_deployed_schedule.results | map(attribute='stdout_lines') | flatten }}"
+      - "ESTOP : {{ hermes_pf_estop.results | selectattr('stat.exists') | map(attribute='item') | list or 'aucun' }}"
+
+- name: Assert that every deployed profile is healthy and no emergency stop is set
+  ansible.builtin.assert:
+    that:
+      - hermes_pf_deployed_telegram.results | rejectattr('rc', 'eq', 0) | list | length == 0
+      - hermes_pf_deployed_schedule.results | rejectattr('rc', 'eq', 0) | list | length == 0
+      - hermes_pf_estop.results | selectattr('stat.exists') | list | length == 0
+    fail_msg: >-
+      NO-GO : profil deploye deconnecte ({{ hermes_pf_deployed_telegram.results
+      | rejectattr('rc', 'eq', 0) | map(attribute='item') | list }}), job cron
+      imminent ({{ hermes_pf_deployed_schedule.results | rejectattr('rc', 'eq', 0)
+      | map(attribute='item') | list }}) ou ESTOP pose ({{ hermes_pf_estop.results
+      | selectattr('stat.exists') | map(attribute='item') | list }}).
+    quiet: true
