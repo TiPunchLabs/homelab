@@ -1,0 +1,36 @@
+---
+# Lecture seule : jouable a tout moment, y compris avant --check.
+#   ansible-playbook ansible/m4-preflight.yml
+# Resoudre la declaration de Scout exige ses trois cles vault (jeton, Tavily,
+# contexte professionnel) : leur absence est un NO-GO voulu.
+# Ne jamais passer hermes_profiles ni un seuil memoire en -e.
+- name: Preflight M4 de hermes-30 — LECTURE SEULE (default, cafe-ia, tech-watch, profil job-search)
+  hosts: hermes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run preflight.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: preflight.yml
+
+    - name: Run deployed_profiles_preflight.yml (cafe-ia, tech-watch)
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: deployed_profiles_preflight.yml
+      vars:
+        hermes_pf_candidate_name: job-search
+
+    - name: Run profile_preflight.yml for job-search
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: profile_preflight.yml
+      vars:
+        hermes_pf_profile: "{{ hermes_profile_job_search }}"
+
+    - name: Run candidate_bot_identity.yml for job-search
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: candidate_bot_identity.yml
+      vars:
+        hermes_pf_profile: "{{ hermes_profile_job_search }}"

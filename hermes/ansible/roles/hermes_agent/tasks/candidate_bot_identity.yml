@@ -1,0 +1,50 @@
+---
+# =============================================================================
+# getMe du profil CANDIDAT, avant son deploiement : LECTURE SEULE.
+#
+# Entree : hermes_pf_profile, la declaration du candidat (resolue : jeton du
+# vault et nom du bot). Le profil n'existe pas encore sur l'hote, donc pas de
+# .env a lire : le jeton passe sur stdin (`bot-identity -`), jamais en argv.
+#
+# NO-GO si le jeton est refuse par Telegram ou appartient a un autre bot que
+# celui declare (jeton colle sous la mauvaise cle du vault). L'unicite des
+# jetons, elle, est verifiee par validate.yml (profile_preflight.yml).
+# getMe et non getUpdates : identite seule, aucun message vole.
+# N'affiche que le verdict de hermes_checks.py, qui ne contient jamais le jeton.
+# =============================================================================
+
+- name: Ask Telegram getMe who owns the candidate token
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -i
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - bot-identity
+      - "-"
+      - "{{ hermes_pf_profile.telegram_bot_username }}"
+    stdin: "{{ hermes_pf_profile.telegram_bot_token }}"
+  register: hermes_pf_bot_identity
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  no_log: true
+
+- name: Report the candidate bot identity
+  ansible.builtin.debug:
+    msg: "getMe {{ hermes_pf_profile.name }} : {{ hermes_pf_bot_identity.stdout | default('') | trim }}"
+
+- name: Assert that the candidate token belongs to its declared bot
+  ansible.builtin.assert:
+    that:
+      - hermes_pf_bot_identity.rc == 0
+    fail_msg: >-
+      NO-GO : getMe ne confirme pas le bot de {{ hermes_pf_profile.name }}
+      ({{ hermes_pf_bot_identity.stdout | default('') | trim }}). Verifier le
+      jeton au vault et le nom declare ; ne pas deployer.
+    quiet: true

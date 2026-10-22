@@ -1,0 +1,255 @@
+# =============================================================================
+# Brouillons des crons emploi de Scout (profil job-search) — M4.2.
+#
+# ⚠️ BROUILLONS INACTIFS. Rien ne lit ce fichier : aucun playbook, aucune
+# tache, aucun jobs.json. Les crons `veille-emploi` et `prospection-entreprises`
+# de default restent actifs et inchanges jusqu'a la bascule M4.4, faite par
+# l'operateur avec la CLI `hermes cron` (procedure : roles/hermes_agent/README.md,
+# section Scout).
+#
+# Adaptes des prompts de default (audit M4.1), logique conservee : familles
+# A/B/C, sources, fraicheur, filtre geographique, 2-3 offres / 3-8 entreprises,
+# reserves argumentees. Retires : Kandidat, terminal, scripts, fichiers,
+# navigateur. Ajoutes : web_search / web_extract, le contexte prive
+# (agent.environment_hint), la deduplication par session_search et
+# l'interdiction de [SILENT].
+#
+# Depot PUBLIC : aucune donnee personnelle ici. Le niveau reel, le parcours,
+# les certifications, le niveau de langue, les domaines d'interet non acquis
+# et la liste des entreprises ecartees viennent du contexte professionnel
+# chiffre (vault_hermes_job_search_environment_hint).
+#
+# Champs = options de `hermes -p job-search cron create` (v0.20.4) :
+#   schedule (UTC, horloge du conteneur), --name, --deliver, --continuity.
+#
+# continuity: false, a dessein. --continuity (context_from: self) injecte les
+# 8000 PREMIERS caracteres du dernier fichier de sortie du job, or ce fichier
+# commence par le prompt construit (consigne cron + sortie precedente + prompt)
+# et finit par la reponse : le 2e run voit la reponse du 1er, mais des le 3e,
+# la reponse precedente n'est plus injectee, seulement un fragment perime
+# d'une plus ancienne (prouve sur l'image, tests/test_m4_scout.py). La
+# deduplication passe par session_search, qui retrouve les sessions cron du
+# profil (retrogradees, pas exclues) sur tout l'historique, pas seulement le
+# dernier run. Limite : recherche par mots, non garantie ; la 1re execution
+# de Scout ne voit rien de l'historique de default.
+#   deliver : chat Telegram de la liste blanche (hermes_telegram_allowed_users),
+#   envoye par le bot du profil qui execute le job, donc Scout.
+# =============================================================================
+
+veille-emploi:
+  # Lundi 07:00 UTC = lundi 03:00 en Guadeloupe. Identique a default.
+  schedule: "0 7 * * 1"
+  deliver: "telegram:8854358938"
+  continuity: false
+  prompt: |-
+    Tu exécutes la veille hebdomadaire d'offres d'emploi de l'utilisateur.
+    Personne ne te lit pendant l'exécution : ne pose aucune question, va au bout
+    de la procédure ou signale précisément où tu t'es arrêté.
+
+    Outils : web_search pour trouver, web_extract pour lire une page. Tu n'as ni
+    terminal, ni script, ni fichier, ni navigateur, ni Kandidat : ne les cherche
+    pas. Ne crée et ne modifie aucun skill pendant cette exécution.
+
+    Ne réponds jamais [SILENT] : même un résultat vide fait l'objet d'un compte
+    rendu.
+
+    ## Étape 1 — Contexte
+
+    Ton contexte professionnel (prompt système) fait autorité pour filtrer :
+    niveau réel par famille, ancienneté, langues, postes à écarter, entreprises
+    écartées. Respecte-le, ne surestime jamais le niveau.
+
+    Avant de retenir une offre, utilise session_search (nom de l'entreprise,
+    puis intitulé du poste) pour vérifier qu'elle n'a pas déjà été présentée
+    dans une veille précédente. Une offre déjà présentée n'est reprise que si
+    elle a changé (nouvelle date, conditions de télétravail précisées), avec la
+    mention « déjà vue le <date> ». Cette vérification est une aide, pas une
+    garantie : en cas de doute, signale-le.
+
+    ## Étape 2 — Familles de postes
+
+    Trois familles, toutes recevables :
+    - A. DevOps / Platform Engineer / SRE / Ingénieur Cloud / Infrastructure
+    - B. Développeur Python (contexte automatisation, outillage, backend)
+    - C. Développeur Java / Spring Boot / Spring Batch
+
+    Applique à chaque famille les filtres de niveau et d'ancienneté de ton
+    contexte. Un intitulé « senior » ne suffit pas à écarter une offre : juge
+    les responsabilités et les compétences réellement demandées. Écarte les
+    postes centrés sur un domaine que ton contexte présente comme un intérêt ou
+    un axe de progression : ce n'est pas une compétence acquise.
+
+    Langues : applique la grille de ton SOUL au niveau déclaré dans ton
+    contexte. Écarte « peu adapté » ; retiens « à vérifier » avec une réserve
+    explicite.
+
+    Mots-clés, au moins une requête par famille sur chaque source :
+    - A : devops, sre, platform engineer, cloud, ingénieur cloud, infrastructure,
+      kubernetes, openshift, ansible, terraform
+    - B : python, développeur python, backend python, automatisation, scripting,
+      django, fastapi
+    - C : java, développeur java, spring, spring boot, kotlin
+    Complète avec « Guadeloupe » pour le local, et « full remote » / « télétravail »
+    pour la France. Une famille qui ne remonte rien sur une source n'est pas un
+    échec : ne le signale que si une piste proche a été écartée de peu.
+
+    ## Étape 3 — Sources
+
+    Jobboards (web_search ciblé, par exemple `site:remotefr.com devops`, puis
+    web_extract de la fiche de chaque offre candidate) :
+    - remotefr.com — offres 100 % télétravail datées (pages /competences/devops,
+      /python, /java)
+    - free-work.com — CDI/CDD uniquement, écarte les missions freelance
+    - leremote.fr — jobboard dédié au télétravail ; la fiche expose la date de
+      publication, le contrat et la localisation
+    - France Travail — recherche « Guadeloupe » (devops, java, python, développeur)
+
+    Boards de cabinets et d'ESN (point de départ ; l'accessibilité change, si un
+    site est vide, bloqué ou en SPA illisible, note-le en une ligne et passe) :
+    - Cabinets : jobs.talentysrh.com/jobs, alphaconseil.nos-recrutements.fr/jobs,
+      workandyou.fr/nos-offres, caribeaconseil.com/offres-emploi,
+      externatic.fr/offres, mercato-emploi.com/offres-emploi
+    - ESN : c2i-outremer.com/recrutement (offres souvent > 30 j),
+      es2icaraibes.com/jobs, recrutement.gbh.fr (chercher « informatique »),
+      jobs.lever.co/margo-group (souvent hybride ou sur site à Paris),
+      seyos.fr/offres (souvent bloqué)
+    - antillesrecrutement.com, fallonrecrutement.com, anvole.com : portails sans
+      offres publiques, canal de candidature spontanée, pas de veille d'offres
+
+    Retour d'expérience : les boards des cabinets antillais généralistes sont
+    surtout BTP, commerce, comptabilité, industrie ; ceux des ESN locales plutôt
+    ERP, chef de projet, management. Ne t'attarde pas si rien d'IT n'apparaît
+    dans les premières offres.
+
+    ## Étape 4 — Localisation et fraîcheur
+
+    Offres publiées ou actualisées depuis moins de 30 jours. Sans date lisible,
+    dis-le : ne présume pas qu'une offre est encore ouverte.
+
+    Localisation acceptée :
+    - Guadeloupe — sur site ou à distance
+    - France — UNIQUEMENT en télétravail total (100 % remote), accessible depuis
+      la Guadeloupe : qualifie-le confirmé / à vérifier
+    Rejette toute offre exigeant une présence régulière hors de Guadeloupe, même
+    partielle. Une offre « remote » sans précision de zone est « à vérifier »,
+    jamais « confirmée ».
+
+    ## Étape 5 — Sélection
+
+    Retiens 2 offres, 3 au maximum, toutes familles confondues. À adéquation
+    comparable : A avant B avant C. Priorité : haute pour un bon A, moyenne pour
+    un bon B ou C, basse pour une offre acceptable mais imparfaite.
+
+    Mieux vaut n'en retenir aucune que d'en retenir une qui ne correspond pas :
+    une offre faible coûte plus cher qu'une semaine vide.
+
+    N'invente jamais une URL d'offre. Si tu ne peux pas citer le lien direct,
+    l'offre n'est pas retenue. Tu n'enregistres rien nulle part : ta réponse est
+    le seul livrable.
+
+    ## Étape 6 — Compte rendu (ta réponse finale, en français)
+
+    Aucune offre retenue :
+      « Veille du <date> : aucune offre correspondante cette semaine. »
+      Ajoute une ligne sur ce qui a bloqué, si un critère a écarté des candidates
+      proches.
+
+    Offres retenues :
+      « Veille du <date> : <N> offre(s) retenue(s). »
+      Puis, pour chaque offre :
+      - <poste> — <entreprise>
+      - Localisation / télétravail : <lieu> — <confirmé | à vérifier>
+      - Famille <A|B|C>, priorité <haute|moyenne|basse>, publiée le <date>
+      - Pourquoi elle correspond (3 à 5 lignes) et réserves
+      - Lien : <URL directe>
+      - Action recommandée
+
+    Offres déjà présentées lors d'une veille précédente : une ligne, sans les
+    détailler.
+    Sources inaccessibles : une ligne.
+
+prospection-entreprises:
+  # Mercredi 07:00 UTC = mercredi 03:00 en Guadeloupe. Identique a default.
+  schedule: "0 7 * * 3"
+  deliver: "telegram:8854358938"
+  continuity: false
+  prompt: |-
+    Tu exécutes la prospection hebdomadaire de l'utilisateur. Sa demande, à
+    traiter à la lettre :
+
+    « Trouve-moi les entreprises qui semblent avoir un besoin informatique
+    compatible avec mon profil, même lorsqu'elles n'ont pas publié d'offre. »
+
+    Personne ne te lit pendant l'exécution : ne pose aucune question, va au bout
+    ou signale précisément où tu t'es arrêté.
+
+    Outils : web_search pour trouver, web_extract pour lire une page. Tu n'as ni
+    terminal, ni script, ni fichier, ni navigateur, ni Kandidat : ne les cherche
+    pas. Ne crée et ne modifie aucun skill pendant cette exécution.
+
+    Ne réponds jamais [SILENT] : même un résultat vide fait l'objet d'un compte
+    rendu.
+
+    ## Étape 1 — Contexte
+
+    Ton contexte professionnel (prompt système) fait autorité : niveau réel,
+    polyvalence, postes à écarter, entreprises écartées. Ne propose JAMAIS de
+    piste dont les responsabilités réelles dépassent le niveau de ton contexte ;
+    un intitulé seul (« senior », « lead ») ne tranche pas, lis les missions.
+
+    Familles compatibles : A (DevOps / Platform / SRE / Cloud / Infrastructure),
+    B (Python, contexte automatisation et backend), C (Java / Spring).
+
+    ## Étape 2 — Périmètre
+
+    Exclus :
+    - les entreprises déjà proposées lors d'une prospection précédente :
+      vérifie chaque nom avec session_search avant de le retenir (sauf signal
+      nouveau et notable, mentionné comme tel) ;
+    - les entreprises écartées de ton contexte professionnel.
+    Pour toutes les autres, la prospection est ouverte.
+
+    Signaux de besoin IT compatible, même sans offre publiée :
+    - recrutements IT récents ou récemment pourvus (offres retirées, annonces
+      expirées depuis moins de 4 mois)
+    - croissance visible : levée de fonds, expansion, lancement de produit ou de
+      service, ouverture de site
+    - transformation annoncée : migration cloud, numérisation, projets data/IA,
+      modernisation du SI
+    - DSI locale en développement en Guadeloupe / Antilles-Guyane, ou entreprise
+      française ouverte au full remote
+    - actualités du site carrières, de LinkedIn ou de la presse (≤ 3-4 mois)
+
+    Localisation : Guadeloupe (idéal) ou full remote France accessible depuis la
+    Guadeloupe. Hors périmètre : grands groupes hors zone, besoins centrés sur
+    un domaine que ton contexte présente comme un intérêt et non comme une
+    compétence acquise, signaux vagues ou de plus de 4 mois.
+
+    ## Étape 3 — Livrable
+
+    Pour chaque entreprise retenue (3 à 8 au maximum, les plus crédibles) :
+    - nom, localisation, secteur, taille si connue
+    - les signaux observés, CHACUN avec une source vérifiable (URL) et sa date
+    - le besoin IT suspecté et la famille A/B/C correspondante
+    - une recommandation d'approche (candidature spontanée ciblée, contact
+      DSI/RH, angle de message)
+
+    N'invente JAMAIS une source : pas de signal sans URL vérifiable. N'annonce
+    jamais une offre ouverte que tu n'as pas vue.
+
+    Tu ne crées rien et tu ne contactes personne : tu proposes, l'utilisateur
+    décide.
+
+    ## Étape 4 — Compte rendu (ta réponse finale, en français)
+
+    Entreprises trouvées :
+      « Prospection du <date> : N entreprise(s) candidate(s) identifiée(s). »
+      Puis une section par entreprise : signaux sourcés et datés, besoin suspecté,
+      famille, approche recommandée.
+      Termine par : « Rien n'a été enregistré ni envoyé — dis-moi lesquelles
+      suivre. »
+
+    Rien de crédible :
+      « Prospection du <date> : aucune nouvelle entreprise candidate crédible. »
+      Ajoute une ligne sur ce qui a été écarté (déjà proposées, signaux trop
+      faibles).

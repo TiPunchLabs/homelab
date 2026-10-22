@@ -1,0 +1,30 @@
+---
+# Rollback M4 : arrete Scout (job-search) et l'empeche de repartir. Ne supprime
+# rien (memoires, sessions, .env, jeton restent), ne touche ni a default, ni a
+# cafe-ia, ni a tech-watch, ni a leurs crons ; ne redemarre pas le conteneur.
+#   ansible-playbook ansible/m4-rollback.yml
+# Puis retirer job-search de hermes_profiles (git revert du commit
+# d'activation) et rejouer deploy.yml --tags hermes : changed=0 attendu.
+# Si des crons emploi ont deja ete bascules sur Scout (M4.4), les reprendre
+# d'abord sur default (procedure du README du role, section Scout).
+- name: Rollback M4 de hermes-30 — arret du profil job-search
+  hosts: hermes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run profile_rollback.yml for job-search
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: profile_rollback.yml
+      vars:
+        hermes_rb_profile_name: job-search
+
+    # profile_rollback.yml ne recontrole que default : cafe-ia et tech-watch
+    # doivent eux aussi etre restes connectes.
+    - name: Run profile_telegram_check.yml for every other deployed profile
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: profile_telegram_check.yml
+      loop: "{{ hermes_profiles | map(attribute='name') | reject('eq', 'job-search') | list }}"
+      loop_control:
+        loop_var: hermes_tc_profile_name

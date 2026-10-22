@@ -84,6 +84,9 @@
   # rc=1 : cle absente, donc a poser.
   failed_when: hermes_profile_config_current.rc not in [0, 1]
   when: not ansible_check_mode
+  # Valeur privee (config_no_log) : ni le stdout lu ici ni l'argv du `config
+  # set` ne doivent apparaitre, meme en echec ou en -vvv. Evalue par element.
+  no_log: "{{ item.key in hermes_profile.config_no_log | default([]) }}"
 
 # Comparaison typee (filtre hermes_config_equal) : true != "true", 42 != "42",
 # mappings et listes compares en JSON canonique.
@@ -109,6 +112,7 @@
     - not ansible_check_mode
     - item.rc == 1 or not (item.stdout | hermes_config_equal(item.item.value))
   register: hermes_profile_config_set
+  no_log: "{{ item.item.key in hermes_profile.config_no_log | default([]) }}"
 
 # =============================================================================
 # Controles AVANT le demarrage du gateway : un jeton qui serait celui d'un
