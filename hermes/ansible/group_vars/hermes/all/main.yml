@@ -137,16 +137,23 @@ hermes_profile_tech_watch:
       - no_mcp
     platform_toolsets.cron: *hermes_tech_watch_toolsets
     platform_toolsets.api_server: *hermes_tech_watch_toolsets
+    platform_toolsets.cli: *hermes_tech_watch_toolsets
     # `skills` est indivisible (skill_manage inclus) : toute ecriture de skill
     # attend `/skills approve <id>`. Voir la section Kaféine du README du role.
     skills.write_approval: true
     # Liste noire appliquee EN DERNIER, sur toutes les plateformes (cli
     # comprise). Meme liste que Kaféine, verifiee sur l'image v2026.8.18.
+    # `browser` n'y figure PAS : sur v2026.8.18 ce toolset embarque `web_search`
+    # (toolsets.py) et la liste noire est soustraite outil par outil, en
+    # dernier : elle retirait web_search et laissait web_extract. Les
+    # browser_* restent hors des listes blanches des QUATRE plateformes (sans
+    # platform_toolsets.cli, la cli retomberait sur les toolsets par defaut,
+    # browser compris) ; le controle `toolsets` de profile.yml verifie toolset
+    # ET outil par outil ce que le modele recoit.
     agent.disabled_toolsets:
       - terminal
       - file
       - code_execution
-      - browser
       - computer_use
       - delegation
       - cronjob
@@ -214,6 +221,7 @@ hermes_profile_cafe_ia:
       - no_mcp
     platform_toolsets.cron: *hermes_cafe_ia_toolsets
     platform_toolsets.api_server: *hermes_cafe_ia_toolsets
+    platform_toolsets.cli: *hermes_cafe_ia_toolsets
     # Le toolset `skills` est indivisible (skills_list, skill_view et
     # skill_manage) : impossible de retirer skill_manage seul. Ce verrou met
     # en attente toute ecriture de skill (create, edit, patch, delete,
@@ -222,11 +230,17 @@ hermes_profile_cafe_ia:
     skills.write_approval: true
     # Liste noire appliquee EN DERNIER par Hermes, sur toutes les plateformes
     # (cli comprise) : le vrai verrou si une liste blanche venait a s'elargir.
+    # `browser` n'y figure PAS : sur v2026.8.18 ce toolset embarque `web_search`
+    # (toolsets.py) et la liste noire est soustraite outil par outil, en
+    # dernier : elle retirait web_search et laissait web_extract. Les
+    # browser_* restent hors des listes blanches des QUATRE plateformes (sans
+    # platform_toolsets.cli, la cli retomberait sur les toolsets par defaut,
+    # browser compris) ; le controle `toolsets` de profile.yml verifie toolset
+    # ET outil par outil ce que le modele recoit.
     agent.disabled_toolsets:
       - terminal
       - file
       - code_execution
-      - browser
       - computer_use
       - delegation
       - cronjob

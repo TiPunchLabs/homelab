@@ -1,0 +1,22 @@
+---
+# Lecture seule : avant de REJOUER deploy.yml --tags hermes sur des profils
+# tous deja deployes (changement de config, correctif). Pas de candidat :
+# m3-preflight.yml repond NO-GO des que tech-watch existe, a raison.
+#   ansible-playbook ansible/profiles-preflight.yml
+# NO-GO si default est deconnecte ou si un de ses crons peut partir, si un
+# profil de hermes_profiles est deconnecte ou a un cron imminent, ou si un
+# ESTOP est pose.
+- name: Preflight des profils deployes de hermes-30 — LECTURE SEULE (default + hermes_profiles)
+  hosts: hermes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run preflight.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: preflight.yml
+
+    - name: Run deployed_profiles_preflight.yml (every profile, no candidate)
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: deployed_profiles_preflight.yml

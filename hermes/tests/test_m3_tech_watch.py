@@ -326,7 +326,8 @@ def test_n05_tool_matrix_is_kafeines(neo: dict[str, Any], cafe: dict[str, Any]) 
     assert "no_mcp" in cfg["platform_toolsets.telegram"]
     assert (allowed | denied) <= HERMES_TOOLSETS
     assert not allowed & denied
-    assert SENSITIVE <= denied
+    assert SENSITIVE - {"browser"} <= denied
+    assert not SENSITIVE & allowed
     assert {
         "terminal",
         "file",
@@ -336,7 +337,7 @@ def test_n05_tool_matrix_is_kafeines(neo: dict[str, Any], cafe: dict[str, Any]) 
         "delegation",
     } <= denied
     assert denied == set(cafe["config"]["agent.disabled_toolsets"])
-    for platform in ("cron", "api_server"):
+    for platform in ("cron", "api_server", "cli"):
         assert cfg[f"platform_toolsets.{platform}"] == cfg["platform_toolsets.telegram"]
     assert cfg["skills.write_approval"] is True
 
@@ -587,7 +588,7 @@ def test_n08_lab_tool_restrictions_are_effective(lab: dict[str, Any]) -> None:
     """Real image, gateway code path: telegram, cron, api_server and cli expose only the allowed toolsets."""
     rc, out = lab["toolsets"]
     assert rc == 0, out
-    assert set(out.strip().removeprefix("toolsets restricted to: ").split(", ")) == ALLOWED
+    assert set(out.strip().removeprefix("toolsets restricted to: ").split(" | tools: ")[0].split(", ")) == ALLOWED
 
 
 # --- Preflight M3 -------------------------------------------------------------
@@ -849,6 +850,67 @@ def test_n09_new_preflight_is_read_only() -> None:
             assert not write_modules & task.keys(), task["name"]
             if "ansible.builtin.command" in task:
                 assert task["changed_when"] is False and task["check_mode"] is False, task["name"]
+
+
+# --- Preflight d'une mise a jour (M3.3.1) : tous les profils deja deployes -----
+
+PROFILES_PREFLIGHT = HERMES / "ansible/profiles-preflight.yml"
+
+
+def update_preflight(run: RunTasks, host: dict[str, Any], cafe: dict[str, Any], neo: dict[str, Any]) -> Any:
+    """Run the real deployed_profiles_preflight.yml with no candidate: cafe-ia and tech-watch both deployed."""
+    return run(
+        "deployed_profiles_preflight.yml",
+        {"hermes_profiles": [cafe, resolved(neo)], "hermes_data_dir": str(host["data"])},
+    )
+
+
+def test_n11_profiles_preflight_playbook_has_no_candidate() -> None:
+    """profiles-preflight: default, then every deployed profile; no candidate, no blank-page check."""
+    tasks = yaml.safe_load(PROFILES_PREFLIGHT.read_text())[0]["tasks"]
+    assert [t["ansible.builtin.include_role"]["tasks_from"] for t in tasks] == [
+        "preflight.yml",
+        "deployed_profiles_preflight.yml",
+    ]
+    assert "vars" not in tasks[1]
+
+
+def test_n11_update_preflight_probes_every_deployed_profile(
+    run_tasks: RunTasks, m3_host: dict[str, Any], cafe: dict[str, Any], neo: dict[str, Any]
+) -> None:
+    """GO, read-only: without a candidate, both cafe-ia AND tech-watch are probed (Telegram, cron)."""
+    before = snapshot(m3_host["data"])
+    result = update_preflight(run_tasks, m3_host, cafe, neo)
+    assert result.returncode == 0, result.stdout
+    assert snapshot(m3_host["data"]) == before
+    probed = [" ".join(c) for c in calls(m3_host) if c[0] == "docker"]
+    for name in ("cafe-ia", "tech-watch"):
+        assert any(f"gateway-{name}" in c for c in probed), name
+        assert any(f"HERMES_HOME=/opt/data/profiles/{name}" in c for c in probed), name
+
+
+@pytest.mark.parametrize(
+    "failing",
+    ["gateway-tech-watch", "HERMES_HOME=/opt/data/profiles/tech-watch", "gateway-cafe-ia"],
+    ids=["neo-telegram", "neo-cron", "cafe-telegram"],
+)
+def test_n11_update_preflight_no_go(
+    run_tasks: RunTasks, m3_host: dict[str, Any], cafe: dict[str, Any], neo: dict[str, Any], failing: str
+) -> None:
+    """NO-GO when a deployed profile, tech-watch included, is disconnected or has a cron job due."""
+    set_m3_state(m3_host, python_fails=[failing])
+    result = update_preflight(run_tasks, m3_host, cafe, neo)
+    assert result.returncode != 0
+    assert "NO-GO" in result.stdout
+
+
+def test_n11_update_preflight_estop_on_tech_watch_is_a_no_go(
+    run_tasks: RunTasks, m3_host: dict[str, Any], cafe: dict[str, Any], neo: dict[str, Any]
+) -> None:
+    """An ESTOP on the now-deployed tech-watch still stops the update."""
+    (m3_host["data"] / "profiles/tech-watch").mkdir(parents=True, exist_ok=True)
+    (m3_host["data"] / "profiles/tech-watch/ESTOP").write_text("")
+    assert update_preflight(run_tasks, m3_host, cafe, neo).returncode != 0
 
 
 # --- Rollback M3 --------------------------------------------------------------

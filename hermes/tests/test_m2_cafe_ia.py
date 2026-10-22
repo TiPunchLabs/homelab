@@ -581,14 +581,19 @@ def test_t17_malformed_usernames_are_refused(
 
 
 def test_t18_tool_lists_are_known_disjoint_and_least_privilege(cafe: dict[str, Any]) -> None:
-    """T18/D5: known names only, allow and deny disjoint, every sensitive toolset denied."""
+    """T18/D5: known names only, allow and deny disjoint, every sensitive toolset denied or not allowed.
+
+    `browser` is the exception (M3.3.1): it carries web_search, so denying it would strip
+    web_search; it stays out of every whitelist instead (see test_m331_web_tools.py).
+    """
     allowed = set(cafe["config"]["platform_toolsets.telegram"]) - {"no_mcp"}
     denied = set(cafe["config"]["agent.disabled_toolsets"])
     assert allowed == {"web", "skills", "memory", "session_search", "todo", "clarify"}
     assert (allowed | denied) <= HERMES_TOOLSETS
     assert not allowed & denied
-    assert SENSITIVE <= denied
-    for platform in ("cron", "api_server"):
+    assert SENSITIVE - {"browser"} <= denied
+    assert not SENSITIVE & allowed
+    for platform in ("cron", "api_server", "cli"):
         assert cafe["config"][f"platform_toolsets.{platform}"] == cafe["config"]["platform_toolsets.telegram"]
 
 

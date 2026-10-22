@@ -14,7 +14,8 @@ Usage (argv after `-c`):
     telegram <gateway_state.json> <s6 service name, e.g. gateway-default>
     schedule-window <minutes>
     api-key <profile .env>                       (HERMES_HOME = the profile)
-    toolsets <allowed,csv> <denied,csv> <no_mcp> (HERMES_HOME = the profile)
+    toolsets <allowed,csv> <denied,csv> <no_mcp> (HERMES_HOME = the profile):
+        toolset names AND the tools the model really receives
     bot-identity <profile .env> <expected bot username>
     listen <port>                                (on the HOST: reads `ss`)
     memory <memory> <balloon> <balloon bytes> <required MiB> [meminfo]
@@ -244,6 +245,26 @@ def toolset_errors(
     return errors
 
 
+def tool_errors(exposed: Mapping[str, set[str]], expected: set[str]) -> list[str]:
+    """Judge the tools the model really receives on each platform of a profile.
+
+    `expected` is every tool of the allowed toolsets. Toolset names are not
+    enough: a disabled toolset strips its tools from the allowed ones too (the
+    `browser` toolset carries `web_search`), and a tool whose check_fn fails
+    drops out of the registry. Not a key check: with `web.backend: tavily` the
+    web tools register even without TAVILY_API_KEY (validate.yml covers it).
+    """
+    errors: list[str] = []
+    for platform, tools in sorted(exposed.items()):
+        extra = sorted(tools - expected)
+        if extra:
+            errors.append(f"{platform}: tools beyond the allowlist: {', '.join(extra)}")
+        missing = sorted(expected - tools)
+        if missing:
+            errors.append(f"{platform}: allowed tools not exposed: {', '.join(missing)}")
+    return errors
+
+
 def bot_identity_errors(reply: Any, expected_username: str) -> list[str]:
     """Judge a Telegram getMe reply against the bot username declared in Git.
 
@@ -424,19 +445,43 @@ def main(argv: list[str]) -> int:
         )
         return _report(errors, "API_SERVER_KEY comes from managed only (deterministic)")
     if mode == "toolsets" and len(argv) == 4:
+        import logging
+
         from hermes_cli.config import load_config
+        from hermes_cli.env_loader import load_hermes_dotenv
         from hermes_cli.tools_config import _get_platform_tools
 
+        # Same order as the gateway: the profile .env first, then the tools.
+        load_hermes_dotenv()
+        logging.disable(logging.CRITICAL)
+        import model_tools
+        from toolsets import resolve_toolset
+
         cfg = load_config()
+        allowed = {t for t in argv[1].split(",") if t}
         effective = {p: set(_get_platform_tools(cfg, p)) for p in ("telegram", "cron", "api_server", "cli")}
+        disabled = (cfg.get("agent") or {}).get("disabled_toolsets") or None
+        exposed = {
+            p: {
+                d["function"]["name"]
+                for d in model_tools.get_tool_definitions(
+                    enabled_toolsets=sorted(ts), disabled_toolsets=disabled, quiet_mode=True
+                )
+            }
+            for p, ts in effective.items()
+        }
         errors = toolset_errors(
             effective,
-            {t for t in argv[1].split(",") if t},
+            allowed,
             {t for t in argv[2].split(",") if t},
             set(cfg.get("mcp_servers") or {}),
             argv[3] == "true",
+        ) + tool_errors(exposed, set().union(*(resolve_toolset(t) for t in allowed)))
+        return _report(
+            errors,
+            f"toolsets restricted to: {', '.join(sorted(set().union(*effective.values())))}"
+            f" | tools: {', '.join(sorted(set().union(*exposed.values())))}",
         )
-        return _report(errors, f"toolsets restricted to: {', '.join(sorted(set().union(*effective.values())))}")
     if mode == "bot-identity" and len(argv) == 3:
         import urllib.error
         import urllib.request

@@ -4,7 +4,9 @@
 # preflight.yml (qui couvre default) et avant profile_preflight.yml.
 #
 # Entree : hermes_pf_candidate_name, le profil sur le point d'etre ajoute ;
-# il est exclu de la boucle (pas encore deploye).
+# il est exclu de la boucle (pas encore deploye). Facultatif : sans lui
+# (profiles-preflight.yml, mise a jour de profils deja deployes), TOUS les
+# profils de hermes_profiles sont controles.
 #
 # NO-GO si, pour un profil de hermes_profiles autre que le candidat :
 #   - sa gateway n'est pas supervisee ET connectee a Telegram (niveaux 1-3) :
@@ -36,7 +38,7 @@
   check_mode: false
   failed_when: false
   vars: &hermes_pf_deployed_names
-    hermes_pf_deployed: "{{ hermes_profiles | map(attribute='name') | reject('eq', hermes_pf_candidate_name) | list }}"
+    hermes_pf_deployed: "{{ hermes_profiles | map(attribute='name') | reject('eq', hermes_pf_candidate_name | default('')) | list }}"
 
 - name: Check that no cron job of a deployed profile can fire now
   ansible.builtin.command:
@@ -68,7 +70,7 @@
     get_checksum: false
   loop: >-
     {{ [hermes_data_dir]
-       + (hermes_pf_deployed + [hermes_pf_candidate_name])
+       + (hermes_pf_deployed + ([hermes_pf_candidate_name] if hermes_pf_candidate_name | default('') else []))
          | map('regex_replace', '^', hermes_data_dir ~ '/profiles/') | list }}
   register: hermes_pf_estop
   vars: *hermes_pf_deployed_names
