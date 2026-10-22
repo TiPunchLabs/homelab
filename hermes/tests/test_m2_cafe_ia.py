@@ -308,11 +308,12 @@ def test_t08_cafe_ia_cannot_reuse_another_token(
     """T08: default's token, or the tech-watch one, is refused without being printed."""
     assert validate(run_tasks, group_vars, [resolved(cafe)]).returncode == 0
     assert_fails_quietly(validate(run_tasks, group_vars, [resolved(cafe, FAKE_TOKEN)]))
-    alex = group_vars["hermes_profile_tech_watch"] | {
+    neo = group_vars["hermes_profile_tech_watch"] | {
         "telegram_bot_token": FAKE_TOKEN_3,
+        "telegram_bot_username": "neo_FAKE00_bot",
         "env": {"TAVILY_API_KEY": "x"},
     }
-    assert_fails_quietly(validate(run_tasks, group_vars, [alex, resolved(cafe, FAKE_TOKEN_3)]))
+    assert_fails_quietly(validate(run_tasks, group_vars, [neo, resolved(cafe, FAKE_TOKEN_3)]))
 
 
 def test_t08_token_points_to_its_own_vault_key(cafe: dict[str, Any], group_vars: dict[str, Any]) -> None:
@@ -346,9 +347,9 @@ def test_t09_empty_search_key_is_refused(run_tasks: RunTasks, group_vars: dict[s
     assert_fails_quietly(validate(run_tasks, group_vars, [resolved(cafe) | {"env": {"TAVILY_API_KEY": " "}}]))
 
 
-def test_t09_active_alone_in_phase_b(group_vars: dict[str, Any]) -> None:
-    """Phase B: cafe-ia is the only profile in hermes_profiles; tech-watch stays out until M3."""
-    assert group_vars["hermes_profiles"] == ["{{ hermes_profile_cafe_ia }}"]
+def test_t09_still_active_after_m3(group_vars: dict[str, Any]) -> None:
+    """cafe-ia stays first in hermes_profiles; M3 only appended tech-watch after it."""
+    assert group_vars["hermes_profiles"][0] == "{{ hermes_profile_cafe_ia }}"
 
 
 # --- T10 / T11 politique Telegram commune -----------------------------------
@@ -580,14 +581,19 @@ def test_t17_malformed_usernames_are_refused(
 
 
 def test_t18_tool_lists_are_known_disjoint_and_least_privilege(cafe: dict[str, Any]) -> None:
-    """T18/D5: known names only, allow and deny disjoint, every sensitive toolset denied."""
+    """T18/D5: known names only, allow and deny disjoint, every sensitive toolset denied or not allowed.
+
+    `browser` is the exception (M3.3.1): it carries web_search, so denying it would strip
+    web_search; it stays out of every whitelist instead (see test_m331_web_tools.py).
+    """
     allowed = set(cafe["config"]["platform_toolsets.telegram"]) - {"no_mcp"}
     denied = set(cafe["config"]["agent.disabled_toolsets"])
     assert allowed == {"web", "skills", "memory", "session_search", "todo", "clarify"}
     assert (allowed | denied) <= HERMES_TOOLSETS
     assert not allowed & denied
-    assert SENSITIVE <= denied
-    for platform in ("cron", "api_server"):
+    assert SENSITIVE - {"browser"} <= denied
+    assert not SENSITIVE & allowed
+    for platform in ("cron", "api_server", "cli"):
         assert cafe["config"][f"platform_toolsets.{platform}"] == cafe["config"]["platform_toolsets.telegram"]
 
 
@@ -659,7 +665,7 @@ def test_t19_t20_gateway_and_telegram_states(status: str, state: Any, expected: 
     [
         ({"ok": True, "result": {"is_bot": True, "username": "kafeine_r64gnb_bot"}}, None),
         ({"ok": True, "result": {"is_bot": True, "username": "Kafeine_R64GNB_bot"}}, None),
-        ({"ok": True, "result": {"is_bot": True, "username": "alex_x1y2z3_bot"}}, "token belongs to @alex_x1y2z3_bot"),
+        ({"ok": True, "result": {"is_bot": True, "username": "neo_x1y2z3_bot"}}, "token belongs to @neo_x1y2z3_bot"),
         ({"ok": False, "error_code": 401, "description": "Unauthorized"}, "getMe refused the token (error_code=401)"),
         ({"ok": True, "result": {"is_bot": False, "username": "kafeine_r64gnb_bot"}}, "not a bot"),
         ("garbage", "getMe refused the token"),
@@ -914,11 +920,12 @@ def test_t23_three_gateways_coexist_in_the_inventory(
     run_tasks: RunTasks, group_vars: dict[str, Any], cafe: dict[str, Any]
 ) -> None:
     """T23: default + cafe-ia (+ the prepared tech-watch) pass together: names, ports, tokens distinct."""
-    alex = group_vars["hermes_profile_tech_watch"] | {
+    neo = group_vars["hermes_profile_tech_watch"] | {
         "telegram_bot_token": FAKE_TOKEN_3,
+        "telegram_bot_username": "neo_FAKE00_bot",
         "env": {"TAVILY_API_KEY": "x"},
     }
-    result = validate(run_tasks, group_vars, [resolved(cafe), alex])
+    result = validate(run_tasks, group_vars, [resolved(cafe), neo])
     assert result.returncode == 0, result.stdout
 
 

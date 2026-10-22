@@ -1,0 +1,28 @@
+---
+# Lecture seule : jouable a tout moment, y compris avant --check.
+#   ansible-playbook ansible/m3-preflight.yml
+# Resoudre la declaration de Néo exige ses cles vault ET le nom de son bot
+# (hermes_tech_watch_telegram_bot_username) : leur absence est un NO-GO voulu.
+- name: Preflight M3 de hermes-30 — LECTURE SEULE (default, cafe-ia, profil tech-watch)
+  hosts: hermes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run preflight.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: preflight.yml
+
+    - name: Run deployed_profiles_preflight.yml (cafe-ia)
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: deployed_profiles_preflight.yml
+      vars:
+        hermes_pf_candidate_name: tech-watch
+
+    - name: Run profile_preflight.yml for tech-watch
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: profile_preflight.yml
+      vars:
+        hermes_pf_profile: "{{ hermes_profile_tech_watch }}"

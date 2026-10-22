@@ -288,12 +288,16 @@ ansible-playbook ansible/deploy.yml --tags komodo-periphery
 > aucune regle UFW a ajouter. La cle d'onboarding est a **usage unique** —
 > voir `hermes/ansible/roles/komodo_periphery/README.md`.
 
-> 🧬 **Multiprofils** : deux gateways dans le conteneur `hermes` — `default`
-> (:8642) et **Kaféine** `cafe-ia` (:8646, deploye le 2026-10-20, M2), un bot
-> Telegram par profil. Activation = entree dans `hermes_profiles` par commit
-> dedie ; `ansible/m2-preflight.yml` (GO obligatoire, hors fenetres cron) puis
-> `--tags hermes` ; retrait = `ansible/m2-rollback.yml` puis revert. Ne jamais
-> lancer `hermes update` sans controler les `.env` de profil — voir
+> 🧬 **Multiprofils** : trois gateways dans le conteneur `hermes` — `default`
+> (:8642), **Kaféine** `cafe-ia` (:8646, M2, 2026-10-20) et **Néo**
+> `tech-watch` (:8643, M3, 2026-10-22), un bot Telegram par profil.
+> Activation = entree dans `hermes_profiles` par commit dedie ; nouveau profil :
+> `ansible/m<N>-preflight.yml` (GO obligatoire, hors fenetres cron) puis
+> `--tags hermes` ; mise a jour de profils deployes : `ansible/profiles-preflight.yml`
+> (lecture seule) puis `--tags hermes` ; retrait = `ansible/m<N>-rollback.yml`
+> puis revert. Les restrictions d'outils sont verifiees outil par outil
+> (en v0.20.4, `browser` contient `web_search` : jamais en liste noire). Ne jamais lancer
+> `hermes update` sans controler les `.env` de profil — voir
 > `hermes/ansible/roles/hermes_agent/README.md`.
 
 ---
