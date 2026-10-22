@@ -5,13 +5,16 @@ Deploy Hermes Agent (v0.20.4, image `nousresearch/hermes-agent:v2026.8.18`) on
 **profiles**: one s6-supervised gateway and one Telegram bot per profile, all in
 the same container.
 
-> **Current state (mission M2 deployed, 2026-10-20).** Two profiles run in the
-> container: `default` (unchanged, bot of its own, 3 crons) and **Kaféine**
-> (`cafe-ia`, `gateway-cafe-ia`, `127.0.0.1:8646`, bot `kafeine_r64gnb_bot`),
-> the only entry of `hermes_profiles`. **Néo** (`tech-watch`) is prepared
-> (M3.2), not active — see [Néo](#néo--profile-tech-watch-mission-m3-prepared-not-active).
-> What was proven and what was not:
-> [Phase B — as executed](#phase-b--as-executed-2026-10-20).
+> **Current state (mission M3 deployed, 2026-10-22).** Three gateways run in
+> the container: `default` (unchanged, bot of its own, 3 crons), **Kaféine**
+> (`cafe-ia`, `gateway-cafe-ia`, `127.0.0.1:8646`, bot `kafeine_r64gnb_bot`)
+> and **Néo** (`tech-watch`, `gateway-tech-watch`, `127.0.0.1:8643`, bot
+> `neo_r64gnb_bot`) — `hermes_profiles` lists cafe-ia then tech-watch. Both
+> additional profiles share one tool matrix, fixed in M3.3.1 so that
+> `web_search` really reaches the model — see
+> [`browser` and `web_search`](#tool-restrictions-browser-and-web_search-m331).
+> What was proven and what was not: [Phase B](#phase-b--as-executed-2026-10-20)
+> (M2), [M3.3 as executed](#m33--as-executed-2026-10-22).
 
 ## Mental Model
 
@@ -99,7 +102,7 @@ reading it: same owner. A prompt-injected agent with the `terminal` or `file`
 toolset could read every bot token, and `DEEPSEEK_API_KEY` is already in every
 process environment. This is accepted for a single-user homelab; the mitigations
 are the shared allowlist (nobody else can drive a bot), per-profile toolset
-restrictions (later missions, D5) and SOUL rules. Real isolation would need one
+restrictions (D5: Kaféine and Néo, verified tool by tool) and SOUL rules. Real isolation would need one
 container per profile, judged disproportionate.
 
 ## Managed-layer rules
@@ -118,8 +121,9 @@ container per profile, judged disproportionate.
 ## Profiles
 
 ```yaml
-hermes_profiles:            # group_vars — EMPTY in M1
-  - "{{ hermes_profile_tech_watch }}"   # added in M3, not before
+hermes_profiles:            # group_vars — one dedicated commit per activation
+  - "{{ hermes_profile_cafe_ia }}"      # M2, 2026-10-20
+  - "{{ hermes_profile_tech_watch }}"   # M3, 2026-10-22
 
 hermes_profile_reserved_ports:          # fixed per profile, not per deploy order
   tech-watch: 8643
@@ -382,11 +386,14 @@ never used here, and the profile has its `.env` from creation anyway).
 
 ### Tools (D5) — matrix
 
-Resolved with the gateway's own code (`tools_config._get_platform_tools`) in
-a lab container: telegram, cron, api_server **and cli** expose exactly
+Since M3.3.1, telegram, cron, api_server **and cli** expose exactly
 `web_search, web_extract, memory, session_search, skills_list, skill_view,
-skill_manage, todo, clarify` (an unrestricted profile exposes 18 tools,
-`terminal`, `read_file`, `write_file`, `execute_code`, `delegate_task`… included).
+skill_manage, todo, clarify` — measured on the tools a real agent receives, on
+hermes-30 and in the offline lab (an unrestricted profile exposes 18 tools,
+`terminal`, `read_file`, `write_file`, `execute_code`, `delegate_task`…
+included). Until M3.3.1, M2 only checked toolset **names**, and `web_search`
+was in fact missing: see
+[`browser` and `web_search`](#tool-restrictions-browser-and-web_search-m331).
 
 | Toolset | Allowed | Why | Risk |
 |---|---|---|---|
@@ -397,7 +404,7 @@ skill_manage, todo, clarify` (an unrestricted profile exposes 18 tools,
 | `todo`, `clarify` | ✅ | multi-step work, questions | none |
 | `terminal`, `process`, `code_execution` | ❌ | not needed | shell as UID 1000: every token of every profile, LAN |
 | `file` | ❌ | drafts go in the chat | `HERMES_WRITE_SAFE_ROOT=/opt/data` = all profiles; reads `/etc/hermes/.env` |
-| `browser`, `computer_use` | ❌ | `web_extract` reads pages | can fill and submit forms: publishing without validation |
+| `browser`, `computer_use` | ❌ | `web_extract` reads pages | can fill and submit forms: publishing without validation. `browser` is kept **out of every allowlist** but no longer in the denylist (M3.3.1) |
 | `cronjob`, `kanban`, `delegation` | ❌ | no automation in M2 (M6) | recurring actions, sub-agents |
 | media, tts, vision, social/chat platforms, home automation | ❌ | not needed | outbound actions, cost |
 | MCP servers | ❌ (`no_mcp`) | no Kandidat (D5) | — |
@@ -420,11 +427,12 @@ silent one. An approved skill is still persistent text the model will follow:
 read the `diff` before approving.
 
 Two layers, both in the profile's `config.yaml` (never in managed, which
-would restrict `default` too): `platform_toolsets.{telegram,cron,api_server}`
-(allowlist) and `agent.disabled_toolsets` (denylist applied **last**, on every
-platform). Ansible sets them with `hermes config set`, type-strict compared, and
-`Verify that the declared tool restrictions are effective` re-resolves them
-with Hermes' code **before** the gateway starts. A toolset name unknown to
+would restrict `default` too): `platform_toolsets.{telegram,cron,api_server,cli}`
+(allowlist, `cli` declared since M3.3.1) and `agent.disabled_toolsets`
+(denylist applied **last**, on every platform, tool by tool). Ansible sets them
+with `hermes config set`, type-strict compared, and `Verify that the declared
+tool restrictions are effective` re-resolves them with Hermes' code **before**
+the gateway starts — toolset names **and** the tools the model receives. A toolset name unknown to
 Hermes would be dropped silently (#38798): the test suite pins the list of
 v0.20.4 names.
 
@@ -668,60 +676,181 @@ cron windows, from `feat/hermes-cafe-ia`. The `--check` step was run without
   knows; new memories landing under `profiles/cafe-ia/memories/`). Isolation is
   proven by construction and by files only.
 
-## Néo — profile `tech-watch` (mission M3, prepared, not active)
+## Tool restrictions: `browser` and `web_search` (M3.3.1)
 
-Technical watch for Xavier: AI and agents, local AI, DevOps and cloud,
-development, open source. Declared in `hermes_profile_tech_watch`, port 8643,
-**not** in `hermes_profiles` until the M3.3 activation commit.
+Common to **Kaféine and Néo**, found during the M3.3 Telegram tests and fixed
+in `1a203d8`.
 
-**Tools**: Kaféine's matrix, unchanged (`web`, `skills` with
-`skills.write_approval: true`, `memory`, `session_search`, `todo`, `clarify`,
-`no_mcp`; the same 24-entry `agent.disabled_toolsets`). No cron key, no
-`cronjob`: the shipped collection scripts (`files/profiles/tech-watch/scripts/`)
-are deployed with the profile but nothing calls them — kept for a later
-automation mission. SOUL.md promises no schedule, file or attachment.
+**Symptom.** Both profiles answered with `web_extract` only: no `web_search`,
+so no way to find recent news. Configuration looked right (`web` allowed,
+`web.backend: tavily`, key present) and every M2/M3 check was green.
+
+**Cause, proven on v0.20.4 / v2026.8.18** (not claimed for other versions):
+
+- the `browser` toolset lists the 13 `browser_*` tools **and `web_search`**
+  (`toolsets.py`), not `web_extract`;
+- `agent.disabled_toolsets` is subtracted **last** and **tool by tool**
+  (`model_tools._compute_tool_definitions`), from the allowed toolsets too;
+- so denying `browser` removed `web_search` on telegram, api_server, cli and
+  cron, while `web_extract` stayed. Measured on hermes-30 with the agent's own
+  tool builder; reproduced in an offline lab.
+
+M2 and M3 checked toolset **names** (`web` present), never the tools the model
+receives: that is how it went unnoticed.
+
+**Fix (declarative, both profiles):**
+
+| Change | Why |
+|---|---|
+| `browser` removed from `agent.disabled_toolsets` (24 → 23 entries) | the only denylist entry that touched a web tool |
+| `platform_toolsets.cli` declared, same anchor as telegram/cron/api_server | without it the CLI falls back to Hermes' default toolsets, `browser` included — the denylist was its only filter |
+| `toolsets` check of `profile.yml` now also judges **tools** (`hermes_checks.tool_errors`) | per platform, the tools a real agent would get must be **exactly** those of the allowed toolsets: one more (a `browser_*`) or one hidden (`web_search`) fails the run before the gateway restarts |
+
+**Why this does not open `browser_*`.** `browser` is in no allowlist, on any
+of the four platforms; Hermes only builds tools from the allowlisted toolsets.
+The browser tools are absent by **policy**, not by chance (they also fail
+their availability check in this image — the lab proved that this alone would
+have hidden them on the CLI, which is why `cli` got its own allowlist). The
+denylist keeps every other dangerous toolset (`terminal`, `file`,
+`code_execution`, `computer_use`, `delegation`, `cronjob`, `kanban`, …).
+
+**Guards against a regression** — `tests/test_m331_web_tools.py`, on the real
+image, offline: both profiles created with their declared config, a real
+`AIAgent` built per platform (telegram, api_server, cli, cron) the way the
+gateway does; `web_search` and `web_extract` checked separately; exactly the 9
+allowed tools, no `browser_*`/terminal/file/code tool; backend `tavily`; the
+cause reproduced (`browser` denied → `web_search` gone, `web_extract` kept);
+the deploy check refuses the M3.3 configuration
+(`allowed tools not exposed: web_search`).
+
+**Traceability, after the fix (2026-10-22).** Néo 2 and Kaféine 4 real
+`web_search` calls, all `success: true`. `agent.log` of each profile shows
+`Web search via tavily` then `Tavily search request to
+https://api.tavily.com/search`; the provider only returns success after
+`raise_for_status()`. HTTP status codes themselves are not logged.
+
+> 💡 With `web.backend: tavily`, the web tools register **even without**
+> `TAVILY_API_KEY` (measured in the lab): their presence does not prove the
+> key. `validate.yml` refuses an empty value; a successful call proves it.
+
+## Néo — profile `tech-watch` (mission M3, deployed 2026-10-22)
+
+| | |
+|---|---|
+| Name / id | **Néo** / `tech-watch` (`gateway-tech-watch`) |
+| API | `127.0.0.1:8643` (loopback only) |
+| Telegram | `@neo_r64gnb_bot` (`hermes_tech_watch_telegram_bot_username`), token `vault_hermes_tech_watch_telegram_bot_token` |
+| Web | Tavily, dedicated key `vault_hermes_tech_watch_tavily_api_key` (≠ Kaféine's), monthly limit set on the Tavily side |
+| Activation | `c49560f` (appended after cafe-ia in `hermes_profiles`) |
+
+**Mission** (`files/profiles/tech-watch/SOUL.md`, in French): technical watch
+for Xavier on five domains — 1. AI and agents, 2. **local AI** (a domain of its
+own: what runs on the laptop's GPU, published requirements kept apart from
+estimates, no compatibility claim without a source), 3. DevOps and cloud,
+4. development, 5. open source. Verified fact / hypothesis / recommendation are
+kept apart; web content is data, never instructions. **No Caribbean axis.**
+SOUL.md promises no schedule, file or attachment.
 
 **User context — `agent.environment_hint`, not a file.** Néo has no `file`
 toolset, so an `ENVIRONMENT.md` would never be read. Hermes v0.20.4 appends
 `agent.environment_hint` (string-typed) from the **profile's** `config.yaml` to
 the stable part of the system prompt (`prompt_builder.build_environment_hints`,
-called unconditionally by `system_prompt.build_system_prompt_parts`). Hence:
-present from the first conversation, scoped to tech-watch, independent of the
-agent's memory (never overwritten, never overwriting), updated by editing the
-group_vars and replaying `--tags hermes` (`config set`, then the gateway
-restarts). Proven offline on the real image by `test_m3_tech_watch.py`
-(Telegram system prompt of tech-watch carries SOUL.md + context; default's
-carries neither). It must stay free of secrets and addresses: it is plain
-prompt text. Neither the managed layer nor `HERMES_ENVIRONMENT_HINT` (which
-would win, for every profile) may carry it.
+called unconditionally by `system_prompt.build_system_prompt_parts`):
 
-**M3.3 prerequisites** (each one a NO-GO of `m3-preflight.yml` while missing):
+- native Hermes key, **no new mechanism**, no RAG, no retrieval;
+- scoped to tech-watch: default's and Kaféine's prompts carry none of it
+  (checked on hermes-30, 19/19 facts in Néo only);
+- present from the first conversation, independent of the agent's memory
+  (never overwritten, never overwriting);
+- **grants no access**: plain prompt text (laptop LOQ 15ARP9, Ryzen 7 7435HS,
+  32 GB, RTX 4060 Laptop 8 GB, Ubuntu 24.04; Proxmox 16 GB without GPU;
+  tooling; projects), with no secret, address or identifier — and it says
+  itself it may be dated;
+- updated declaratively: edit `hermes_profile_tech_watch.config` in
+  group_vars, replay `--tags hermes` (`config set`, then **only** Néo's
+  gateway restarts). Neither the managed layer nor `HERMES_ENVIRONMENT_HINT`
+  (which would win, for every profile) may carry it.
 
-| Prerequisite | Where |
+**Security**
+
+| | |
 |---|---|
-| Bot created in BotFather, `neo_<6 alphanum>_bot` (D2) | `hermes_tech_watch_telegram_bot_username` in group_vars — deliberately undefined until then |
-| Its token replaces the old « veille » bot's | `vault_hermes_tech_watch_telegram_bot_token` |
-| Tavily key, dedicated, with a monthly limit | `vault_hermes_tech_watch_tavily_api_key` (presence not verified in M3.2) |
+| Allowed toolsets (4 platforms) | `web`, `skills` (writes staged, `skills.write_approval: true`), `memory`, `session_search`, `todo`, `clarify` → 9 tools |
+| Denied toolsets | `terminal`, `file`, `code_execution`, `computer_use`, `delegation`, `cronjob`, `kanban`, media/tts/vision, social and chat platforms, home automation, `desktop_ui`, `project` (23); `browser` out of every allowlist |
+| MCP | none (`no_mcp`, `mcp_servers` empty) — no Kandidat |
+| Cron | none: no `jobs.json`, no `cronjob` tool. The shipped collection scripts (`files/profiles/tech-watch/scripts/`) are deployed but nothing calls them |
+| Sessions, memories | its own `state.db`, `sessions/`, `memories/` under `profiles/tech-watch/`; started blank (D7) |
+| Secrets | its `.env` holds `TELEGRAM_BOT_TOKEN`, `API_SERVER_PORT`, `TAVILY_API_KEY` only; no Tavily key in default's `.env` nor in managed |
+| Local files | a `file://` URL given to `web_extract` is refused by Hermes' URL guard (seen 2026-10-22: `Blocked: URL targets a private or internal network address`) |
+
+**Isolation limit (unchanged, accepted)**: one container, one UID. Profiles
+are separated by `HERMES_HOME` and by the tool restrictions, **not** by the
+operating system; granting `terminal` or `file` to any profile would expose
+every profile's `.env`.
 
 > ⚠️ `telegram_bot_username` goes through `mandatory`. A bare reference to an
 > undefined variable reads as "no username": `validate.yml` accepts it and
 > `profile.yml` **skips** getMe. Keep `mandatory` for any future profile whose
 > bot name is filled in later.
 
-**Preflight** — `m3-preflight.yml`: `preflight.yml` (default, timezone, cron
-window), then `deployed_profiles_preflight.yml` (every profile already in
-`hermes_profiles` — cafe-ia — connected, no cron due in its own
-`HERMES_HOME`, no `ESTOP` on default, the deployed profiles or the candidate),
-then `profile_preflight.yml` for tech-watch (validation with cafe-ia, blank
-page, port, memory gate). Never pass `hermes_profiles` as `-e` to a
-preflight: extra vars outrank the list it composes with the candidate.
+### Preflights: first install vs update
 
-**Rollback** — `m3-rollback.yml`: `profile_rollback.yml` for tech-watch, then
-`profile_telegram_check.yml` on every other deployed profile. Deletes nothing.
+| Playbook | When | Checks | After Néo exists |
+|---|---|---|---|
+| `m3-preflight.yml` | **first installation** of tech-watch only | `preflight.yml` (default, timezone, cron window) → `deployed_profiles_preflight.yml` (cafe-ia) → `profile_preflight.yml` for the candidate: validation with cafe-ia, **blank page** (no directory, no s6 slot, 8643 free), memory gate | **NO-GO by design** ("tech-watch existe deja") — do not use it for an update |
+| `profiles-preflight.yml` | before **replaying** `deploy.yml` on profiles all deployed (config change, fix) | `preflight.yml` (default connected, timezone, no cron can fire across a restart) → `deployed_profiles_preflight.yml` with no candidate: **every** profile of `hermes_profiles` connected to Telegram, no cron due in its own `HERMES_HOME`, no `ESTOP` anywhere | the one to use |
 
-**Isolation limit (unchanged)**: one container, one UID. Profiles are separated
-by `HERMES_HOME` and by the toolset restrictions, not by the operating system;
-granting `terminal` or `file` to Néo would expose every profile's `.env`.
+Both are read-only. From `hermes/`, with `direnv` loaded (`ansible.cfg` sets
+the inventory and the vault password script):
+
+```bash
+ansible-playbook ansible/profiles-preflight.yml
+```
+
+Never pass `hermes_profiles` as `-e` to a preflight (extra vars outrank the
+list it composes), nor any `-e` that would bypass a check. `profiles-preflight`
+has no memory gate: it guards restarts, not a new gateway.
+
+### M3.3 — as executed (2026-10-22)
+
+| Step | Result |
+|---|---|
+| `m3-preflight.yml` ×2 | GO (worst case at the 3584 floor ~2031 then ~1997 MiB, required 1536) |
+| Activation `c49560f`, `deploy.yml --tags hermes` 00:25 UTC | `changed=7`, all on tech-watch (create, SOUL, content, `.env`, `config set`, gateway start); getMe, managed-only `API_SERVER_KEY`, effective tools, loopback, Telegram all `ok`; default pid 160 kept, cafe-ia pid 555 kept |
+| Telegram tests | identity, five domains, hardware context: OK; **web search failed** → M3.3.1 |
+| Fix `1a203d8`, deploy 01:49–01:50 UTC | `config set` of 2 keys and restart of **cafe-ia and tech-watch** only; default pid 160 kept |
+| `profiles-preflight.yml`, then 2nd `deploy.yml --tags hermes` 02:16 UTC | GO, then **`changed=0`**: no restart, same PIDs, same sha256 for every `config.yaml`, `SOUL.md`, `.env` and default's `cron/jobs.json` |
+| Web search | real `web_search` → Tavily for both profiles (above) |
+
+**Resources measured after real use** (2026-10-22 02:17 UTC, historical
+values, not live metrics): balloon at its 3584 MiB floor, MemAvailable
+**~1442 MiB** (2114 before Néo); RSS default ~349, Kaféine ~285, Néo ~280 MiB;
+PSI 0; no OOM; 21 GB disk free.
+
+- 1442 MiB is below the 1536 MiB that `memory_preflight.yml` requires to
+  **add** a gateway: **no fourth gateway** without a new memory preflight GO.
+- Watch for 7 days, with what exists (no new service, no monitoring cron):
+  `profiles-preflight.yml`; `ps -o rss` of the gateways; `free -m`;
+  `/proc/pressure/memory`; `dmesg` for OOM; each profile's
+  `gateway-starts.log` and `logs/errors.log`; Tavily consumption in its
+  dashboard. Look again if MemAvailable drops under ~1200 MiB, PSI
+  `some avg60` stops being 0, or a gateway passes ~400 MiB.
+- Nothing raises memory automatically. A floor or RAM change is a decision:
+  Terraform `vm_memory_floating` and `qm set` (see the M2 memory section).
+
+### Rollback of M3
+
+`ansible-playbook ansible/m3-rollback.yml`: `profile_rollback.yml` for
+**tech-watch only** (stop, persist `desired_state=stopped`, checks), then
+`profile_telegram_check.yml` on every other deployed profile (Kaféine must
+stay connected). It deletes nothing: memories, sessions, `.env` and token
+stay; default and Kaféine untouched; no Terraform, no Proxmox.
+
+The rollback does not change Git. Removing Néo declaratively is a **separate,
+human** step afterwards: revert the activation commit `c49560f` (not the M3.2
+commits, nor the shared fix `1a203d8`, which also serves Kaféine), then
+`deploy.yml --tags hermes` (`changed=0`). Removing the entry alone does not
+stop the gateway.
 
 ## Operating profiles
 
@@ -733,14 +862,15 @@ preflights do.
 | Goal | How |
 |---|---|
 | Activate a profile | its vault keys exist; add `- "{{ hermes_profile_<name> }}"` to `hermes_profiles` in **a dedicated commit**; port from `hermes_profile_reserved_ports` |
-| Check before | `m2-preflight.yml` (adapt `hermes_pf_profile` for a new one) — GO required |
+| Check before | **new** profile: its `m<N>-preflight.yml` (blank page, memory gate) — GO required. **Update** of deployed profiles: `profiles-preflight.yml` — GO required |
 | Deploy changes | `ansible-playbook ansible/deploy.yml --tags hermes`, then again: `changed=0` |
 | Check state | `docker exec hermes /command/s6-svstat /run/service/gateway-<name>`; `profiles/<name>/gateway_state.json` (`desired_state`, Telegram `state`); `ss -ltn` → `127.0.0.1:864x` only; `ss -tnp` ESTAB to 149.154.x / 91.108.x |
-| Deactivate / roll back | `m2-rollback.yml` (stop + persist `stopped`, deletes nothing, default untouched), **then** `git revert` of the activation commit and `deploy.yml --tags hermes` (`changed=0`). Removing a profile from the list alone does **not** stop it |
+| Deactivate / roll back | `m2-rollback.yml` (Kaféine) or `m3-rollback.yml` (Néo): stop + persist `stopped`, deletes nothing, default untouched; **then** `git revert` of that profile's activation commit and `deploy.yml --tags hermes` (`changed=0`). Removing a profile from the list alone does **not** stop it |
 | Check isolation | profile `.env` holds only its declared keys; `mcp_servers` empty unless declared; one lock per bot in `/opt/data/.local/state/hermes/gateway-locks/` |
+| Check the tools really exposed | the `toolsets` check of `hermes_checks.py` (run by `profile.yml` before each gateway start): toolset names **and** tools, per platform |
 | Avoid token conflicts | one **new** bot per profile (D2); `validate.yml` refuses duplicates and `getMe` the wrong bot — a shared token would let `--replace` kill the other gateway |
 
-## Limits and follow-up (after M2)
+## Limits and follow-up (after M3)
 
 - **No independent backup of `/opt/hermes/data`** — both profiles, memories,
   sessions, crons (Known Gaps of [`hermes/README.md`](../../../README.md)).
@@ -750,10 +880,13 @@ preflights do.
   `.env` — Telegram token included — into a profile **without** `.env`. Never
   run it without checking every profile `.env` first.
 - **Restart persistence** of the profile slots: see "Not proven yet" above.
-- **Memory**: one more gateway fits the 3584 floor. For **M3** the 4096
-  estimate was revisited on 2026-10-21 (worst case at the floor ~2160 MiB
-  before Néo, ~1800-1900 after): the M3 preflight decides on deployment day.
-- Other profiles (daily-life, job-search) are out of M2.
+- **Memory**: three gateways fit the 3584 floor, with ~1442 MiB available
+  after real use — under the 1536 MiB required to add one. See
+  [M3.3 — as executed](#m33--as-executed-2026-10-22): 7-day watch, no fourth
+  gateway without a new memory preflight, any floor change through Terraform.
+- **Restart persistence** of `gateway-tech-watch`: like Kaféine's, not proven
+  by an organic container restart yet.
+- Other profiles (daily-life, job-search) are out of M3.
 
 ## Tests
 
@@ -766,9 +899,10 @@ uv run pytest hermes/tests -q
 | `test_role_tasks.py` | runs the **real** `env_keys`, `soul_seed`, `profile_content`, `validate` task files with `ansible-playbook` on a throwaway directory: key preservation, idempotence, duplicates, check mode, no token in output (even `--diff -v`), seed-once, bytecode exclusion, guards |
 | `test_m1_operations.py` | backup/rollback of `data/.env` (absent, present with/without token), post-M1 backup refused, cron restart window, `deploy.yml` timezone pre_task under `--check`, read-only preflight |
 | `test_hermes_checks.py` | managed contract, Telegram verdict (connected / disconnected / unknown / absent / malformed / stale writer / dead pid), type-strict config comparison |
-| `test_inventory.py` | effective `hermes_profiles` names `== ["cafe-ia"]` (needs the vault password, skipped otherwise; prints names only), definitive ids, no destructive task, `no_log` on every token task, task ordering, D1/D5 non-goals |
+| `test_inventory.py` | effective `hermes_profiles` names `== ["cafe-ia", "tech-watch"]` (needs the vault password, skipped otherwise; prints names only), definitive ids, no destructive task, `no_log` on every token task, task ordering, D1/D5 non-goals |
 | `test_tech_watch_collect.py` | the tech-watch collector |
 | `test_m2_cafe_ia.py` | Kaféine, T01-T24: blank creation, SOUL seed and keep, nothing inherited from a lived-in default, no MCP, tokens (distinct, missing, unresolved vault key), allowlist, ports, `API_SERVER_KEY` (verbatim stage2 block: absent / present / key / repeat / concurrent; profile `.env` never touched), caches, idempotence, username, tool lists and verdicts, s6/Telegram/getMe verdicts, **real** rollback and preflight against a fake `docker`/`ss`, loopback verdict, coexistence; memory gate: balloon floor parsing, verdicts on the 2026-10-16 measurements, the real preflight against a fake Proxmox API (GET only, token never printed, missing credentials / unknown VM = NO-GO) |
-| `test_m3_tech_watch.py` | Néo, prepared: identity, bot name as a hard M3.3 prerequisite (`mandatory`, getMe not skippable), SOUL.md (five domains, local AI, no Caribbean axis, no cron/file promise), Kaféine's tool matrix, Tavily, convergence, inactive scripts, context facts; **real image, offline** (skipped without it): config applied and converging, SOUL.md + context in the Telegram system prompt, effective toolsets; preflight of the deployed profiles (cafe-ia connected, cron, ESTOP) and of the candidate (shared token, port, existing profile, memory), rollback targeting tech-watch only |
+| `test_m3_tech_watch.py` | Néo, activated after cafe-ia: identity, bot name declared once behind `mandatory` (getMe not skippable), SOUL.md (five domains, local AI, no Caribbean axis, no cron/file promise), Kaféine's tool matrix, Tavily, convergence, inactive scripts, context facts; **real image, offline** (skipped without it): config applied and converging, SOUL.md + context in the Telegram system prompt, effective toolsets; preflight of the deployed profiles (cafe-ia connected, cron, ESTOP) and of the candidate (shared token, port, existing profile, memory), `profiles-preflight` with no candidate (every profile probed, tech-watch included), rollback targeting tech-watch only |
+| `test_m331_web_tools.py` | M3.3.1, both profiles, **real image, offline**: `web_search` and `web_extract` exposed separately on telegram/api_server/cli/cron, exactly the 9 allowed tools, no `browser_*`, backend `tavily`, the `browser` cause reproduced, deploy check refusing the M3.3 configuration; pure `tool_errors` verdicts |
 
 Fake tokens only; nothing reaches hermes-30.
