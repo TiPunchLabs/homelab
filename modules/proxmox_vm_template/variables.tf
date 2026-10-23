@@ -164,3 +164,9 @@ variable "vm_network_devices" {
   }))
   default = []
 }
+
+variable "vm_reboot_after_update" {
+  description = "Let the provider reboot the VM when an update is not hotpluggable. false = the change is pushed, the provider only warns and the reboot is left to the operator"
+  type        = bool
+  default     = true
+}

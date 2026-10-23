@@ -19,8 +19,16 @@ module "hermes_vm" {
   # (35 a 84 % du temps selon Komodo). 3584 laisse ~2 Gio a l'invite avec deux
   # gateways. Applique a chaud par `qm set 9030 --balloon 3584`, pas par
   # Terraform : bpg v0.96 redemarrerait la VM pour ce changement
-  # (reboot_after_update = true par defaut). Ce code s'aligne sur la production.
-  vm_memory_floating = 3584
+  # (reboot_after_update = true par defaut).
+  #
+  # 4096 (M4-MEM.2A, 2026-10-23) : place pour un quatrieme gateway. Sans
+  # `memory` dans hotplug, bpg classe toute modif memoire « reboot requis » ;
+  # a false il pousse la config et avertit au lieu de redemarrer. Proxmox
+  # applique le plancher a chaud tant que le ballooning reste actif (les deux
+  # valeurs non nulles) : `qm pending 9030` doit rester vide apres l'apply.
+  # Tant que l'apply n'est pas fait, la production est encore a 3584.
+  vm_memory_floating     = 4096
+  vm_reboot_after_update = false
 
   # 32 Go : local-lvm est en thin provisioning et deja a ~67 % d'occupation.
   # Agrandir plus tard est non destructif (qm resize + growpart), pas l'inverse.
