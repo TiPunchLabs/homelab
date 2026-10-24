@@ -116,6 +116,61 @@ hermes_default_profile: {}
 hermes_default_src_dir: "{{ role_path }}/files/default"
 
 # ============================================================
+# M5 : preflight, sauvegarde et rollback du passage a Nora
+# ============================================================
+# Jamais joues par deploy.yml : m5-preflight.yml (lecture seule),
+# m5-backup.yml (-e hermes_m5_backup_id=...), m5-rollback.yml (-e
+# hermes_m5_backup_id=... -e "hermes_m5_rollback_confirm=ROLLBACK <id>").
+#
+# Une sauvegarde par identifiant, sous ce repertoire (root, 0700), hors du
+# volume monte : le conteneur ne la voit pas. Jamais ecrasee, jamais purgee
+# automatiquement (retention : decision humaine).
+hermes_m5_backup_root: /root/hermes-m5-backup
+# Fichiers de default copies un par un (avec mode, proprietaire, sha256) :
+# ce sont eux que le rollback restaure. .env n'est restaure que cle par cle.
+hermes_m5_identity_files:
+  - SOUL.md
+  - memories/USER.md
+  - memories/MEMORY.md
+  - config.yaml
+  - .env
+# Cles de .env que M5 ajoute (hermes_default_nora.env) : le rollback les
+# remet a leur valeur d'avant, ou les retire si elles n'existaient pas.
+hermes_m5_rollback_env_keys:
+  - TAVILY_API_KEY
+# Archive complete du volume de default, HORS profils (M5 n'y ecrit pas) et
+# hors bases SQLite vivantes (copiees a part, de facon coherente). Caches
+# regenerables exclus : ~2 Gio sur 2,4 (releve du 2026-10-24).
+hermes_m5_tar_excludes:
+  - ./profiles
+  - "*.db"
+  - "*.db-wal"
+  - "*.db-shm"
+  - "*.db-journal"
+  - ./.cache
+  - ./home/.cache
+  - ./home/.npm
+  - ./.pw-browsers
+  - ./lazy-packages
+  - ./.venv-browser
+  - ./.venv-docs
+# Les bases sont lues sous l'UID de l'agent : si SQLite doit creer un -shm
+# ou un -wal, il appartient a Hermes, jamais a root (un -shm root bloquerait
+# la gateway). Les tests remplacent ce prefixe.
+hermes_m5_db_reader: ["setpriv", "--reuid={{ hermes_puid }}", "--regid={{ hermes_pgid }}", "--clear-groups"]
+# Seuils du preflight M5 : MiB disponibles (M5.2 H.A), espace libre pour la
+# sauvegarde, remplissage maximal du disque.
+hermes_m5_min_available_mib: 1200
+hermes_m5_min_free_mib: 4096
+hermes_m5_max_disk_pcent: 70
+# Profils dont la gateway doit rester intacte autour de M5.
+hermes_m5_gateways: [default, cafe-ia, tech-watch, job-search]
+# Archive des fichiers historiques deplaces en M5.4 (contrat du rollback) :
+# <dir>/<id>/manifest.json {"items": [chemins relatifs]} et <dir>/<id>/data/<chemin>.
+hermes_m5_archive_root: /opt/hermes/archive
+hermes_meminfo_path: /proc/meminfo
+
+# ============================================================
 # Preflight, sauvegarde et rollback du deploiement M1
 # ============================================================
 # Fenetre de securite cron (minutes) : aucun job ne doit etre du dans ce

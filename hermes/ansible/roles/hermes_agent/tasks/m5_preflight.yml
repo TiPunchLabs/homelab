@@ -1,0 +1,177 @@
+---
+# =============================================================================
+# Preflight M5 (Nora) : LECTURE SEULE, joue apres preflight.yml (default) et
+# deployed_profiles_preflight.yml (Kaféine, Néo, Scout).
+#
+# Aucune ecriture, ni sur l'hote ni dans le conteneur ; aucune commande
+# `hermes` (certaines migrent leur base a l'ouverture). N'affiche que des
+# noms, des etats, des PID, des tailles et des empreintes — jamais une valeur
+# de .env, une URL de config ou un contenu de memoire.
+#
+# NO-GO (sauvegarde M5.3.B2) si :
+#   - Nora est deja active dans l'inventaire (hermes_default_profile) ;
+#   - le conteneur ne tourne pas l'image epinglee ;
+#   - une des quatre gateways n'est pas `up` sous s6 ;
+#   - default traite une conversation (active_agents) ;
+#   - memoire, espace libre ou remplissage du disque hors seuils ;
+#   - un fichier du volume appartient a root (sidecar SQLite casse) ;
+#   - le SOUL.md de default differe du predecesseur declare ;
+#   - la sauvegarde demandee (hermes_m5_backup_id) existe deja.
+# Les prerequis de l'ACTIVATION (cle Tavily, empreinte declaree) sont
+# rapportes sans bloquer la sauvegarde.
+# =============================================================================
+
+- name: Assert that Nora is not active in the inventory yet
+  ansible.builtin.assert:
+    that:
+      - hermes_default_profile | length == 0
+    fail_msg: >-
+      NO-GO : hermes_default_profile est deja renseigne. La sauvegarde M5 doit
+      decrire default AVANT Nora : revenir au commit d'avant l'activation.
+    quiet: true
+
+- name: Read the image of the running hermes container
+  ansible.builtin.command:
+    argv: [docker, container, inspect, --format, "{{ '{{.Config.Image}}' }}", hermes]
+  register: hermes_m5_pf_image
+  changed_when: false
+  check_mode: false
+
+- name: Read the s6 state of the four gateways
+  ansible.builtin.command:
+    argv: [docker, exec, -u, "{{ hermes_puid }}", hermes, /command/s6-svstat, "/run/service/gateway-{{ item }}"]
+  loop: "{{ hermes_m5_gateways }}"
+  register: hermes_m5_pf_svstat
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+# Ce fichier ne porte que des etats et des PID : il peut etre lu.
+- name: Read the default gateway runtime state
+  ansible.builtin.slurp:
+    src: "{{ hermes_data_dir }}/gateway_state.json"
+  register: hermes_m5_pf_gateway_state
+
+- name: Read the memory of the VM
+  ansible.builtin.slurp:
+    src: "{{ hermes_meminfo_path }}"
+  register: hermes_m5_pf_meminfo
+
+- name: Read free space and usage of the disk holding the data and the backups
+  ansible.builtin.command:
+    argv: [df, -B1M, "--output=avail,pcent", "{{ hermes_data_dir }}", "{{ hermes_m5_backup_root | dirname }}"]
+  register: hermes_m5_pf_df
+  changed_when: false
+  check_mode: false
+
+# -quit : le premier suffit pour un NO-GO, et rien d'autre n'est lu.
+- name: Look for a root-owned file in the data volume
+  ansible.builtin.command:
+    argv: [find, "{{ hermes_data_dir }}", -user, "0", -print, -quit]
+  register: hermes_m5_pf_root_owned
+  changed_when: false
+  check_mode: false
+
+- name: Read the identity files of default (metadata and checksum only)
+  ansible.builtin.stat:
+    path: "{{ hermes_data_dir }}/{{ item }}"
+    checksum_algorithm: sha256
+  loop: "{{ hermes_m5_identity_files }}"
+  register: hermes_m5_pf_identity
+
+# Quelques centaines d'octets ; seuls les NOMS de cles et l'interrupteur de
+# Kandidat sont rapportes (l'URL n'est jamais affichee).
+- name: Read the default config.yaml
+  ansible.builtin.slurp:
+    src: "{{ hermes_data_dir }}/config.yaml"
+  register: hermes_m5_pf_config
+  no_log: true
+
+- name: List the skills of default
+  ansible.builtin.find:
+    paths: "{{ hermes_data_dir }}/skills"
+    patterns: SKILL.md
+    recurse: true
+    depth: 3
+  register: hermes_m5_pf_skills
+
+- name: List the SQLite databases of default (profiles excluded)
+  ansible.builtin.find:
+    paths: "{{ hermes_data_dir }}"
+    patterns: "*.db"
+    recurse: true
+    hidden: true
+  register: hermes_m5_pf_dbs
+
+- name: List the existing M5 backups (never removed by this role)
+  ansible.builtin.find:
+    paths: "{{ hermes_m5_backup_root }}"
+    file_type: directory
+    recurse: false
+  register: hermes_m5_pf_backups
+
+- name: Derive the preflight facts
+  ansible.builtin.set_fact:
+    hermes_m5_pf:
+      image_ok: "{{ hermes_m5_pf_image.stdout | trim == hermes_image ~ ':' ~ hermes_image_tag }}"
+      gateways_down: >-
+        {{ hermes_m5_pf_svstat.results | rejectattr('stdout', 'match', '^up \(pid [0-9]+')
+           | map(attribute='item') | list }}
+      active_agents: "{{ (hermes_m5_pf_gateway_state.content | b64decode | from_json).active_agents | default([]) | length }}"
+      mem_available_mib: >-
+        {{ (hermes_m5_pf_meminfo.content | b64decode
+            | regex_search('MemAvailable:\s+([0-9]+)', '\1') | first | int) // 1024 }}
+      disk: >-
+        {{ hermes_m5_pf_df.stdout_lines[1:] | map('split') | map('map', 'regex_replace', '%$', '') | map('map', 'int') | list }}
+      root_owned: "{{ hermes_m5_pf_root_owned.stdout | trim | length > 0 }}"
+      soul_sha256: "{{ hermes_m5_pf_identity.results[0].stat.checksum | default('absent') }}"
+      config_keys: >-
+        {{ (hermes_m5_pf_config.content | b64decode | from_yaml or {}) | dict2items | map(attribute='key') | list }}
+      kandidat_enabled: >-
+        {{ ((hermes_m5_pf_config.content | b64decode | from_yaml or {}).mcp_servers | default({})).kandidat.enabled
+           | default('absent') }}
+      skills: >-
+        {{ hermes_m5_pf_skills.files | map(attribute='path') | map('dirname') | map('basename') | sort }}
+      backup_id_taken: >-
+        {{ hermes_m5_backup_id is defined
+           and (hermes_m5_backup_root ~ '/' ~ hermes_m5_backup_id) in (hermes_m5_pf_backups.files | map(attribute='path')) }}
+
+- name: Report the M5 preflight state
+  ansible.builtin.debug:
+    msg:
+      - "image                 : {{ hermes_m5_pf_image.stdout | trim }} ({{ 'epinglee' if hermes_m5_pf.image_ok else 'DIFFERENTE de ' ~ hermes_image ~ ':' ~ hermes_image_tag }})"
+      - "gateways s6           : {{ hermes_m5_pf_svstat.results | map(attribute='item') | zip(hermes_m5_pf_svstat.results | map(attribute='stdout')) | map('join', ' = ') | list }}"
+      - "default active_agents : {{ hermes_m5_pf.active_agents }}"
+      - "MemAvailable          : {{ hermes_m5_pf.mem_available_mib }} MiB (seuil {{ hermes_m5_min_available_mib }})"
+      - "disque (MiB libres, %): {{ hermes_m5_pf.disk }} (seuils {{ hermes_m5_min_free_mib }} MiB, {{ hermes_m5_max_disk_pcent }} %)"
+      - "fichier root au volume: {{ 'OUI' if hermes_m5_pf.root_owned else 'aucun' }}"
+      - "SOUL.md sha256        : {{ hermes_m5_pf.soul_sha256 }}"
+      - "fichiers d'identite   : {{ hermes_m5_pf_identity.results | map(attribute='item') | zip(hermes_m5_pf_identity.results | map(attribute='stat.exists')) | map('join', '=') | list }}"
+      - "config.yaml, cles     : {{ hermes_m5_pf.config_keys }} ; kandidat.enabled = {{ hermes_m5_pf.kandidat_enabled }}"
+      - "skills ({{ hermes_m5_pf.skills | length }}), a desactiver presents : {{ hermes_m5_pf.skills | intersect(hermes_default_nora.config['skills.disabled'] | default([])) }}"
+      - "bases SQLite          : {{ hermes_m5_pf_dbs.files | map(attribute='path') | map('regex_replace', '^' ~ hermes_data_dir ~ '/', '') | reject('match', '^profiles/') | sort }}"
+      - "sauvegardes M5        : {{ hermes_m5_pf_backups.files | map(attribute='path') | map('basename') | sort }}"
+      - "ACTIVATION, cle Tavily: {{ 'presente au vault' if vault_hermes_default_tavily_api_key is defined else 'ABSENTE (prerequis M5.4)' }}"
+      - "ACTIVATION, empreinte : {{ 'declaree' if hermes_default_soul_predecessor_sha256 is defined else 'NON declaree (a reprendre du manifest de la sauvegarde)' }}"
+
+- name: Assert the M5 GO conditions
+  ansible.builtin.assert:
+    that:
+      - hermes_m5_pf.image_ok | bool
+      - hermes_m5_pf.gateways_down | length == 0
+      - hermes_m5_pf.active_agents | int == 0
+      - hermes_m5_pf.mem_available_mib | int >= hermes_m5_min_available_mib
+      - hermes_m5_pf.disk | map('first') | min >= hermes_m5_min_free_mib
+      - hermes_m5_pf.disk | map('last') | max <= hermes_m5_max_disk_pcent
+      - not hermes_m5_pf.root_owned | bool
+      - hermes_m5_pf_identity.results[0].stat.exists
+      - hermes_default_soul_predecessor_sha256 is not defined
+        or hermes_m5_pf.soul_sha256 == hermes_default_soul_predecessor_sha256
+      - not hermes_m5_pf.backup_id_taken | bool
+    fail_msg: >-
+      NO-GO M5 : image {{ hermes_m5_pf.image_ok }}, gateways hors service
+      {{ hermes_m5_pf.gateways_down }}, active_agents {{ hermes_m5_pf.active_agents }},
+      MemAvailable {{ hermes_m5_pf.mem_available_mib }} MiB, disque {{ hermes_m5_pf.disk }},
+      fichier root {{ hermes_m5_pf.root_owned }}, SOUL.md {{ hermes_m5_pf.soul_sha256 }},
+      sauvegarde deja prise {{ hermes_m5_pf.backup_id_taken }}.
+    quiet: true

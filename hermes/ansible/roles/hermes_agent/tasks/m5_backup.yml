@@ -1,0 +1,287 @@
+---
+# =============================================================================
+# Sauvegarde M5 de default, AVANT Nora — base de m5_rollback.yml.
+#
+# Entree obligatoire : hermes_m5_backup_id (AAAAMMJJTHHMM). Sortie :
+#   {{ hermes_m5_backup_root }}/<id>/   root, 0700 ; fichiers 0600
+#     files/<chemin>      fichiers d'identite (SOUL.md, memoires, config, .env)
+#     files/managed.env, files/managed.config.yaml, files/docker-compose.yml
+#     data.tar.gz         volume de default, modes et proprietaires numeriques
+#                         conserves ; ni profils, ni bases vivantes, ni caches
+#     db/<chemin>         image COHERENTE de chaque base SQLite (WAL compris)
+#     manifest.json       meta (mode, uid, gid, sha256), bases, gateways, image
+#     SHA256SUMS          empreintes de tout ce qui precede, verifiees
+#
+# Aucune gateway arretee ou redemarree, aucun fichier du volume ecrit : les
+# bases sont lues par l'API de sauvegarde SQLite sous l'UID de l'agent, a
+# chaud. Une sauvegarde existante n'est jamais ecrasee ni purgee. Les copies
+# de secrets sont en no_log ; rien de ce qui est lu n'est affiche.
+# =============================================================================
+
+- name: Assert that the backup id is explicit and well formed
+  ansible.builtin.assert:
+    that:
+      - hermes_m5_backup_id is defined
+      - hermes_m5_backup_id | string is match('^[0-9]{8}T[0-9]{4}$')
+    fail_msg: >-
+      Sauvegarde M5 : passer -e hermes_m5_backup_id=AAAAMMJJTHHMM. Rien n'a
+      ete ecrit.
+    quiet: true
+
+- name: Define the backup paths
+  ansible.builtin.set_fact:
+    hermes_m5_bk_dir: "{{ hermes_m5_backup_root }}/{{ hermes_m5_backup_id }}"
+
+- name: Stat the M5 backup directory
+  ansible.builtin.stat:
+    path: "{{ hermes_m5_bk_dir }}"
+  register: hermes_m5_bk_stat
+
+- name: Refuse to overwrite an existing M5 backup
+  ansible.builtin.assert:
+    that:
+      - not hermes_m5_bk_stat.stat.exists
+    fail_msg: "{{ hermes_m5_bk_dir }} existe deja : une sauvegarde M5 n'est jamais ecrasee."
+    quiet: true
+
+- name: Look for a root-owned file in the data volume (before)
+  ansible.builtin.command:
+    argv: [find, "{{ hermes_data_dir }}", -user, "0", -print, -quit]
+  register: hermes_m5_bk_root_before
+  changed_when: false
+  check_mode: false
+  failed_when: hermes_m5_bk_root_before.stdout | trim | length > 0
+
+- name: Read free space where the backup is written
+  ansible.builtin.command:
+    argv: [df, -B1M, --output=avail, "{{ hermes_m5_backup_root | dirname }}"]
+  register: hermes_m5_bk_df
+  changed_when: false
+  check_mode: false
+  failed_when: (hermes_m5_bk_df.stdout_lines | last | trim | int) < hermes_m5_min_free_mib
+
+- name: Create the M5 backup directories (0700)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0700'
+  loop:
+    - "{{ hermes_m5_backup_root }}"
+    - "{{ hermes_m5_bk_dir }}"
+    - "{{ hermes_m5_bk_dir }}/files/memories"
+    - "{{ hermes_m5_bk_dir }}/db"
+
+- name: Read the identity files of default (metadata and checksum)
+  ansible.builtin.stat:
+    path: "{{ hermes_data_dir }}/{{ item }}"
+    checksum_algorithm: sha256
+  loop: "{{ hermes_m5_identity_files }}"
+  register: hermes_m5_bk_identity
+
+- name: Copy the identity files (0600)
+  ansible.builtin.copy:
+    src: "{{ hermes_data_dir }}/{{ item.item }}"
+    dest: "{{ hermes_m5_bk_dir }}/files/{{ item.item }}"
+    remote_src: true
+    mode: '0600'
+  loop: "{{ hermes_m5_bk_identity.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - not ansible_check_mode
+    - item.stat.exists
+  no_log: true
+
+- name: Copy the managed layer and the Compose file (0600, reference)
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ hermes_m5_bk_dir }}/files/{{ item.dest }}"
+    remote_src: true
+    mode: '0600'
+  loop:
+    - { src: "{{ hermes_managed_dir }}/.env", dest: managed.env }
+    - { src: "{{ hermes_managed_dir }}/config.yaml", dest: managed.config.yaml }
+    - { src: "{{ hermes_install_dir }}/docker-compose.yml", dest: docker-compose.yml }
+  loop_control:
+    label: "{{ item.dest }}"
+  when: not ansible_check_mode
+  no_log: true
+
+# GNU tar : --numeric-owner garde l'UID 1000 tel quel, quel que soit le nom
+# local. rc=1 ne signifie que « fichier modifie pendant la lecture » (journaux
+# de la gateway) : accepte seulement si c'est la SEULE plainte.
+- name: Archive the default volume (profiles, live databases and caches excluded)
+  ansible.builtin.command:
+    argv: >-
+      {{ ['tar', '--create', '--gzip', '--file', hermes_m5_bk_dir ~ '/data.tar.gz',
+          '--numeric-owner', '--acls', '--xattrs', '--sparse',
+          '--directory', hermes_data_dir]
+         + (hermes_m5_tar_excludes | map('regex_replace', '^', '--exclude=') | list)
+         + ['.'] }}
+  register: hermes_m5_bk_tar
+  changed_when: true
+  failed_when: >-
+    hermes_m5_bk_tar.rc > 1
+    or (hermes_m5_bk_tar.rc == 1
+        and hermes_m5_bk_tar.stderr_lines | reject('search', 'file changed as we read it') | list | length > 0)
+  when: not ansible_check_mode
+
+- name: Restrict the archive to root (0600)
+  ansible.builtin.file:
+    path: "{{ hermes_m5_bk_dir }}/data.tar.gz"
+    mode: '0600'
+  when: not ansible_check_mode
+
+- name: List the SQLite databases of default (profiles excluded)
+  ansible.builtin.command:
+    argv: [find, "{{ hermes_data_dir }}", -path, "{{ hermes_data_dir }}/profiles", -prune, -o, -type, f, -name, "*.db", -print]
+  register: hermes_m5_bk_dbs
+  changed_when: false
+  check_mode: false
+
+# Lecture sous l'UID de l'agent (hermes_m5_db_reader), ecriture par le shell
+# root dans le repertoire 0700 : aucun fichier temporaire, aucun sidecar root.
+- name: Snapshot each database consistently
+  ansible.builtin.shell: >-
+    umask 077 &&
+    {{ hermes_m5_db_reader | map('quote') | join(' ') }}
+    python3 - sqlite-snapshot {{ item | quote }}
+    > {{ (hermes_m5_bk_dir ~ '/db/' ~ (item | regex_replace('^' ~ hermes_data_dir ~ '/', '') | replace('/', '__'))) | quote }}
+  args:
+    stdin: "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+    chdir: /
+  loop: "{{ hermes_m5_bk_dbs.stdout_lines }}"
+  changed_when: true
+  when: not ansible_check_mode
+
+- name: Verify each database image (integrity, row counts)
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - sqlite-report
+      - "{{ hermes_m5_bk_dir }}/db/{{ item | regex_replace('^' ~ hermes_data_dir ~ '/', '') | replace('/', '__') }}"
+  loop: "{{ hermes_m5_bk_dbs.stdout_lines }}"
+  register: hermes_m5_bk_db_reports
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Stat the live databases (owner and mode, for a restore)
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    get_checksum: false
+  loop: "{{ hermes_m5_bk_dbs.stdout_lines }}"
+  register: hermes_m5_bk_db_stats
+
+- name: Look for a root-owned file in the data volume (after)
+  ansible.builtin.command:
+    argv: [find, "{{ hermes_data_dir }}", -user, "0", -print, -quit]
+  register: hermes_m5_bk_root_after
+  changed_when: false
+  check_mode: false
+  failed_when: hermes_m5_bk_root_after.stdout | trim | length > 0
+
+- name: Read the image and the gateway states recorded with the backup
+  ansible.builtin.command:
+    argv: "{{ item }}"
+  loop:
+    - [docker, container, inspect, --format, "{{ '{{.Config.Image}} {{.Image}} {{.State.StartedAt}}' }}", hermes]
+    - [date, -Is]
+  register: hermes_m5_bk_context
+  changed_when: false
+  check_mode: false
+
+- name: Read the s6 state of the four gateways
+  ansible.builtin.command:
+    argv: [docker, exec, -u, "{{ hermes_puid }}", hermes, /command/s6-svstat, "/run/service/gateway-{{ item }}"]
+  loop: "{{ hermes_m5_gateways }}"
+  register: hermes_m5_bk_svstat
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Read the .env key names of default (never the values)
+  ansible.builtin.command:
+    argv: [grep, -oE, '^[A-Za-z0-9_]+=', "{{ hermes_data_dir }}/.env"]
+  register: hermes_m5_bk_env_keys
+  changed_when: false
+  check_mode: false
+  failed_when: hermes_m5_bk_env_keys.rc > 1
+
+- name: Collect the metadata of the backed-up identity files
+  ansible.builtin.set_fact:
+    hermes_m5_bk_files_meta: >-
+      {{ hermes_m5_bk_files_meta | default({}) | combine({item.item: {
+           'mode': item.stat.mode, 'uid': item.stat.uid, 'gid': item.stat.gid,
+           'size': item.stat.size, 'sha256': item.stat.checksum}}) }}
+  loop: "{{ hermes_m5_bk_identity.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stat.exists
+
+- name: Collect the metadata of the database images
+  ansible.builtin.set_fact:
+    hermes_m5_bk_db_meta: >-
+      {{ hermes_m5_bk_db_meta | default({}) | combine({hermes_rel: {
+           'copy': 'db/' ~ (hermes_rel | replace('/', '__')),
+           'mode': hermes_m5_bk_db_stats.results[idx].stat.mode,
+           'uid': hermes_m5_bk_db_stats.results[idx].stat.uid,
+           'gid': hermes_m5_bk_db_stats.results[idx].stat.gid,
+           'report': hermes_m5_bk_db_reports.results[idx].stdout | from_json}}) }}
+  loop: "{{ range(hermes_m5_bk_dbs.stdout_lines | length) | list }}"
+  loop_control:
+    loop_var: idx
+    label: "{{ hermes_rel }}"
+  vars:
+    hermes_rel: "{{ hermes_m5_bk_dbs.stdout_lines[idx] | regex_replace('^' ~ hermes_data_dir ~ '/', '') }}"
+  when: not ansible_check_mode
+
+- name: Write the M5 backup manifest
+  ansible.builtin.copy:
+    dest: "{{ hermes_m5_bk_dir }}/manifest.json"
+    mode: '0600'
+    content: >-
+      {{ {'created_for': 'hermes M5 (Nora) rollback',
+          'id': hermes_m5_backup_id,
+          'created_at': hermes_m5_bk_context.results[1].stdout | trim,
+          'container': hermes_m5_bk_context.results[0].stdout | trim,
+          'data_dir': hermes_data_dir,
+          'soul_predecessor_sha256': hermes_m5_bk_identity.results[0].stat.checksum | default(none),
+          'identity_files': hermes_m5_bk_files_meta | default({}),
+          'identity_files_absent': hermes_m5_bk_identity.results | rejectattr('stat.exists') | map(attribute='item') | list,
+          'data_env_keys': hermes_m5_bk_env_keys.stdout_lines | map('regex_replace', '=$', '') | list,
+          'databases': hermes_m5_bk_db_meta | default({}),
+          'tar_excludes': hermes_m5_tar_excludes,
+          'tar_changed_while_read': hermes_m5_bk_tar.stderr_lines | default([])
+            | select('search', 'file changed as we read it')
+            | map('regex_replace', ': file changed as we read it$', '') | list,
+          'gateways': dict(hermes_m5_gateways | zip(hermes_m5_bk_svstat.results | map(attribute='stdout')))}
+         | to_nice_json }}
+  when: not ansible_check_mode
+
+# Calculees en dernier, sur tout ce qui a ete ecrit, puis reverifiees.
+- name: Write SHA256SUMS
+  ansible.builtin.shell: >-
+    set -o pipefail && umask 077 && cd {{ hermes_m5_bk_dir | quote }} &&
+    find . -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: not ansible_check_mode
+
+- name: Verify SHA256SUMS
+  ansible.builtin.command:
+    argv: [sha256sum, --check, --quiet, --strict, SHA256SUMS]
+    chdir: "{{ hermes_m5_bk_dir }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Report the M5 backup
+  ansible.builtin.debug:
+    msg:
+      - "sauvegarde         : {{ hermes_m5_bk_dir }} (0700, fichiers 0600)"
+      - "SOUL.md predecesseur : {{ hermes_m5_bk_identity.results[0].stat.checksum | default('absent') }}"
+      - "bases              : {{ hermes_m5_bk_db_reports.results | default([]) | map(attribute='stdout', default='check') | list }}"
+      - "tar                : rc={{ hermes_m5_bk_tar.rc | default('check') }}"
+      - "gateways           : {{ hermes_m5_bk_svstat.results | map(attribute='stdout') | list }}"

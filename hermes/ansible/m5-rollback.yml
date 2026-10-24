@@ -1,0 +1,17 @@
+---
+# Sur decision explicite seulement, apres le revert du commit d'activation de
+# Nora. Ne redemarre rien : la commande de redemarrage de la gateway default
+# est affichee a la fin. Ne touche ni a Kaféine, ni a Néo, ni a Scout.
+#   ansible-playbook ansible/m5-rollback.yml -e hermes_m5_backup_id=<id> \
+#     -e "hermes_m5_rollback_confirm=ROLLBACK <id>"
+# Bases SQLite (dernier recours, gateway default ET hermes-dashboard arretes) :
+#   ... -e hermes_m5_rollback_restore_databases=true
+- name: Rollback M5 de hermes-30 — default revient a son etat d'avant Nora
+  hosts: hermes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run m5_rollback.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: m5_rollback.yml

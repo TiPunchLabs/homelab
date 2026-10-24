@@ -22,6 +22,9 @@ Usage (argv after `-c`):
     listen <port>                                (on the HOST: reads `ss`)
     memory <memory> <balloon> <balloon bytes> <required MiB> [meminfo]
                                                  (on the HOST: Proxmox values)
+    sqlite-snapshot <db>                         (on the HOST, as the agent UID):
+                                                 consistent image on stdout
+    sqlite-report <db copy>                      integrity + row counts, JSON
 
 `schedule-window` is read-only: it reads the profile's jobs.json and prints
 names, schedules and timestamps only, never a prompt. `bot-identity` calls
@@ -387,6 +390,72 @@ def memory_verdict(
     return errors, summary
 
 
+def sqlite_snapshot(src: str, timeout_seconds: float = 10.0) -> bytes:
+    """Return a consistent image of a live SQLite database, WAL content included.
+
+    Same method as hermes_cli/backup.py (_safe_copy_db, v0.20.4): the online
+    backup API from a read-only connection, here into memory, then
+    serialized. Writers keep going; a page changed mid-copy restarts the
+    step, so the image is one committed state. Copying the main file alone
+    would drop every commit still in the -wal. Fails closed on a lock held
+    longer than `timeout_seconds`.
+    """
+    import sqlite3
+    import time
+
+    source = sqlite3.connect(f"file:{src}?mode=ro", uri=True, timeout=0.0)
+    memory = sqlite3.connect(":memory:")
+    deadline = time.monotonic() + timeout_seconds
+
+    def progress(status: int, _remaining: int, _total: int) -> None:
+        """Abort when the source stays locked past the deadline."""
+        nonlocal deadline
+        now = time.monotonic()
+        if status in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+            if now >= deadline:
+                raise TimeoutError(f"{src} locked for {timeout_seconds:g} s")
+        else:
+            deadline = now + timeout_seconds
+
+    try:
+        source.backup(memory, pages=256, progress=progress, sleep=0.1)
+        return memory.serialize()
+    finally:
+        memory.close()
+        source.close()
+
+
+# Row counts recorded for the tables that matter to a rollback decision.
+SQLITE_COUNTED_TABLES = ("sessions", "messages", "system_prompts")
+
+
+def sqlite_report(path: str) -> dict[str, Any]:
+    """Judge a database file without touching it: integrity and a few row counts.
+
+    `immutable=1`: no lock, no -wal or -shm read or created. Meant for a copy
+    at rest (a backup), not for a live database. Never returns row content.
+    """
+    import sqlite3
+
+    try:
+        conn = sqlite3.connect(f"file:{path}?immutable=1", uri=True)
+        try:
+            integrity = [row[0] for row in conn.execute("PRAGMA integrity_check")]
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            counts = {
+                t: conn.execute(f'SELECT count(*) FROM "{t}"').fetchone()[0]
+                for t in SQLITE_COUNTED_TABLES
+                if t in tables
+            }
+            with open(path, "rb") as handle:
+                wal = handle.read(20)[18:20] == b"\x02\x02"
+        finally:
+            conn.close()
+    except sqlite3.DatabaseError as exc:
+        return {"ok": False, "integrity": [f"{type(exc).__name__}: {exc}"], "counts": {}, "tables": 0, "wal": None}
+    return {"ok": integrity == ["ok"], "integrity": integrity[:5], "counts": counts, "tables": len(tables), "wal": wal}
+
+
 def _report(errors: list[str], ok_message: str) -> int:
     """Print the outcome and return the process exit code."""
     if errors:
@@ -542,6 +611,13 @@ def main(argv: list[str]) -> int:
         errors, summary = memory_verdict(meminfo, floor, balloon, int(argv[4]))
         print(summary)
         return _report(errors, "GO: memory headroom for one more gateway")
+    if mode == "sqlite-snapshot" and len(argv) == 2:
+        sys.stdout.buffer.write(sqlite_snapshot(argv[1]))
+        return 0
+    if mode == "sqlite-report" and len(argv) == 2:
+        report = sqlite_report(argv[1])
+        print(json.dumps(report, sort_keys=True))
+        return 0 if report["ok"] else 1
     print(f"usage error: {argv!r}")
     return 2
 

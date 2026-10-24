@@ -1,0 +1,327 @@
+---
+# =============================================================================
+# Rollback M5 : default revient a son etat d'avant Nora, depuis la sauvegarde
+# m5_backup.yml. Sur confirmation EXPLICITE seulement :
+#   -e hermes_m5_backup_id=<id> -e "hermes_m5_rollback_confirm=ROLLBACK <id>"
+#
+# Avant toute ecriture : confirmation, Nora retiree de l'inventaire (sinon le
+# prochain deploy.yml la reappliquerait), SHA256SUMS de la sauvegarde verifie,
+# archive et bases controlees. Puis, dans cet ordre :
+#   1. tout fichier sur le point d'etre remplace est d'abord COPIE sous
+#      <sauvegarde>/rollback-saves/<horodatage>/ : rien n'est ecrase en silence ;
+#   2. SOUL.md, memoires, config.yaml : contenu, mode et proprietaire d'avant ;
+#   3. .env : SEULES les cles de hermes_m5_rollback_env_keys (Tavily),
+#      remises a leur valeur d'avant ou retirees ; le jeton Telegram ne bouge pas ;
+#   4. fichiers historiques archives en M5.4 : remis en place s'ils manquent ;
+#   5. bases SQLite : UNIQUEMENT avec -e hermes_m5_rollback_restore_databases=true,
+#      et seulement si plus aucun processus ne les tient ouvertes (gateway
+#      default ET conteneur hermes-dashboard arretes par l'operateur).
+#
+# AUCUN redemarrage : .env et config ne sont relus qu'au demarrage de la
+# gateway default ; la commande a lancer est affichee en fin de play. Kaféine,
+# Néo et Scout ne sont jamais touches (leurs fichiers sont sous profiles/).
+# Rejouable : un second passage ne change rien.
+# =============================================================================
+
+- name: Assert the explicit rollback confirmation
+  ansible.builtin.assert:
+    that:
+      - hermes_m5_backup_id is defined
+      - hermes_m5_backup_id | string is match('^[0-9]{8}T[0-9]{4}$')
+      - hermes_m5_rollback_confirm | default('') == 'ROLLBACK ' ~ hermes_m5_backup_id
+    fail_msg: >-
+      Rollback M5 refuse : passer -e hermes_m5_backup_id=<id> et
+      -e "hermes_m5_rollback_confirm=ROLLBACK <id>". Rien n'a ete modifie.
+    quiet: true
+
+- name: Assert that Nora is no longer declared
+  ansible.builtin.assert:
+    that:
+      - hermes_default_profile | length == 0
+    fail_msg: >-
+      Rollback M5 refuse : hermes_default_profile est encore renseigne, le
+      prochain deploy.yml reappliquerait Nora. Revert du commit d'activation
+      d'abord. Rien n'a ete modifie.
+    quiet: true
+
+- name: Define the rollback paths
+  ansible.builtin.set_fact:
+    hermes_m5_rb_dir: "{{ hermes_m5_backup_root }}/{{ hermes_m5_backup_id }}"
+    hermes_m5_rb_archive: "{{ hermes_m5_archive_root }}/{{ hermes_m5_backup_id }}"
+    hermes_m5_rb_restore_dbs: "{{ hermes_m5_rollback_restore_databases | default(false) | bool }}"
+
+- name: Verify the backup against its SHA256SUMS
+  ansible.builtin.command:
+    argv: [sha256sum, --check, --quiet, --strict, SHA256SUMS]
+    chdir: "{{ hermes_m5_rb_dir }}"
+  changed_when: false
+  check_mode: false
+
+- name: Read the backup manifest
+  ansible.builtin.slurp:
+    src: "{{ hermes_m5_rb_dir }}/manifest.json"
+  register: hermes_m5_rb_manifest_raw
+
+- name: Parse the backup manifest
+  ansible.builtin.set_fact:
+    hermes_m5_rb_manifest: "{{ hermes_m5_rb_manifest_raw.content | b64decode | from_json }}"
+    hermes_m5_rb_stamp: "{{ now(utc=true, fmt='%Y%m%dT%H%M%SZ') }}"
+
+- name: Assert that the backup belongs to this host and this id
+  ansible.builtin.assert:
+    that:
+      - hermes_m5_rb_manifest.id == hermes_m5_backup_id | string
+      - hermes_m5_rb_manifest.data_dir == hermes_data_dir
+    fail_msg: "Manifest de {{ hermes_m5_rb_dir }} incoherent (id ou data_dir). Rien n'a ete modifie."
+    quiet: true
+
+- name: Define where the replaced files are saved
+  ansible.builtin.set_fact:
+    hermes_m5_rb_saves: "{{ hermes_m5_rb_dir }}/rollback-saves/{{ hermes_m5_rb_stamp }}"
+
+# --- Controles, aucune ecriture ------------------------------------------------
+
+- name: Stat the M5 archive manifest
+  ansible.builtin.stat:
+    path: "{{ hermes_m5_rb_archive }}/manifest.json"
+  register: hermes_m5_rb_archive_stat
+
+- name: Read the M5 archive manifest
+  ansible.builtin.slurp:
+    src: "{{ hermes_m5_rb_archive }}/manifest.json"
+  register: hermes_m5_rb_archive_raw
+  when: hermes_m5_rb_archive_stat.stat.exists
+
+- name: List the archived items
+  ansible.builtin.set_fact:
+    hermes_m5_rb_items: >-
+      {{ (hermes_m5_rb_archive_raw.content | b64decode | from_json)['items']
+         if hermes_m5_rb_archive_stat.stat.exists else [] }}
+
+# Un fichier d'identite archive en M5.4 (USER.md, par exemple) revient par
+# l'archive, jamais depuis files/ : sinon il existerait deux fois.
+- name: Read the current identity files
+  ansible.builtin.stat:
+    path: "{{ hermes_data_dir }}/{{ item }}"
+    checksum_algorithm: sha256
+  loop: >-
+    {{ hermes_m5_rb_manifest.identity_files | list | reject('eq', '.env')
+       | reject('in', hermes_m5_rb_items) | list }}
+  register: hermes_m5_rb_current
+
+- name: Stat each archived item in the archive
+  ansible.builtin.stat:
+    path: "{{ hermes_m5_rb_archive }}/data/{{ item }}"
+    get_checksum: false
+  loop: "{{ hermes_m5_rb_items }}"
+  register: hermes_m5_rb_in_archive
+
+- name: Stat each archived item in place
+  ansible.builtin.stat:
+    path: "{{ hermes_data_dir }}/{{ item }}"
+    get_checksum: false
+  loop: "{{ hermes_m5_rb_items }}"
+  register: hermes_m5_rb_in_place
+
+# Archive seule : a remettre. En place seul : deja remis. Les deux, ou aucun :
+# on ne sait pas lequel garder, on s'arrete avant d'ecrire.
+- name: Refuse archived items found in both places or in none
+  ansible.builtin.assert:
+    that:
+      - hermes_m5_rb_in_archive.results[idx].stat.exists != hermes_m5_rb_in_place.results[idx].stat.exists
+      - hermes_m5_rb_items[idx] is not match('^(/|\.\./)')
+      - "'/../' not in hermes_m5_rb_items[idx]"
+    fail_msg: >-
+      Rollback M5 refuse : {{ hermes_m5_rb_items[idx] }} est present dans
+      l'archive ET en place, ou nulle part, ou sort du volume. Rien n'a ete modifie.
+    quiet: true
+  loop: "{{ range(hermes_m5_rb_items | length) | list }}"
+  loop_control:
+    loop_var: idx
+    label: "{{ hermes_m5_rb_items[idx] }}"
+
+# Vu de l'hote, un descripteur du conteneur pointe vers /opt/data/... : les
+# deux chemins sont cherches. Remplacer une base ouverte, ou lui laisser ses
+# sidecars, corromprait l'etat.
+- name: Refuse to restore a database that a process still holds
+  ansible.builtin.command:
+    argv:
+      - find
+      - /proc
+      - -mindepth
+      - "3"
+      - -maxdepth
+      - "3"
+      - -path
+      - "/proc/*/fd/*"
+      - (
+      - -lname
+      - "{{ hermes_data_dir }}/{{ item }}*"
+      - -o
+      - -lname
+      - "/opt/data/{{ item }}*"
+      - )
+      - -print
+      - -quit
+  loop: "{{ hermes_m5_rb_manifest.databases | list if hermes_m5_rb_restore_dbs else [] }}"
+  register: hermes_m5_rb_db_holders
+  changed_when: false
+  check_mode: false
+  # /proc refuse parfois la lecture (rc=1) : seul un descripteur trouve compte.
+  failed_when: hermes_m5_rb_db_holders.stdout | trim | length > 0
+
+- name: Read the current databases
+  ansible.builtin.stat:
+    path: "{{ hermes_data_dir }}/{{ item }}"
+    checksum_algorithm: sha256
+  loop: "{{ hermes_m5_rb_manifest.databases | list if hermes_m5_rb_restore_dbs else [] }}"
+  register: hermes_m5_rb_db_current
+
+- name: Read the database images of the backup
+  ansible.builtin.stat:
+    path: "{{ hermes_m5_rb_dir }}/{{ hermes_m5_rb_manifest.databases[item]['copy'] }}"
+    checksum_algorithm: sha256
+  loop: "{{ hermes_m5_rb_manifest.databases | list if hermes_m5_rb_restore_dbs else [] }}"
+  register: hermes_m5_rb_db_images
+
+# --- Ecritures -------------------------------------------------------------------
+
+- name: List the databases that differ from their image
+  ansible.builtin.set_fact:
+    hermes_m5_rb_db_todo: "{{ hermes_m5_rb_db_todo | default([]) + [item.0.item] }}"
+  loop: "{{ hermes_m5_rb_db_current.results | zip(hermes_m5_rb_db_images.results) | list }}"
+  loop_control:
+    label: "{{ item.0.item }}"
+  when: item.0.stat.checksum | default('') != item.1.stat.checksum
+
+# Cree seulement s'il y a quelque chose a mettre de cote : un passage qui ne
+# change rien ne laisse pas de repertoire vide derriere lui.
+- name: Create the directory of the saved current files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0700'
+  loop:
+    - "{{ hermes_m5_rb_dir }}/rollback-saves"
+    - "{{ hermes_m5_rb_saves }}"
+    - "{{ hermes_m5_rb_saves }}/memories"
+    - "{{ hermes_m5_rb_saves }}/db"
+  when: >-
+    hermes_m5_rb_current.results | selectattr('stat.exists')
+    | rejectattr('stat.checksum', 'in', hermes_m5_rb_manifest.identity_files.values() | map(attribute='sha256') | list)
+    | list | length > 0
+    or hermes_m5_rb_db_todo | default([]) | length > 0
+
+- name: Save each current identity file before replacing it
+  ansible.builtin.copy:
+    src: "{{ hermes_data_dir }}/{{ item.item }}"
+    dest: "{{ hermes_m5_rb_saves }}/{{ item.item }}"
+    remote_src: true
+    mode: '0600'
+  loop: "{{ hermes_m5_rb_current.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - not ansible_check_mode
+    - item.stat.exists
+    - item.stat.checksum != hermes_m5_rb_manifest.identity_files[item.item].sha256
+
+- name: Restore each identity file with its mode and owner
+  ansible.builtin.copy:
+    src: "{{ hermes_m5_rb_dir }}/files/{{ item.item }}"
+    dest: "{{ hermes_data_dir }}/{{ item.item }}"
+    remote_src: true
+    owner: "{{ hermes_m5_rb_manifest.identity_files[item.item].uid }}"
+    group: "{{ hermes_m5_rb_manifest.identity_files[item.item].gid }}"
+    mode: "{{ hermes_m5_rb_manifest.identity_files[item.item].mode }}"
+  loop: "{{ hermes_m5_rb_current.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  register: hermes_m5_rb_restored
+  when: item.stat.checksum | default('') != hermes_m5_rb_manifest.identity_files[item.item].sha256
+
+# Valeur d'origine lue dans la copie, jamais affichee (meme regle que M1).
+- name: Read the backed-up default .env
+  ansible.builtin.slurp:
+    src: "{{ hermes_m5_rb_dir }}/files/.env"
+  register: hermes_m5_rb_env
+  when: "'.env' in hermes_m5_rb_manifest.identity_files"
+  no_log: true
+
+- name: Restore the M5 keys of the default .env, key by key
+  ansible.builtin.include_tasks: env_keys.yml
+  vars:
+    hermes_env_path: "{{ hermes_data_dir }}/.env"
+    hermes_env_keys: >-
+      {{ dict(hermes_m5_rollback_env_keys | zip(hermes_m5_rollback_env_keys
+         | map('hermes_dotenv_value', hermes_m5_rb_env.content | default('') | b64decode))) }}
+
+# `mv --no-clobber` ignorerait une cible apparue entre-temps sans erreur :
+# le test explicite echoue a sa place.
+- name: Return each archived item to its place
+  ansible.builtin.shell: >-
+    test ! -e {{ (hermes_data_dir ~ '/' ~ hermes_m5_rb_items[idx]) | quote }}
+    && mv --no-target-directory {{ (hermes_m5_rb_archive ~ '/data/' ~ hermes_m5_rb_items[idx]) | quote }}
+    {{ (hermes_data_dir ~ '/' ~ hermes_m5_rb_items[idx]) | quote }}
+  loop: "{{ range(hermes_m5_rb_items | length) | list }}"
+  loop_control:
+    loop_var: idx
+    label: "{{ hermes_m5_rb_items[idx] }}"
+  register: hermes_m5_rb_returned
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - hermes_m5_rb_in_archive.results[idx].stat.exists
+
+# Base ET sidecars partent ensemble : un -wal ancien devant une base restauree
+# serait rejoue par-dessus elle.
+- name: Move each current database and its sidecars aside
+  ansible.builtin.shell: >-
+    for s in '' -wal -shm -journal; do
+    f={{ (hermes_data_dir ~ '/' ~ item.0.item) | quote }}"$s";
+    d={{ (hermes_m5_rb_saves ~ '/db/' ~ (item.0.item | replace('/', '__'))) | quote }}"$s";
+    [ -e "$f" ] || continue;
+    test ! -e "$d" && mv --no-target-directory "$f" "$d" || exit 1;
+    done
+  args:
+    executable: /bin/bash
+  loop: "{{ hermes_m5_rb_db_current.results | zip(hermes_m5_rb_db_images.results) | list }}"
+  loop_control:
+    label: "{{ item.0.item }}"
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - item.0.stat.checksum | default('') != item.1.stat.checksum
+
+- name: Restore each database image with its mode and owner
+  ansible.builtin.copy:
+    src: "{{ item.1.stat.path }}"
+    dest: "{{ hermes_data_dir }}/{{ item.0.item }}"
+    remote_src: true
+    owner: "{{ hermes_m5_rb_manifest.databases[item.0.item].uid }}"
+    group: "{{ hermes_m5_rb_manifest.databases[item.0.item].gid }}"
+    mode: "{{ hermes_m5_rb_manifest.databases[item.0.item].mode }}"
+  loop: "{{ hermes_m5_rb_db_current.results | zip(hermes_m5_rb_db_images.results) | list }}"
+  loop_control:
+    label: "{{ item.0.item }}"
+  register: hermes_m5_rb_db_restored
+  when: item.0.stat.checksum | default('') != item.1.stat.checksum
+
+- name: Verify each restored database
+  ansible.builtin.command:
+    argv: [python3, -c, "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}", sqlite-report, "{{ hermes_data_dir }}/{{ item }}"]
+  loop: "{{ hermes_m5_rb_manifest.databases | list if hermes_m5_rb_restore_dbs else [] }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Report the M5 rollback
+  ansible.builtin.debug:
+    msg:
+      - "sauvegarde        : {{ hermes_m5_rb_dir }} (SHA256SUMS verifie)"
+      - "fichiers restaures: {{ hermes_m5_rb_restored.results | selectattr('changed') | map(attribute='item.item') | list }}"
+      - "copies d'avant    : {{ hermes_m5_rb_saves }} (si quelque chose a ete remplace)"
+      - ".env              : cles {{ hermes_m5_rollback_env_keys }} remises a leur etat d'avant"
+      - "archive remise    : {{ hermes_m5_rb_returned.results | default([]) | selectattr('changed', 'defined') | selectattr('changed') | map(attribute='idx') | map('extract', hermes_m5_rb_items) | list }}"
+      - "bases restaurees  : {{ hermes_m5_rb_db_restored.results | default([]) | selectattr('changed') | map(attribute='item.0.item') | list }}"
+      - "AUCUN redemarrage. Pour que .env et config soient relus :"
+      - "  docker exec -u {{ hermes_puid }} hermes hermes -p default gateway restart"
