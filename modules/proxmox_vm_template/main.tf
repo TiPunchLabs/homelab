@@ -24,6 +24,8 @@ resource "proxmox_virtual_environment_vm" "vm" {
   # Cleanup options (v0.87.0+)
   stop_on_destroy = true
 
+  reboot_after_update = var.vm_reboot_after_update
+
   clone {
     vm_id   = var.vm_template_id
     full    = true

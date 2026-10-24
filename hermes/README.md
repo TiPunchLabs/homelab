@@ -81,7 +81,7 @@ Each role is deployed in this order by `deploy.yml`:
 
 ### VM Specs
 
-- CPU: 4 cores (type `host`) | RAM: 8192 MB (ballooning min 3584) | Disk: 32 GB SSD
+- CPU: 4 cores (type `host`) | RAM: 8192 MB (ballooning min 4096) | Disk: 32 GB SSD
 - Template ID: 9001 | VMID: 9030 | IP: 192.168.10.30
 - Disk: `discard=on`, `ssd=1`, `iothread=1` with a `virtio-scsi-single` controller
 - Autostart on node boot (`on_boot`, startup order 10 / up 30 / down 60)

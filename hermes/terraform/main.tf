@@ -19,8 +19,21 @@ module "hermes_vm" {
   # (35 a 84 % du temps selon Komodo). 3584 laisse ~2 Gio a l'invite avec deux
   # gateways. Applique a chaud par `qm set 9030 --balloon 3584`, pas par
   # Terraform : bpg v0.96 redemarrerait la VM pour ce changement
-  # (reboot_after_update = true par defaut). Ce code s'aligne sur la production.
-  vm_memory_floating = 3584
+  # (reboot_after_update = true par defaut).
+  #
+  # 4096 (M4-MEM.2A, 2026-10-23) : place pour un quatrieme gateway. Sans
+  # `memory` dans hotplug, bpg classe toute modif memoire « reboot requis » ;
+  # a false il pousse la config et avertit au lieu de redemarrer.
+  #
+  # Etat au 2026-10-23 : plancher 4096 configure ET effectif, maximum 8192,
+  # aucun redemarrage. L'apply ne change que la config : hote au-dessus de
+  # 80 %, pvestatd ne remonte pas un ballon sous son nouveau plancher, il est
+  # reste a 3584. Rendu effectif par un `balloon 4096` ponctuel lance a la main
+  # par l'administrateur dans le moniteur QEMU (`qm monitor 9030`). Apres tout
+  # changement de plancher, verifier `qm status 9030 --verbose` (balloon contre
+  # balloon_min), pas seulement `qm config`.
+  vm_memory_floating     = 4096
+  vm_reboot_after_update = false
 
   # 32 Go : local-lvm est en thin provisioning et deja a ~67 % d'occupation.
   # Agrandir plus tard est non destructif (qm resize + growpart), pas l'inverse.
