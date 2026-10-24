@@ -182,12 +182,12 @@ def test_s01_activated_after_tech_watch(group_vars: dict[str, Any]) -> None:
 
 
 def test_s01_no_charlie_and_current_mission_numbering() -> None:
-    """The former name is gone; the comment says M4 = job-search, M5 = default becomes Maya."""
+    """The former name is gone; the comment says M4 = job-search, M5 = default becomes Nora."""
     for text in (scout_block(), SOUL.read_text(), PREFLIGHT.read_text(), ROLLBACK.read_text(), DRAFTS.read_text()):
         assert not re.search(r"charlie", text, re.IGNORECASE)
     text = GROUP_VARS.read_text()
     assert "M4 daily-life" not in text and "M5 job-search" not in text
-    assert "M4 job-search" in text and "Maya" in text
+    assert "M4 job-search" in text and "en Nora" in text and "Maya" not in text
 
 
 def test_s02_bot_username_is_the_confirmed_literal(scout: dict[str, Any]) -> None:

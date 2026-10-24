@@ -172,7 +172,7 @@ cd ../caddy  && ansible-playbook ansible/deploy.yml --tags caddy    # vhost → 
 |---|---|
 | Firewall | UFW default deny in — `22/tcp` (any) + `9119/tcp` (**from `192.168.10.70` only**) |
 | Gateway API | Binds `127.0.0.1:8642` (default), `127.0.0.1:8646` (Kaféine), `127.0.0.1:8643` (Néo) and `127.0.0.1:8645` (Scout); `API_SERVER_KEY` as defense in depth |
-| Profiles | One gateway and **one Telegram bot per profile** (distinct tokens, checked by `getMe`); Kaféine, Néo and Scout: no MCP (no Kandidat), no cron, restricted toolsets **verified tool by tool** on every platform, `skills.write_approval` — see [`roles/hermes_agent/README.md`](ansible/roles/hermes_agent/README.md) |
+| Profiles | One gateway and **one Telegram bot per profile** (distinct tokens, checked by `getMe`); Kaféine, Néo and Scout: no MCP (no Kandidat), no cron, restricted toolsets **verified tool by tool** on every platform, `skills.write_approval`. **Nora** is `default` itself (historical bot, `:8642`): tools limited to web (Tavily), memory under approval, todo, clarify; no session_search, skills, terminal, file or cron; Kandidat disabled — see [`roles/hermes_agent/README.md`](ansible/roles/hermes_agent/README.md) |
 | Dashboard | Username/password, session-signing secret, TLS terminated by Caddy |
 | Secrets | Ansible Vault → managed `.env` (`0640 root:1000`, read-only mount) — the agent can read it, **not rewrite it**; never in `config.yaml`. Exception: each profile's **Telegram bot token** lives in that profile's own `.env` (`0600`), written key by key — see [`roles/hermes_agent/README.md`](ansible/roles/hermes_agent/README.md) |
 | Telegram | One shared allowlist, pinned in the managed layer for every profile; `*_ALLOW_ALL_USERS` pinned to `false` |
@@ -243,7 +243,8 @@ platforms       : {"telegram": {"enabled": true}}   ← survives untouched
 ├── ansible/
 │   ├── deploy.yml                              # Main playbook
 │   ├── profiles-preflight.yml                  # read-only, before replaying --tags hermes
-│   ├── m2-*.yml, m3-*.yml                      # per-profile preflight / rollback
+│   ├── m2-*.yml, m3-*.yml, m4-*.yml            # per-profile preflight / rollback
+│   ├── m5-*.yml                                # Nora: preflight, backup, rollback of default
 │   ├── inventory.yml
 │   ├── requirements.yml                        # community.docker, ansible.posix
 │   ├── group_vars/hermes/
@@ -352,7 +353,11 @@ ssh hermes-30 'sudo docker logs hermes --tail 50'
 ## ⚠️ Known Gaps
 
 - **No backup of `/opt/hermes/data`.** It is the only directory on this VM whose
-  loss would be irreversible — memory, skills, sessions, cron, `SOUL.md`.
+  loss would be irreversible — memory, skills, sessions, cron, `SOUL.md`. The
+  one-off M5 backup of default (`/root/hermes-m5-backup/20261024T1609`, same VM)
+  is a rollback point for Nora, not a backup policy.
+- **The dashboard does not reload default's config**: after a change to
+  default's config, `docker restart hermes-dashboard` (M5.4).
 - **AppArmor userns**: Ubuntu 24.04 restricts unprivileged user namespaces. Moot
   while the Docker daemon runs as root; it would resurface with rootless or nested
   containers. Apply `kernel.apparmor_restrict_unprivileged_userns=0` **on a

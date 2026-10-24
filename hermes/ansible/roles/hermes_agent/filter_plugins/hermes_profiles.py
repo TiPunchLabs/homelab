@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from fnmatch import fnmatch
 from typing import Any
 
@@ -58,6 +59,19 @@ def hermes_config_arg(value: Any) -> str:
     return value if isinstance(value, str) else json.dumps(value)
 
 
+def hermes_dotenv_value(key: str, content: str) -> str:
+    """Return the value of `key` in a .env text, or "" when the key is absent.
+
+    Read like dotenv: the last assignment wins, an `export ` prefix is
+    dropped, everything after the first `=` is kept verbatim apart from
+    surrounding blanks (env_keys.yml refuses duplicated keys anyway). "" makes env_keys.yml remove
+    the key, which is the state before M5 for a key M5 added.
+    """
+    pattern = re.compile(rf"^[ \t]*(?:export[ \t]+)?{re.escape(key)}[ \t]*=[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+    found = pattern.findall(content or "")
+    return found[-1] if found else ""
+
+
 class FilterModule:
     """Expose the filters to Ansible."""
 
@@ -67,4 +81,5 @@ class FilterModule:
             "hermes_profile_payload": hermes_profile_payload,
             "hermes_config_equal": hermes_config_equal,
             "hermes_config_arg": hermes_config_arg,
+            "hermes_dotenv_value": hermes_dotenv_value,
         }

@@ -80,7 +80,7 @@ hermes_telegram_bot_token: "{{ vault_hermes_telegram_bot_token }}"
 # ⚠️ La liste est declaree ici, explicitement, et non par la valeur par
 # defaut du role. Chaque profil y entre lors de la phase de deploiement de SA
 # mission (M2 cafe-ia, M3 tech-watch, M4 job-search ; M5 fait evoluer default
-# en Maya, sans nouveau profil), une fois son jeton au vault, par un commit
+# en Nora, sans nouveau profil), une fois son jeton au vault, par un commit
 # dedie : le revert de ce commit est le rollback declaratif (apres
 # m<N>-rollback.yml).
 hermes_profiles:
@@ -92,7 +92,6 @@ hermes_profiles:
 # 127.0.0.1 : rien a ouvrir en UFW, rien a changer dans Caddy.
 hermes_profile_reserved_ports:
   tech-watch: 8643
-  daily-life: 8644
   job-search: 8645
   cafe-ia: 8646
 
@@ -339,6 +338,116 @@ hermes_profile_job_search:
     agent.environment_hint: >-
       {{ vault_hermes_job_search_environment_hint
          | mandatory('PREREQUIS M4.3 : definir vault_hermes_job_search_environment_hint (contexte professionnel de Scout)') }}
+
+# ============================================================
+# 🌿 Profil default (Nora) - Role hermes_agent
+# ============================================================
+# Nora — assistante personnelle de vie quotidienne. C'est le profil default
+# LUI-MEME (HERMES_HOME /opt/data, gateway :8642, meme bot Telegram, meme
+# jeton) : aucun nouveau profil, aucun nouveau port. Preparee en M5.3.A.
+#
+# ✅ ACTIVE depuis M5.4 : hermes_default_profile (fin de section) y fait
+# reference. Le revert du commit d'activation est le rollback declaratif de
+# la configuration (le SOUL.md, lui, se restaure depuis sa copie .bak ou la
+# sauvegarde M5 20261024T1609, via m5-rollback.yml).
+#
+# Prerequis M5.4 (aucun n'est cree par ce depot) :
+#   - vault_hermes_default_tavily_api_key : cle Tavily DEDIEE, jamais celle
+#     d'un autre profil (validate.yml compare les quatre, sans les afficher) ;
+#   - hermes_default_soul_predecessor_sha256 : sha256 du SOUL.md de default
+#     en service, releve dans les SHA256SUMS de la sauvegarde M5 verifiee.
+#     default_soul.yml ne remplace QUE ce contenu-la, une seule fois ;
+#   - memoires de default deplacees hors du volume (USER.md, MEMORY.md :
+#     injectees dans le prompt systeme par le toolset memory), procedure M5.4.
+#
+# Outils (M5.2 D2) : web, memoire sous approbation, todo, clarify. Ni
+# terminal, ni fichiers, ni code, ni delegation, ni session_search, ni skills,
+# ni cron, ni MCP (donc pas Kandidat).
+hermes_default_nora:
+  soul_predecessor_sha256: >-
+    {{ hermes_default_soul_predecessor_sha256
+       | mandatory('PREREQUIS M5.4 : definir hermes_default_soul_predecessor_sha256 (sha256 du SOUL.md de default sauvegarde)') }}
+  env:
+    # Cle Tavily dediee : jamais celle de Kaféine, de Néo ni de Scout.
+    TAVILY_API_KEY: >-
+      {{ vault_hermes_default_tavily_api_key
+         | mandatory('PREREQUIS M5.4 : definir vault_hermes_default_tavily_api_key (cle Tavily de Nora)') }}
+  config:
+    web.backend: tavily
+    # Pas de `skills` ni de `session_search`, contrairement aux trois autres
+    # profils : la recherche dans les anciennes sessions rouvrirait le
+    # contexte emploi d'avant Nora, que state.db conserve.
+    platform_toolsets.telegram: &hermes_default_toolsets
+      - web
+      - memory
+      - todo
+      - clarify
+      - no_mcp
+    platform_toolsets.cron: *hermes_default_toolsets
+    platform_toolsets.api_server: *hermes_default_toolsets
+    platform_toolsets.cli: *hermes_default_toolsets
+    # Toute ecriture memoire venant du gateway est mise en attente, jamais
+    # refusee en silence (tools/write_approval.py) : `/memory pending`,
+    # `/memory approve <id>`, `/memory reject <id>`.
+    memory.write_approval: true
+    # Defense en profondeur : skills est en liste noire, mais si le toolset
+    # revenait, aucune ecriture de skill ne passerait sans approbation.
+    skills.write_approval: true
+    # Les skills locaux de l'ancien default (emploi, Café IA, crons), relevés
+    # en M5.1. Desactives, pas supprimes (agent/skill_utils.py).
+    skills.disabled:
+      - job-offer-monitoring
+      - veille-emploi-france
+      - job-search-veille
+      - ai-coffee-scout
+      - planification-crons-et-rappels
+    # Le curateur pilote un LLM sur les skills (agent/curator.py) : coupe.
+    curator.enabled: false
+    # Seule la cle `enabled` est geree : url et connect_timeout restent dans
+    # le config.yaml de default, intacts. Un serveur deja connecte n'est pas
+    # deconnecte : effet au redemarrage de la gateway default.
+    mcp_servers.kandidat.enabled: false
+    # Meme liste que les trois autres profils, plus session_search et skills.
+    # `browser` n'y figure PAS (il embarque web_search sur v2026.8.18) et
+    # reste hors des quatre listes blanches.
+    agent.disabled_toolsets:
+      - terminal
+      - file
+      - code_execution
+      - computer_use
+      - delegation
+      - cronjob
+      - kanban
+      - homeassistant
+      - image_gen
+      - video
+      - video_gen
+      - bfl
+      - tts
+      - x_search
+      - vision
+      - spotify
+      - discord
+      - discord_admin
+      - yuanbao
+      - feishu_doc
+      - feishu_drive
+      - desktop_ui
+      - project
+      - session_search
+      - skills
+    # Remplace l'indication d'environnement de l'ancien default. Aucune
+    # donnee personnelle : le fuseau seul, et la limite des rappels.
+    agent.environment_hint: |-
+      Fuseau horaire de l'utilisateur : America/Guadeloupe (UTC-4, sans heure d'été).
+      Aucun rappel programmé n'est disponible : Nora ne peut pas envoyer de message à une heure donnée.
+
+# sha256 du SOUL.md de default en service avant Nora, releve dans le
+# manifest et les SHA256SUMS verifies de la sauvegarde M5 20261024T1609.
+hermes_default_soul_predecessor_sha256: a0a58fb6004320b5e575933cba43b24e7068f0b6b50efb6aed339ea487321f74
+
+# Activation M5.4 : default devient Nora.
+hermes_default_profile: "{{ hermes_default_nora }}"
 
 # ============================================================
 # 👁️ Komodo Periphery - Role komodo_periphery

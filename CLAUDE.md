@@ -288,8 +288,8 @@ ansible-playbook ansible/deploy.yml --tags komodo-periphery
 > aucune regle UFW a ajouter. La cle d'onboarding est a **usage unique** —
 > voir `hermes/ansible/roles/komodo_periphery/README.md`.
 
-> 🧬 **Multiprofils** : quatre gateways dans le conteneur `hermes` — `default`
-> (:8642), **Kaféine** `cafe-ia` (:8646, M2, 2026-10-20), **Néo**
+> 🧬 **Multiprofils** : quatre gateways dans le conteneur `hermes` — **Nora**
+> `default` (:8642, bot historique, M5, 2026-10-24), **Kaféine** `cafe-ia` (:8646, M2, 2026-10-20), **Néo**
 > `tech-watch` (:8643, M3, 2026-10-22) et **Scout** `job-search` (:8645, M4,
 > 2026-10-24), un bot Telegram par profil. Aucun cron actif depuis le
 > 2026-10-23 ; persistance au reboot non demontree.
@@ -300,7 +300,10 @@ ansible-playbook ansible/deploy.yml --tags komodo-periphery
 > puis revert. Les restrictions d'outils sont verifiees outil par outil
 > (en v0.20.4, `browser` contient `web_search` : jamais en liste noire). Ne jamais lancer
 > `hermes update` sans controler les `.env` de profil — voir
-> `hermes/ansible/roles/hermes_agent/README.md`.
+> `hermes/ansible/roles/hermes_agent/README.md`. Nora : `m5-preflight.yml`
+> refuse une fois Nora declaree (passer par `profiles-preflight.yml`), et le
+> dashboard ne relit pas la config de default : `docker restart hermes-dashboard`
+> apres toute modification de celle-ci.
 
 ---
 

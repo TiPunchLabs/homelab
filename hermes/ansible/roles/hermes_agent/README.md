@@ -1081,6 +1081,146 @@ the tests; PSI 0; no OOM; host `pve` ~2.7 GiB available, swap 0.
   look again if MemAvailable drops under ~1280 MiB, PSI `some avg60` stops
   being 0, or a gateway passes ~400 MiB.
 
+## Nora — profile `default` (mission M5, deployed 2026-10-24)
+
+Nora is `default` itself: same `HERMES_HOME` (`/opt/data`), gateway `:8642`,
+historical bot and token, no new profile or port. The declaration
+`hermes_default_nora` (group_vars) is **active** since the dedicated commit
+adding `hermes_default_profile: "{{ hermes_default_nora }}"` (M5.4); the role
+default `hermes_default_profile: {}` still skips `tasks/default_profile.yml`.
+Reverting that commit is the declarative rollback of the configuration.
+
+Prerequisites, none created by the repository (validate.yml stops with
+`PREREQUIS M5.4` while they are missing), all in place since M5.4:
+
+- `vault_hermes_default_tavily_api_key`: dedicated key, checked distinct from
+  the three profiles' keys without display;
+- `hermes_default_soul_predecessor_sha256`: sha256 of the live default
+  SOUL.md, taken from the verified M5 backup's SHA256SUMS;
+- default's `memories/USER.md` and `MEMORY.md` replaced by Nora's initial
+  memories (manual M5.4 step): the memory toolset injects them into every
+  prompt.
+
+What `default_profile.yml` does, in order, before the default Telegram check
+in `main.yml`:
+
+1. `default_soul.yml`: SOUL.md replaced **once**, only if its sha256 equals
+   the declared predecessor (`backup: true` leaves a copy beside it); already
+   Nora = no-op; anything else, or absent = **fail**, nothing written.
+   `soul_seed.yml` still refuses default.
+2. `.env` keys through `env_keys.yml` (`TAVILY_API_KEY`); `TELEGRAM_BOT_TOKEN`
+   stays managed by `main.yml`.
+3. config keys one by one through `hermes -p default config get/set`.
+   `-p default` is mandatory: without it the CLI follows a sticky
+   `active_profile` into another profile (`hermes_cli/main.py`). Only declared
+   keys are written; `mcp_servers.kandidat.url`, `_config_version` and every
+   undeclared key stay.
+4. `hermes_checks.py toolsets` on `/opt/data`: four platforms, allowed
+   toolsets only, exact tools `web_search, web_extract, memory, todo, clarify`,
+   no **enabled** MCP server (Kandidat is declared with `enabled: false`).
+5. `hermes -p default gateway restart` when `.env` or config changed: s6
+   restarts `gateway-default` only. Never the `Restart hermes` handler
+   (container, four gateways). A SOUL.md change alone needs no restart.
+
+| Capability | State | Mechanism |
+|---|---|---|
+| web_search, web_extract | on | `web` toolset, Tavily backend |
+| memory | on, gated | `memory.write_approval: true` → `/memory pending`, `/memory approve <id>` |
+| todo, clarify | on | allowlist |
+| session_search, skills | off | out of the 4 allowlists + `agent.disabled_toolsets` |
+| terminal, file, code, delegation, cron | off | out of the allowlists + deny list |
+| browser_* | off | out of the allowlists (never in the deny list, M3.3.1) |
+| Kandidat MCP | off | `mcp_servers.kandidat.enabled: false` + `no_mcp` |
+| old local skills | disabled | `skills.disabled` (5 names), curator off |
+
+### M5.4 — as executed (2026-10-24)
+
+1. `m5-backup.yml`, id `20261024T1609` (SHA256SUMS, 8 SQLite images
+   integrity `ok`); its `soul_predecessor_sha256` declared in group_vars.
+2. Initial memory, by hand on hermes-30 (UID 1000, `0600`): the old
+   `USER.md` and `MEMORY.md` **copied** (`cp -a`) to
+   `/opt/hermes/archive/20261024T1609/memories/`, **without** an archive
+   `manifest.json` — the rollback refuses an item present both in the archive
+   and in place, and restores the memories from the backup `files/` instead.
+   Then a minimal `USER.md` (French, concise and structured answers, facts
+   checked with a source, uncertainty stated) and an empty `MEMORY.md`.
+3. `deploy.yml --tags hermes --check` (no handler, profiles unchanged), then
+   the real run: SOUL.md replaced (`.bak` beside it), `TAVILY_API_KEY`, 12
+   config keys, tools check, s6 restart of `gateway-default` only. Second run
+   `changed=0`.
+4. `docker restart hermes-dashboard` (see the limit below).
+
+The old sessions (`state.db`) and the historical workspace files stay in the
+volume, by decision.
+
+Known limits:
+
+- **Old sessions stay in `state.db`**: invisible to Nora's tools, but visible
+  in the dashboard, reloadable with `/resume`, searchable again if
+  `session_search` returns. Never resume a pre-Nora session.
+- **Dashboard config is loaded at its start**: the `hermes-dashboard`
+  container shares `/opt/data` but kept the pre-Nora config (it kept calling
+  Kandidat every 3 min) until restarted. `default_profile.yml` restarts
+  `gateway-default` only: after any change to default's config, run
+  `docker restart hermes-dashboard` (it never starts gateways:
+  `container_boot.py` skips reconciliation in a dashboard container).
+- **Stock prompt sentences**: Hermes' generic sections (all profiles) still
+  name `skill_view` and `session_search`; neither tool is exposed.
+- **No file isolation between profiles**: one container, one UID. Separation
+  relies on exposed tools; the historical workspace files were kept in the
+  volume (decision M5.4), Nora has no file or terminal tool.
+- **Restart path**: executed once on s6 (M5.4): `gateway-default` restarted,
+  the three other gateways and the container untouched.
+
+### M5 preflight, backup and rollback (M5.3.B1; preflight and backup executed in M5.4)
+
+Three playbooks, never reached by `deploy.yml`. `m5-preflight.yml` refuses
+once Nora is declared (by design: the backup describes default before Nora);
+after activation, the read-only gate is `profiles-preflight.yml`. The rollback
+was never executed.
+
+```bash
+# 1. Read-only, any time (also checks the id is free):
+ansible-playbook ansible/m5-preflight.yml -e hermes_m5_backup_id=20261025T1400
+# 2. Hot backup, no stop, no restart, never overwritten:
+ansible-playbook ansible/m5-backup.yml -e hermes_m5_backup_id=20261025T1400
+# 3. Only after reverting the activation commit, explicit confirmation:
+ansible-playbook ansible/m5-rollback.yml -e hermes_m5_backup_id=20261025T1400 \
+  -e "hermes_m5_rollback_confirm=ROLLBACK 20261025T1400"
+```
+
+Backup layout, `/root/hermes-m5-backup/<id>/` (root, 0700, files 0600):
+`files/` (SOUL.md, memories, config.yaml, .env, managed layer, Compose file,
+each with mode/uid/gid/sha256 in `manifest.json`), `data.tar.gz` (default's
+volume with numeric owners and modes; no `profiles/`, no live database, no
+regenerable cache), `db/` (one image per SQLite database), `SHA256SUMS`
+(verified at the end of the backup and at the start of the rollback).
+`manifest.json.soul_predecessor_sha256` is the value to declare as
+`hermes_default_soul_predecessor_sha256` before activating Nora.
+
+Database consistency without stopping anything: `state.db` and the others run
+in WAL mode with commits still in their `-wal`; copying the main file would
+lose them. `hermes_checks.py sqlite-snapshot` uses SQLite's online backup API
+from a read-only connection (same method as `hermes backup`), so the image is
+one committed state, writers keep going. It runs as the agent UID
+(`setpriv`), so any sidecar SQLite creates is owned by Hermes; the backup
+fails if a root-owned file exists in the volume before or after. Each image
+is checked with `PRAGMA integrity_check` (`immutable=1`). The files and the
+databases are captured seconds apart, not at one instant: the preflight
+requires `active_agents == 0` on default.
+
+Rollback, in order, nothing before every check passed: confirmation, Nora no
+longer declared, SHA256SUMS, archive conflicts. Every file it replaces is
+first copied to `<backup>/rollback-saves/<UTC stamp>/`. Identity files get
+their content, mode and owner back; `.env` only its M5 keys (Tavily removed);
+items archived in M5.4 (`/opt/hermes/archive/<id>/manifest.json` + `data/`)
+move back if absent in place. Databases only with
+`-e hermes_m5_rollback_restore_databases=true` and only when no process holds
+them: stop `gateway-default` and the `hermes-dashboard` container first
+(Kaféine, Néo and Scout keep running; they use `profiles/<name>/state.db`).
+No restart: the play prints `hermes -p default gateway restart`. A second run
+changes nothing.
+
 ## Operating profiles
 
 All from `hermes/`, with `direnv` loaded (the memory gate reads
@@ -1141,5 +1281,7 @@ uv run pytest hermes/tests -q
 | `test_m3_tech_watch.py` | Néo, activated after cafe-ia: identity, bot name declared once behind `mandatory` (getMe not skippable), SOUL.md (five domains, local AI, no Caribbean axis, no cron/file promise), Kaféine's tool matrix, Tavily, convergence, inactive scripts, context facts; **real image, offline** (skipped without it): config applied and converging, SOUL.md + context in the Telegram system prompt, effective toolsets; preflight of the deployed profiles (cafe-ia connected, cron, ESTOP) and of the candidate (shared token, port, existing profile, memory), `profiles-preflight` with no candidate (every profile probed, tech-watch included), rollback targeting tech-watch only |
 | `test_m331_web_tools.py` | M3.3.1, both profiles, **real image, offline**: `web_search` and `web_extract` exposed separately on telegram/api_server/cli/cron, exactly the 9 allowed tools, no `browser_*`, backend `tavily`, the `browser` cause reproduced, deploy check refusing the M3.3 configuration; pure `tool_errors` verdicts |
 | `test_m4_scout.py` | Scout, activated after tech-watch: identity, port, no Charlie, bot name checked by getMe, dedicated vault keys, no shared token, SOUL.md (domains, geography, languages graded from the private context, no sending, limits, no private fact), private context (vault reference, NO-GO when missing, **real profile.yml config tasks at `-vvv`**: set verbatim, never printed, even on failure), tool matrix; **real image, offline**: config converging with a multi-line context, 9 tools per platform, 7 for a real cron run, context in Scout's prompt only, `--continuity` losing the previous answer; cron drafts (schedules, no Kandidat/shell/file, no private fact, read by nothing); m4 preflight (deployed profiles, prerequisites, shared token, blank page, memory gate, getMe on stdin) and rollback (job-search only, data kept, others re-checked) |
+| `test_m5_nora.py` | Nora (default), active through one group_vars reference: declaration, declared predecessor checksum and prerequisites, SOUL.md (identity, limits, no private or job context), tool matrix (four allowlists, session_search and skills denied, Kandidat cut twice, memory approval, old skills, curator), enabled-MCP verdicts, validate.yml (accepts, PREREQUIS, malformed, shared Tavily key), **real default_soul.yml** guard (once, backup, unknown/absent/edited fail, targets, check mode), **real default_profile.yml** against a fake `docker` (`-p default` only, url kept, one targeted restart, second run 0 changed, check mode, other profiles untouched), no global restart, ordering, profiles unchanged since M4.3; **real image, offline**: keys converge, sticky `active_profile` ignored, 5 tools, approval, disabled skills, curator off, s6 slot, Nora prompt |
+| `test_m5_recovery.py` | M5.3.B1 on disposable data with a real WAL SQLite database: snapshot keeps `-wal` commits (a file copy loses them), one committed state, damaged copies flagged, report never touches a file; **real m5_backup.yml** (explicit id, 0700/0600, SHA256SUMS, predecessor checksum, numeric owners and modes in the archive, profiles/live DB/caches excluded, never overwritten, check mode, only inspect/svstat sent to docker); **real m5_rollback.yml** (confirmation, Nora still declared, tampered backup, byte-identical restore with modes, Tavily removed, archive returned, current files saved first, replayable, archive conflict, profiles untouched, check mode, databases only on flag and never while open, sidecars moved together); **real m5_preflight.yml** (GO on the observed state without resolving vault references, 8 NO-GO cases, `active_agents` read as the int Hermes writes: 1-2 NO-GO, any other shape FAIL); static guards (not reachable from deploy.yml, no restart, no deletion, UID drop) |
 
 Fake tokens only; nothing reaches hermes-30.
