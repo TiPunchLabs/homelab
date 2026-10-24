@@ -52,6 +52,26 @@
     src: "{{ hermes_data_dir }}/gateway_state.json"
   register: hermes_m5_pf_gateway_state
 
+# Hermes v0.20.4 n'ecrit active_agents que par write_runtime_status, qui le
+# ramene a un entier >= 0 (gateway/status.py, parse_active_agents) ; l'etat
+# initial porte 0. Toute autre forme (absent, liste, booleen, flottant, chaine,
+# negatif) est une donnee que ce preflight ne sait pas lire : FAIL, jamais un 0
+# par defaut. L'ordre des conditions compte : assert s'arrete a la premiere fausse.
+- name: Assert that default active_agents is a non-negative integer
+  ansible.builtin.assert:
+    that:
+      - hermes_m5_pf_runtime is mapping
+      - "'active_agents' in hermes_m5_pf_runtime"
+      - hermes_m5_pf_runtime.active_agents is integer
+      - hermes_m5_pf_runtime.active_agents >= 0
+    fail_msg: >-
+      FAIL M5 : active_agents illisible dans {{ hermes_data_dir }}/gateway_state.json
+      (attendu : entier >= 0 ; lu : {{ hermes_m5_pf_runtime.active_agents | default('ABSENT') | type_debug }}).
+      Ni GO ni NO-GO : relire le format avant toute sauvegarde.
+    quiet: true
+  vars:
+    hermes_m5_pf_runtime: "{{ hermes_m5_pf_gateway_state.content | b64decode | from_json }}"
+
 - name: Read the memory of the VM
   ansible.builtin.slurp:
     src: "{{ hermes_meminfo_path }}"
@@ -117,7 +137,7 @@
       gateways_down: >-
         {{ hermes_m5_pf_svstat.results | rejectattr('stdout', 'match', '^up \(pid [0-9]+')
            | map(attribute='item') | list }}
-      active_agents: "{{ (hermes_m5_pf_gateway_state.content | b64decode | from_json).active_agents | default([]) | length }}"
+      active_agents: "{{ (hermes_m5_pf_gateway_state.content | b64decode | from_json).active_agents }}"
       mem_available_mib: >-
         {{ (hermes_m5_pf_meminfo.content | b64decode
             | regex_search('MemAvailable:\s+([0-9]+)', '\1') | first | int) // 1024 }}

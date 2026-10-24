@@ -45,6 +45,27 @@ DEFAULTS = yaml.safe_load((ROLE / "defaults/main.yml").read_text())
 IMAGE = f"{DEFAULTS['hermes_image']}:{DEFAULTS['hermes_image_tag']}"
 SECRETS = (FAKE_TOKEN, FAKE_TAVILY, "sk-FAKE-managed-only", "default-generated-1")
 M5_TASKS = ("m5_preflight.yml", "m5_backup.yml", "m5_rollback.yml")
+# Shape of /opt/hermes/data/gateway_state.json on hermes-30, 2026-10-24 (Hermes
+# v0.20.4): same keys and types, fake values. active_agents is the int written by
+# gateway/status.py write_runtime_status -> parse_active_agents, never a list.
+GATEWAY_STATE: dict[str, Any] = {
+    "gateway_state": "running",
+    "desired_state": "running",
+    "timestamp": 1761000000,
+    "migrated_from": "gateway.pid",
+    "updated_at": "2026-10-24T18:59:00+00:00",
+    "platforms": {
+        "api_server": {"state": "connected", "writer_pid": 160, "writer_start_time": 1714},
+        "telegram": {"state": "connected", "writer_pid": 160, "writer_start_time": 1714},
+    },
+    "kind": "hermes-gateway",
+    "pid": 160,
+    "argv": ["/opt/hermes/.venv/bin/hermes", "gateway", "run", "--replace"],
+    "start_time": 1714,
+    "exit_reason": None,
+    "restart_requested": False,
+    "active_agents": 0,
+}
 
 
 # --- disposable host ------------------------------------------------------------
@@ -103,9 +124,7 @@ def host(tmp_path: Path, data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Ite
     (data_dir / ".env").write_text(f"TELEGRAM_BOT_TOKEN={FAKE_TOKEN}\nAPI_SERVER_KEY=default-generated-1\n")
     (data_dir / ".env").chmod(0o600)
     (data_dir / "memories/MEMORY.md").chmod(0o600)
-    (data_dir / "gateway_state.json").write_text(
-        json.dumps({"active_agents": [], "gateway_state": "running", "pid": 2606})
-    )
+    (data_dir / "gateway_state.json").write_text(json.dumps(GATEWAY_STATE))
     for rel in ("workspace/lettres/lettre.md", "workspace/prospection/p.md", ".cache/huggingface/blob", "atr.html"):
         (data_dir / rel).parent.mkdir(parents=True, exist_ok=True)
         (data_dir / rel).write_text(f"historique {rel}\n")
@@ -130,8 +149,13 @@ def host(tmp_path: Path, data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Ite
             {
                 "image": IMAGE,
                 "svstat": {
-                    f"gateway-{name}": f"up (pid {pid} pgid {pid}) 99 seconds"
-                    for name, pid in (("default", 160), ("cafe-ia", 5012), ("tech-watch", 5203), ("job-search", 7992))
+                    f"gateway-{name}": f"up (pid {pid} pgid {pid}) 99 seconds{suffix}"
+                    for name, pid, suffix in (
+                        ("default", 160, ""),
+                        ("cafe-ia", 5012, ", normally down"),
+                        ("tech-watch", 5203, ", normally down"),
+                        ("job-search", 7992, ", normally down"),
+                    )
                 },
             }
         )
@@ -587,7 +611,7 @@ def test_p02_preflight_no_go(run_tasks: RunTasks, host: dict[str, Any], case: st
         svstat["gateway-tech-watch"] = "down (exitcode 1) 3 seconds, normally down"
         mutate_state(host, svstat=svstat)
     elif case == "busy":
-        (host["data"] / "gateway_state.json").write_text(json.dumps({"active_agents": [{"session": "x"}]}))
+        (host["data"] / "gateway_state.json").write_text(json.dumps({**GATEWAY_STATE, "active_agents": 1}))
     elif case == "low-memory":
         overrides["hermes_m5_min_available_mib"] = 4000
     elif case == "soul-mismatch":
@@ -602,6 +626,52 @@ def test_p02_preflight_no_go(run_tasks: RunTasks, host: dict[str, Any], case: st
     result = preflight(run_tasks, host, **overrides)
     assert result.returncode != 0, result.stdout
     assert_no_secret(result)
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def test_p04_conversation_in_progress_is_no_go(run_tasks: RunTasks, host: dict[str, Any], count: int) -> None:
+    """A valid active_agents above 0 reaches the GO gate and fails there, as NO-GO."""
+    (host["data"] / "gateway_state.json").write_text(json.dumps({**GATEWAY_STATE, "active_agents": count}))
+    result = preflight(run_tasks, host)
+    assert result.returncode != 0, result.stdout
+    assert f"active_agents {count}" in result.stdout
+    assert "NO-GO M5" in result.stdout
+    assert "active_agents illisible" not in result.stdout
+
+
+# [] and [obj] fail too: Hermes v0.20.4 never writes a list (no compatibility kept).
+@pytest.mark.parametrize(
+    "raw",
+    [-1, True, False, None, 1.5, 0.0, "0", "abc", [], [{"session": "x"}], {"n": 0}, "ABSENT", "NOT-JSON"],
+)
+def test_p05_unreadable_active_agents_fails_instead_of_counting_as_zero(
+    run_tasks: RunTasks, host: dict[str, Any], raw: Any
+) -> None:
+    """Anything but a non-negative int stops the preflight as FAIL before the GO gate."""
+    state = {k: v for k, v in GATEWAY_STATE.items() if k != "active_agents"}
+    if raw == "NOT-JSON":
+        content = '{"active_agents": 0,'
+    elif raw == "ABSENT":
+        content = json.dumps(state)
+    else:
+        content = json.dumps({**state, "active_agents": raw})
+    (host["data"] / "gateway_state.json").write_text(content)
+    result = preflight(run_tasks, host)
+    assert result.returncode != 0, result.stdout
+    assert "NO-GO M5" not in result.stdout
+    assert "Report the M5 preflight state" not in result.stdout
+    if raw != "NOT-JSON":
+        assert "FAIL M5 : active_agents illisible" in result.stdout
+    assert_no_secret(result)
+
+
+def test_p06_preflight_go_reaches_and_passes_the_gate(run_tasks: RunTasks, host: dict[str, Any]) -> None:
+    """active_agents 0 (int) lets every later check run; the GO gate itself is evaluated and passes."""
+    result = preflight(run_tasks, host)
+    assert result.returncode == 0, result.stdout
+    assert "default active_agents : 0" in result.stdout
+    gate = result.stdout.split("TASK [hermes_agent : Assert the M5 GO conditions]", 1)
+    assert len(gate) == 2 and gate[1].lstrip("*\n ").startswith("ok: [localhost]"), result.stdout
 
 
 def test_p03_declared_predecessor_matching_is_go(run_tasks: RunTasks, host: dict[str, Any]) -> None:
