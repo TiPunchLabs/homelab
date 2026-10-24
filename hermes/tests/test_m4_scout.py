@@ -1,4 +1,4 @@
-"""M4.2 — Scout (profile job-search): prepared, NOT active.
+"""M4 — Scout (profile job-search): prepared in M4.2, activated in M4.3 by its entry in hermes_profiles.
 
 Declaration, identity, SOUL.md, private professional context, tools, cron
 drafts, preflight and rollback. Everything runs against throwaway directories,
@@ -172,10 +172,13 @@ def test_s01_identity_and_port(group_vars: dict[str, Any], scout: dict[str, Any]
     assert scout["api_server_port"] == group_vars["hermes_profile_reserved_ports"]["job-search"] == 8645
 
 
-def test_s01_not_active_in_m42(group_vars: dict[str, Any]) -> None:
-    """M4.2: Scout is declared but not in hermes_profiles (activation is the M4.3 commit)."""
-    assert "{{ hermes_profile_job_search }}" not in group_vars["hermes_profiles"]
-    assert not [p for p in group_vars["hermes_profiles"] if "job_search" in str(p)]
+def test_s01_activated_after_tech_watch(group_vars: dict[str, Any]) -> None:
+    """M4.3: job-search is appended once, after cafe-ia and tech-watch; no daily-life yet."""
+    assert group_vars["hermes_profiles"] == [
+        "{{ hermes_profile_cafe_ia }}",
+        "{{ hermes_profile_tech_watch }}",
+        "{{ hermes_profile_job_search }}",
+    ]
 
 
 def test_s01_no_charlie_and_current_mission_numbering() -> None:

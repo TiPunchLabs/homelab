@@ -46,14 +46,18 @@ ALL_TASKS = [(path.name, task) for path in TASKS for task in iter_tasks(yaml.saf
 # --- T15 --------------------------------------------------------------------
 
 
-def test_t15_group_vars_declare_cafe_ia_then_tech_watch(group_vars: dict[str, Any]) -> None:
-    """T15 (M3.3): the inventory itself pins cafe-ia then tech-watch, by reference to their declarations."""
+def test_t15_group_vars_declare_cafe_ia_tech_watch_then_job_search(group_vars: dict[str, Any]) -> None:
+    """T15 (M4.3): the inventory itself pins cafe-ia, tech-watch then job-search, by reference to their declarations."""
     assert "hermes_profiles" in group_vars
-    assert group_vars["hermes_profiles"] == ["{{ hermes_profile_cafe_ia }}", "{{ hermes_profile_tech_watch }}"]
+    assert group_vars["hermes_profiles"] == [
+        "{{ hermes_profile_cafe_ia }}",
+        "{{ hermes_profile_tech_watch }}",
+        "{{ hermes_profile_job_search }}",
+    ]
 
 
-def test_t15_effective_value_is_cafe_ia_then_tech_watch() -> None:
-    """T15 (M3.3): the profiles Ansible actually resolves for hermes-30 are cafe-ia then tech-watch.
+def test_t15_effective_value_is_cafe_ia_tech_watch_then_job_search() -> None:
+    """T15 (M4.3): the profiles Ansible actually resolves for hermes-30 are cafe-ia, tech-watch then job-search.
 
     Needs the vault password (pass) to load group_vars; skipped without it.
     Prints the profile names only: the resolved list carries the tokens.
@@ -72,7 +76,7 @@ def test_t15_effective_value_is_cafe_ia_then_tech_watch() -> None:
     if result.returncode != 0 and re.search(r"[Vv]ault|[Dd]ecrypt|password", result.stdout + result.stderr):
         pytest.skip("vault password unavailable: effective inventory not resolvable here")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '"msg": "PROFILES=[\\"cafe-ia\\", \\"tech-watch\\"]"' in result.stdout
+    assert '"msg": "PROFILES=[\\"cafe-ia\\", \\"tech-watch\\", \\"job-search\\"]"' in result.stdout
 
 
 # --- T16 --------------------------------------------------------------------

@@ -114,8 +114,8 @@ def test_n01_identity_and_port(group_vars: dict[str, Any], neo: dict[str, Any]) 
 
 
 def test_n01_activated_after_cafe_ia(group_vars: dict[str, Any]) -> None:
-    """M3.3: tech-watch is appended after cafe-ia; no other profile (daily-life, job-search) yet."""
-    assert group_vars["hermes_profiles"] == ["{{ hermes_profile_cafe_ia }}", "{{ hermes_profile_tech_watch }}"]
+    """M3.3: tech-watch stays right after cafe-ia; M4.3 only appended job-search after it."""
+    assert group_vars["hermes_profiles"][:2] == ["{{ hermes_profile_cafe_ia }}", "{{ hermes_profile_tech_watch }}"]
 
 
 def test_n02_no_functional_alex_or_veille_left(neo: dict[str, Any]) -> None:

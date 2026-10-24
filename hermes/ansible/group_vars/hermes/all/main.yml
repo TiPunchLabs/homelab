@@ -86,6 +86,7 @@ hermes_telegram_bot_token: "{{ vault_hermes_telegram_bot_token }}"
 hermes_profiles:
   - "{{ hermes_profile_cafe_ia }}"
   - "{{ hermes_profile_tech_watch }}"
+  - "{{ hermes_profile_job_search }}"
 
 # Ports figes par profil (default = hermes_gateway_port, 8642). API en
 # 127.0.0.1 : rien a ouvrir en UFW, rien a changer dans Caddy.
@@ -263,10 +264,10 @@ hermes_profile_cafe_ia:
       - desktop_ui
       - project
 
-# Scout — recherche d'emploi et accompagnement professionnel. PREPARE en M4.2,
-# NON ACTIVE : n'entre dans hermes_profiles qu'au commit d'activation M4.3.
+# Scout — recherche d'emploi et accompagnement professionnel. Prepare en M4.2,
+# active en M4.3 (2026-10-24) par son entree dans hermes_profiles.
 #
-# Prerequis M4.3 :
+# Prerequis M4.3 (poses le 2026-10-22) :
 #   - bot BotFather scout_r64gnb_bot (D2), nom confirme le 2026-10-22 ;
 #   - vault_hermes_job_search_telegram_bot_token : jeton de ce bot ;
 #   - vault_hermes_job_search_tavily_api_key : cle Tavily DEDIEE, limite
