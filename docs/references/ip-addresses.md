@@ -14,6 +14,7 @@
 | VM | VMID | IP | Usage |
 |----|------|-----|-------|
 | hermes-30 | 9030 | 192.168.10.30 | Hermes AI agent host |
+| hermes-31 | 9031 | 192.168.10.31 | Hermes AI agent v0.22.5 (migration M6, `hermes/terraform-31`) |
 | bastion-60 | 9060 | 192.168.10.60 | Bastion (GitLab Runner shell, Terraform, Ansible) |
 | vpngate-50 | 9050 | 192.168.10.50 | WireGuard VPN Gateway |
 | dockhost-90 | 9090 | 192.168.10.90 | Docker services (Portainer, GitLab Runner) |

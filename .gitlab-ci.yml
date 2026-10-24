@@ -62,6 +62,7 @@ terraform-lint:
     - cd $CI_PROJECT_DIR/bastion/terraform && terraform init -backend=false && terraform validate
     - cd $CI_PROJECT_DIR/vpngate/terraform && terraform init -backend=false && terraform validate
     - cd $CI_PROJECT_DIR/hermes/terraform && terraform init -backend=false && terraform validate
+    - cd $CI_PROJECT_DIR/hermes/terraform-31 && terraform init -backend=false && terraform validate
 
 # =============================================================================
 # Lint — Shell
