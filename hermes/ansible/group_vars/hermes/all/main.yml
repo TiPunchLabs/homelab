@@ -79,12 +79,14 @@ hermes_telegram_bot_token: "{{ vault_hermes_telegram_bot_token }}"
 #
 # ⚠️ La liste est declaree ici, explicitement, et non par la valeur par
 # defaut du role. Chaque profil y entre lors de la phase de deploiement de SA
-# mission (M2 cafe-ia, M3 tech-watch, M4 daily-life, M5 job-search), une fois
-# son jeton au vault, par un commit dedie : le revert de ce commit est le
-# rollback declaratif (apres m2-rollback.yml ou m3-rollback.yml).
+# mission (M2 cafe-ia, M3 tech-watch, M4 job-search ; M5 fait evoluer default
+# en Maya, sans nouveau profil), une fois son jeton au vault, par un commit
+# dedie : le revert de ce commit est le rollback declaratif (apres
+# m<N>-rollback.yml).
 hermes_profiles:
   - "{{ hermes_profile_cafe_ia }}"
   - "{{ hermes_profile_tech_watch }}"
+  - "{{ hermes_profile_job_search }}"
 
 # Ports figes par profil (default = hermes_gateway_port, 8642). API en
 # 127.0.0.1 : rien a ouvrir en UFW, rien a changer dans Caddy.
@@ -261,6 +263,82 @@ hermes_profile_cafe_ia:
       - feishu_drive
       - desktop_ui
       - project
+
+# Scout — recherche d'emploi et accompagnement professionnel. Prepare en M4.2,
+# active en M4.3 (2026-10-24) par son entree dans hermes_profiles.
+#
+# Prerequis M4.3 (poses le 2026-10-22) :
+#   - bot BotFather scout_r64gnb_bot (D2), nom confirme le 2026-10-22 ;
+#   - vault_hermes_job_search_telegram_bot_token : jeton de ce bot ;
+#   - vault_hermes_job_search_tavily_api_key : cle Tavily DEDIEE, limite
+#     mensuelle posee cote Tavily ;
+#   - vault_hermes_job_search_environment_hint : contexte professionnel PRIVE
+#     (le depot est public). Procedure : roles/hermes_agent/README.md, Scout.
+#
+# Outils : meme matrice que Kaféine et Néo (D5, M3.3.1). Ni terminal, ni
+# fichiers, ni navigateur, ni cronjob, ni MCP (donc pas Kandidat). Les crons
+# emploi seront crees par l'operateur en M4.4 (cron-drafts/job-search.yml).
+hermes_profile_job_search:
+  name: job-search
+  description: "Scout — recherche d'emploi, analyse d'offres et accompagnement professionnel."
+  # Verifie par getMe avant tout demarrage du gateway.
+  telegram_bot_username: scout_r64gnb_bot
+  telegram_bot_token: "{{ vault_hermes_job_search_telegram_bot_token }}"
+  api_server_port: 8645
+  env:
+    # Cle Tavily dediee : jamais celle de Kaféine ni de Néo.
+    TAVILY_API_KEY: "{{ vault_hermes_job_search_tavily_api_key }}"
+  # Cles de config dont la valeur ne doit jamais apparaitre dans une sortie
+  # Ansible (lecture et `config set` en no_log, profile.yml).
+  config_no_log:
+    - agent.environment_hint
+  config:
+    web.backend: tavily
+    platform_toolsets.telegram: &hermes_job_search_toolsets
+      - web
+      - skills
+      - memory
+      - session_search
+      - todo
+      - clarify
+      - no_mcp
+    platform_toolsets.cron: *hermes_job_search_toolsets
+    platform_toolsets.api_server: *hermes_job_search_toolsets
+    platform_toolsets.cli: *hermes_job_search_toolsets
+    skills.write_approval: true
+    # Meme liste que Kaféine et Néo : `browser` n'y figure PAS (il embarque
+    # web_search sur v2026.8.18, cf. M3.3.1) et reste hors des quatre listes
+    # blanches.
+    agent.disabled_toolsets:
+      - terminal
+      - file
+      - code_execution
+      - computer_use
+      - delegation
+      - cronjob
+      - kanban
+      - homeassistant
+      - image_gen
+      - video
+      - video_gen
+      - bfl
+      - tts
+      - x_search
+      - vision
+      - spotify
+      - discord
+      - discord_admin
+      - yuanbao
+      - feishu_doc
+      - feishu_drive
+      - desktop_ui
+      - project
+    # Meme mecanisme que Néo (prompt systeme stable, config.yaml DU PROFIL),
+    # mais valeur chiffree : parcours, competences et criteres de recherche
+    # sont des donnees personnelles.
+    agent.environment_hint: >-
+      {{ vault_hermes_job_search_environment_hint
+         | mandatory('PREREQUIS M4.3 : definir vault_hermes_job_search_environment_hint (contexte professionnel de Scout)') }}
 
 # ============================================================
 # 👁️ Komodo Periphery - Role komodo_periphery

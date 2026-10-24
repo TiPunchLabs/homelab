@@ -5,16 +5,19 @@ Deploy Hermes Agent (v0.20.4, image `nousresearch/hermes-agent:v2026.8.18`) on
 **profiles**: one s6-supervised gateway and one Telegram bot per profile, all in
 the same container.
 
-> **Current state (mission M3 deployed, 2026-10-22).** Three gateways run in
-> the container: `default` (unchanged, bot of its own, 3 crons), **Kaféine**
-> (`cafe-ia`, `gateway-cafe-ia`, `127.0.0.1:8646`, bot `kafeine_r64gnb_bot`)
-> and **Néo** (`tech-watch`, `gateway-tech-watch`, `127.0.0.1:8643`, bot
-> `neo_r64gnb_bot`) — `hermes_profiles` lists cafe-ia then tech-watch. Both
+> **Current state (mission M4.3 deployed, 2026-10-24).** Four gateways run in
+> the container: `default` (unchanged, bot of its own, **no cron** since
+> 2026-10-23), **Kaféine** (`cafe-ia`, `gateway-cafe-ia`, `127.0.0.1:8646`,
+> bot `kafeine_r64gnb_bot`), **Néo** (`tech-watch`, `gateway-tech-watch`,
+> `127.0.0.1:8643`, bot `neo_r64gnb_bot`) and **Scout** (`job-search`,
+> `gateway-job-search`, `127.0.0.1:8645`, bot `scout_r64gnb_bot`) —
+> `hermes_profiles` lists cafe-ia, tech-watch then job-search. The three
 > additional profiles share one tool matrix, fixed in M3.3.1 so that
 > `web_search` really reaches the model — see
 > [`browser` and `web_search`](#tool-restrictions-browser-and-web_search-m331).
 > What was proven and what was not: [Phase B](#phase-b--as-executed-2026-10-20)
-> (M2), [M3.3 as executed](#m33--as-executed-2026-10-22).
+> (M2), [M3.3 as executed](#m33--as-executed-2026-10-22),
+> [M4.3 as executed](#m43--as-executed-2026-10-24).
 
 ## Mental Model
 
@@ -124,6 +127,7 @@ container per profile, judged disproportionate.
 hermes_profiles:            # group_vars — one dedicated commit per activation
   - "{{ hermes_profile_cafe_ia }}"      # M2, 2026-10-20
   - "{{ hermes_profile_tech_watch }}"   # M3, 2026-10-22
+  - "{{ hermes_profile_job_search }}"   # M4, 2026-10-24
 
 hermes_profile_reserved_ports:          # fixed per profile, not per deploy order
   tech-watch: 8643
@@ -764,7 +768,7 @@ https://api.tavily.com/search`; the provider only returns success after
 | Name / id | **Néo** / `tech-watch` (`gateway-tech-watch`) |
 | API | `127.0.0.1:8643` (loopback only) |
 | Telegram | `@neo_r64gnb_bot` (`hermes_tech_watch_telegram_bot_username`), token `vault_hermes_tech_watch_telegram_bot_token` |
-| Web | Tavily, dedicated key `vault_hermes_tech_watch_tavily_api_key` (≠ Kaféine's), monthly limit set on the Tavily side |
+| Web | Tavily, dedicated key `vault_hermes_tech_watch_tavily_api_key` (≠ Kaféine's), monthly limit managed on the Tavily side (dashboard) |
 | Activation | `c49560f` (appended after cafe-ia in `hermes_profiles`) |
 
 **Mission** (`files/profiles/tech-watch/SOUL.md`, in French): technical watch
@@ -876,6 +880,207 @@ commits, nor the shared fix `1a203d8`, which also serves Kaféine), then
 `deploy.yml --tags hermes` (`changed=0`). Removing the entry alone does not
 stop the gateway.
 
+## Scout — profile `job-search` (mission M4, deployed 2026-10-24)
+
+| | |
+|---|---|
+| Name / id | **Scout** / `job-search` (`gateway-job-search`) |
+| API | `127.0.0.1:8645` (reserved port) |
+| Telegram | new bot `scout_r64gnb_bot` (name confirmed 2026-10-22, checked by getMe); token `vault_hermes_job_search_telegram_bot_token` |
+| Web | Tavily, **dedicated** key `vault_hermes_job_search_tavily_api_key` (≠ Kaféine's and Néo's); monthly limit managed on the Tavily side (dashboard) |
+| Context | `agent.environment_hint` from `vault_hermes_job_search_environment_hint` (**encrypted**: the repo is public) |
+| Activation | prepared in M4.2, activated by commit `6e4dfa7` (M4.3: appended to `hermes_profiles` after tech-watch, T15/n01/s01 guards updated); deployed 2026-10-24, see [M4.3 as executed](#m43--as-executed-2026-10-24) |
+
+**Mission** (`files/profiles/job-search/SOUL.md`, in French): job search and
+career support, quality over quantity. Five domains: search (DevOps, Platform,
+infrastructure, cloud, Kubernetes, automation, backend Python and
+Java/Spring, not limited to these titles), offer analysis (direct link, date,
+skills vs profile, points to check), geography (P1 Guadeloupe, P2 full remote
+France really reachable from Guadeloupe, P3 selective international; every
+remote offer qualified confirmed / to check / incompatible), languages
+(graded compatible / to check / not well suited against the level declared in
+the private context, never an automatic exclusion), and support (CV, letters,
+LinkedIn, interviews, unsolicited applications). It **sends nothing**: drafts
+only, explicit human validation for anything external. It promises no
+terminal, file, browser, Kandidat, MCP, sending tool or schedule.
+
+### Private professional context
+
+Same mechanism as Néo (`agent.environment_hint`, stable part of the system
+prompt, the profile's own `config.yaml`, no `file` toolset needed), but the
+value lives in the vault. What the role guarantees:
+
+- **resolution before any write**: `validate.yml` renders every config value
+  (`to_json`): a missing vault key fails the preflight and the deployment
+  before `profile create` (lazy templating would otherwise defer it to
+  `config set`, profile already created);
+- **never printed**: the profile declares `config_no_log:
+  [agent.environment_hint]`; the read (`config get --json`) and write
+  (`config set`) tasks of `profile.yml` evaluate `no_log` **per key**, so the
+  value appears neither in a normal run, nor at `-vvv`, nor in a failure
+  (`config set` echoing its argument). Other keys keep their output.
+  `validate.yml` refuses a `config_no_log` entry that is not a declared key
+  (a typo would mask nothing);
+- **isolation**: only job-search's `config.yaml`; never the managed layer nor
+  `HERMES_ENVIRONMENT_HINT` (both reach every profile);
+- **typing**: a string; multi-line values are passed raw by
+  `hermes_config_arg` and read back equal (proved on the image with a
+  synthetic multi-line, accented value).
+
+**Filling it in (M4.3 prerequisite, human step)** — from `hermes/`, direnv
+loaded:
+
+```bash
+# Opens the encrypted file in $EDITOR; nothing is written in clear on disk by Ansible.
+ansible-vault edit ansible/group_vars/hermes/vault/config.yml
+```
+
+```yaml
+# Add the three Scout keys at the end of the file; leave every other key as it is.
+# Values are typed in the editor only: never in a chat, a shell argument or a file.
+vault_hermes_job_search_telegram_bot_token: "<token given by BotFather>"
+vault_hermes_job_search_tavily_api_key: "<dedicated tvly- key>"
+# Literal block: keeps line breaks, drops the final newline.
+vault_hermes_job_search_environment_hint: |-
+  Contexte professionnel de l'utilisateur (cadrage, ni CV complet ni vérifié) :
+  - ...
+  Ces informations peuvent être datées : ne les présente pas comme vérifiées.
+```
+
+Then check, without printing any value, that the file is still encrypted and
+that the three keys resolve (decrypted in memory, `assert` runs on the
+controller, only SUCCESS or FAILED is kept):
+
+```bash
+head -1 ansible/group_vars/hermes/vault/config.yml   # $ANSIBLE_VAULT;1.1;AES256
+ansible hermes -m ansible.builtin.assert -a '{"quiet": true, "that": [
+  "vault_hermes_job_search_telegram_bot_token | length > 0",
+  "vault_hermes_job_search_tavily_api_key is match(\"tvly-\")",
+  "vault_hermes_job_search_tavily_api_key not in [vault_hermes_cafe_ia_tavily_api_key, vault_hermes_tech_watch_tavily_api_key]",
+  "vault_hermes_job_search_environment_hint | length > 0"]}' 2>/dev/null \
+  | grep -oE '^hermes-30 \| (SUCCESS|FAILED)'
+```
+
+Content to confirm before writing it (a framing, not a full CV; no invented
+employer, experience or diploma): overall experience; languages and
+frameworks actually practised, with how recent they are; DevOps tooling and
+since when; certifications **with their exact names**; English level; search
+area; directions of interest kept apart from acquired skills; level filters
+(titles to avoid); companies to leave out. Only the vault holds the values.
+The two cron drafts read the level filters and the excluded companies from
+this context. Keep it short (it is in every call's prompt).
+
+### Tools
+
+Kaféine's and Néo's matrix, unchanged (D5 and M3.3.1): `web`, `skills`
+(writes staged), `memory`, `session_search`, `todo`, `clarify` on the four
+platforms; the same 23-toolset denylist, **without** `browser`; `no_mcp`.
+Proved on the image (`tests/test_m4_scout.py`): exactly the 9 tools on
+telegram, api_server, cli and cron, `web_search` and `web_extract` each
+present, no `browser_*`, terminal, file, code or `cronjob`; a real cron run
+(the scheduler's own resolution) gets 7 — Hermes cuts `memory` and `clarify`
+from cron runs by policy.
+
+### Cron drafts (M4.4, not created)
+
+`hermes/cron-drafts/job-search.yml`: `veille-emploi` (`0 7 * * 1` UTC) and
+`prospection-entreprises` (`0 7 * * 3` UTC), default's schedules. Read by
+nothing: no playbook, no `jobs.json`.
+
+> **2026-10-23:** default's three crons (`ai-coffee-scout`, `veille-emploi`,
+> `prospection-entreprises`) were removed by the operator; their definitions
+> are archived off-repo (private). Since then **no cron runs on hermes-30**.
+> The switch below (pause default's job, then create Scout's) was written
+> while they existed: steps 1–2 no longer apply, and M4.4 is to be re-planned
+> before any cron is created.
+
+| Kept | Removed | Added |
+|---|---|---|
+| families A/B/C and keywords, job boards and recruiter/IT-services boards, 30-day freshness, Guadeloupe or 100 % remote, 2–3 offers / 3–8 companies, A > B > C priority, reasons and reserves, never invent a URL | Kandidat (dedup, `create_cible`, `create_candidature`), terminal, scripts, files, browser, sitemap scraping | `web_search` / `web_extract`, the private context (level filters, excluded companies), dedup through `session_search`, « never answer [SILENT] », « do not edit skills », full offer details in the Telegram report |
+
+**Functional differences to accept**: nothing saved in Kandidat; coverage
+probably lower (no XML sitemap, API or script; SPAs and bot-blocked sites);
+languages graded as in the SOUL instead of an automatic reject; the
+first Scout run knows nothing of default's history.
+
+**Why `continuity: false`.** `--continuity` (`context_from: self`) injects
+the **first 8000 characters** of the job's latest output file, and that file
+starts with the whole built prompt (cron guidance, previous injection,
+prompt) and ends with the answer. Measured on the image: run 2 sees run 1's
+answer, but from run 3 on the previous answer is no longer injected, only a
+stale fragment of an older one. The drafts deduplicate with
+`session_search` instead: cron sessions stay searchable (demoted, not
+excluded) across the whole history. Neither is an exact match: the prompt
+says so.
+
+**M4.4 switch, per job (operator, outside the cron windows, after
+`profiles-preflight.yml` GO)** — never both jobs active at once:
+
+```bash
+# 1. Save default's job table (sha256 noted), read-only for the agent.
+sudo cp -p /opt/hermes/data/cron/jobs.json /opt/hermes/data/workspace/backup-crons/jobs-$(date -u +%F).json
+# 2. Pause default's job (veille-emploi = 97fede01ad07, prospection-entreprises = 9f7eba46d2db).
+sudo docker exec -u 1000 hermes hermes cron pause 97fede01ad07
+# 3. Create Scout's job from the draft (prompt passed as one argument).
+sudo docker exec -u 1000 hermes hermes -p job-search cron create "0 7 * * 1" "<prompt>" \
+  --name veille-emploi --deliver telegram:<allowlisted id>
+# 4. Exactly one active job for the function, same next run.
+sudo docker exec -u 1000 hermes hermes cron list
+sudo docker exec -u 1000 hermes hermes -p job-search cron list
+```
+
+Then wait for the real run (or a decided `cron run`), check `cron runs` and
+that the message came from **Scout's** bot. Rollback: `hermes -p job-search
+cron pause <id>`, then `hermes cron resume 97fede01ad07`. Hermes has no
+atomic switch: the pause comes first, so a duplicate is impossible and the
+gap is seconds, days away from the run. Prerequisite: Scout's gateway
+**restart persistence** proven (still unproven for every profile), or a
+missed run goes unnoticed.
+
+### Preflight and rollback
+
+`m4-preflight.yml` (read-only): `preflight.yml` (default, timezone, cron
+window) → `deployed_profiles_preflight.yml` with candidate `job-search`
+(cafe-ia and tech-watch connected, no cron due, no ESTOP anywhere) →
+`profile_preflight.yml` (validation with the four bots, blank page, 8645
+free, memory gate **1536 MiB, unchanged**) → `candidate_bot_identity.yml`
+(`getMe` on the candidate token, passed on **stdin**, never argv: NO-GO if
+refused or owned by another bot). Missing token, Tavily key or
+context: NO-GO naming it.
+
+`m4-rollback.yml`: `profile_rollback.yml` for job-search only (stop, persist
+`desired_state=stopped`, nothing deleted), then `profile_telegram_check.yml`
+for every other deployed profile. If jobs were already switched (M4.4), give
+them back to default first (above). Then revert the activation commit
+`6e4dfa7` (not the M4.2 commits), and `deploy.yml --tags hermes` (`changed=0`).
+
+### M4.3 — as executed (2026-10-24)
+
+| Step | Result |
+|---|---|
+| `m4-preflight.yml` ×2 (before and after the activation commit) | GO, `changed=0`: default, cafe-ia, tech-watch connected; no cron, no ESTOP; job-search absent, s6 slot absent, 8645 free; getMe → `@scout_r64gnb_bot`; MemAvailable 2066 then 2072 MiB (required 1536) |
+| Activation `6e4dfa7`, `deploy.yml --tags hermes --check` | `changed=3` (create, SOUL, `.env`), no handler; check mode skips `config set`, gateway start, getMe and the tool check |
+| `deploy.yml --tags hermes` 02:25–02:27 UTC | `changed=5`, all on job-search: create, SOUL seed, `.env` (3 keys), `config set` (8 keys, context `no_log`), gateway start; no handler, no restart of another gateway. getMe, managed-only `API_SERVER_KEY`, effective tools, loopback, Telegram all `ok` |
+| 2nd `deploy.yml --tags hermes` 02:28 UTC | **`changed=0`**: same PIDs, same sha256 for every `config.yaml`, `SOUL.md`, `.env`, memories, skills and sessions of the four profiles |
+| Tools really exposed | exactly the 9 allowed (`clarify`, `memory`, `session_search`, `skill_manage`, `skill_view`, `skills_list`, `todo`, `web_extract`, `web_search`): no terminal, process, file, code execution, cronjob, delegation or MCP (no Kandidat) |
+| Other profiles | default pid 160, cafe-ia pid 5012, tech-watch pid 5203 kept; container not restarted; still **no cron** |
+| Telegram tests (human) | identity, offer search through Tavily, use of the private context, refused tools, the three other bots: **all OK** (operator, 2026-10-24) |
+
+**Resources measured** (2026-10-24, historical values, not live metrics):
+balloon at its 4096 MiB floor (live 4096, max 8192), guest MemTotal 3845 MiB;
+MemAvailable 2089 MiB before Scout, ~1900 MiB after the Telegram tests; RSS
+default ~357, Kaféine ~292, Néo ~285, Scout 166 MiB cold → 251 MiB after
+the tests; PSI 0; no OOM; host `pve` ~2.7 GiB available, swap 0.
+
+- After its first conversation Hermes adds `onboarding.seen.profile_build_offered`
+  to Scout's `config.yaml`: a runtime flag, not a declared key; the declared
+  keys still read back equal.
+- **Not proven yet:** that the four gateways come back on their own after a
+  container or VM restart (`desired_state=running` + reconcile), and how
+  memory behaves once Scout is used every day. Watch as in M3.3 (below):
+  look again if MemAvailable drops under ~1280 MiB, PSI `some avg60` stops
+  being 0, or a gateway passes ~400 MiB.
+
 ## Operating profiles
 
 All from `hermes/`, with `direnv` loaded (the memory gate reads
@@ -889,14 +1094,14 @@ preflights do.
 | Check before | **new** profile: its `m<N>-preflight.yml` (blank page, memory gate) — GO required. **Update** of deployed profiles: `profiles-preflight.yml` — GO required |
 | Deploy changes | `ansible-playbook ansible/deploy.yml --tags hermes`, then again: `changed=0` |
 | Check state | `docker exec hermes /command/s6-svstat /run/service/gateway-<name>`; `profiles/<name>/gateway_state.json` (`desired_state`, Telegram `state`); `ss -ltn` → `127.0.0.1:864x` only; `ss -tnp` ESTAB to 149.154.x / 91.108.x |
-| Deactivate / roll back | `m2-rollback.yml` (Kaféine) or `m3-rollback.yml` (Néo): stop + persist `stopped`, deletes nothing, default untouched; **then** `git revert` of that profile's activation commit and `deploy.yml --tags hermes` (`changed=0`). Removing a profile from the list alone does **not** stop it |
+| Deactivate / roll back | `m2-rollback.yml` (Kaféine), `m3-rollback.yml` (Néo) or `m4-rollback.yml` (Scout): stop + persist `stopped`, deletes nothing, default untouched; **then** `git revert` of that profile's activation commit and `deploy.yml --tags hermes` (`changed=0`). Removing a profile from the list alone does **not** stop it |
 | Check isolation | profile `.env` holds only its declared keys; `mcp_servers` empty unless declared; one lock per bot in `/opt/data/.local/state/hermes/gateway-locks/` |
 | Check the tools really exposed | the `toolsets` check of `hermes_checks.py` (run by `profile.yml` before each gateway start): toolset names **and** tools, per platform |
 | Avoid token conflicts | one **new** bot per profile (D2); `validate.yml` refuses duplicates and `getMe` the wrong bot — a shared token would let `--replace` kill the other gateway |
 
-## Limits and follow-up (after M3)
+## Limits and follow-up (after M4.3)
 
-- **No independent backup of `/opt/hermes/data`** — both profiles, memories,
+- **No independent backup of `/opt/hermes/data`** — every profile, memories,
   sessions, crons (Known Gaps of [`hermes/README.md`](../../../README.md)).
   Snapshot `pre-ch7` (2026-10-20) is kept for now; it is not a backup (same
   host, same storage) and is deleted only on explicit approval.
@@ -912,7 +1117,12 @@ preflights do.
   gateway without a new memory preflight, any floor change through Terraform.
 - **Restart persistence** of `gateway-tech-watch`: like Kaféine's, not proven
   by an organic container restart yet.
-- Other profiles (daily-life, job-search) are out of M3.
+- **Memory with four gateways** (2026-10-24): ~1900 MiB available at the
+  4096 floor after Scout's first conversations; the host stays above its
+  80 % ballooning target, so the VM does not grow past the floor. A fifth
+  gateway needs a new memory preflight GO.
+- **Restart persistence** of `gateway-job-search`: not proven either (M4.4).
+- job-search (Scout) is deployed (M4.3), see [Scout](#scout--profile-job-search-mission-m4-deployed-2026-10-24); its automations are not created (M4.4); daily-life is not planned.
 
 ## Tests
 
@@ -925,10 +1135,11 @@ uv run pytest hermes/tests -q
 | `test_role_tasks.py` | runs the **real** `env_keys`, `soul_seed`, `profile_content`, `validate` task files with `ansible-playbook` on a throwaway directory: key preservation, idempotence, duplicates, check mode, no token in output (even `--diff -v`), seed-once, bytecode exclusion, guards |
 | `test_m1_operations.py` | backup/rollback of `data/.env` (absent, present with/without token), post-M1 backup refused, cron restart window, `deploy.yml` timezone pre_task under `--check`, read-only preflight |
 | `test_hermes_checks.py` | managed contract, Telegram verdict (connected / disconnected / unknown / absent / malformed / stale writer / dead pid), type-strict config comparison |
-| `test_inventory.py` | effective `hermes_profiles` names `== ["cafe-ia", "tech-watch"]` (needs the vault password, skipped otherwise; prints names only), definitive ids, no destructive task, `no_log` on every token task, task ordering, D1/D5 non-goals |
+| `test_inventory.py` | effective `hermes_profiles` names `== ["cafe-ia", "tech-watch", "job-search"]` (needs the vault password, skipped otherwise; prints names only), definitive ids, no destructive task, `no_log` on every token task, task ordering, D1/D5 non-goals |
 | `test_tech_watch_collect.py` | the tech-watch collector |
 | `test_m2_cafe_ia.py` | Kaféine, T01-T24: blank creation, SOUL seed and keep, nothing inherited from a lived-in default, no MCP, tokens (distinct, missing, unresolved vault key), allowlist, ports, `API_SERVER_KEY` (verbatim stage2 block: absent / present / key / repeat / concurrent; profile `.env` never touched), caches, idempotence, username, tool lists and verdicts, s6/Telegram/getMe verdicts, **real** rollback and preflight against a fake `docker`/`ss`, loopback verdict, coexistence; memory gate: balloon floor parsing, verdicts on the 2026-10-16 measurements, the real preflight against a fake Proxmox API (GET only, token never printed, missing credentials / unknown VM = NO-GO) |
 | `test_m3_tech_watch.py` | Néo, activated after cafe-ia: identity, bot name declared once behind `mandatory` (getMe not skippable), SOUL.md (five domains, local AI, no Caribbean axis, no cron/file promise), Kaféine's tool matrix, Tavily, convergence, inactive scripts, context facts; **real image, offline** (skipped without it): config applied and converging, SOUL.md + context in the Telegram system prompt, effective toolsets; preflight of the deployed profiles (cafe-ia connected, cron, ESTOP) and of the candidate (shared token, port, existing profile, memory), `profiles-preflight` with no candidate (every profile probed, tech-watch included), rollback targeting tech-watch only |
 | `test_m331_web_tools.py` | M3.3.1, both profiles, **real image, offline**: `web_search` and `web_extract` exposed separately on telegram/api_server/cli/cron, exactly the 9 allowed tools, no `browser_*`, backend `tavily`, the `browser` cause reproduced, deploy check refusing the M3.3 configuration; pure `tool_errors` verdicts |
+| `test_m4_scout.py` | Scout, activated after tech-watch: identity, port, no Charlie, bot name checked by getMe, dedicated vault keys, no shared token, SOUL.md (domains, geography, languages graded from the private context, no sending, limits, no private fact), private context (vault reference, NO-GO when missing, **real profile.yml config tasks at `-vvv`**: set verbatim, never printed, even on failure), tool matrix; **real image, offline**: config converging with a multi-line context, 9 tools per platform, 7 for a real cron run, context in Scout's prompt only, `--continuity` losing the previous answer; cron drafts (schedules, no Kandidat/shell/file, no private fact, read by nothing); m4 preflight (deployed profiles, prerequisites, shared token, blank page, memory gate, getMe on stdin) and rollback (job-search only, data kept, others re-checked) |
 
 Fake tokens only; nothing reaches hermes-30.

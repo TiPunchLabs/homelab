@@ -16,7 +16,9 @@ Usage (argv after `-c`):
     api-key <profile .env>                       (HERMES_HOME = the profile)
     toolsets <allowed,csv> <denied,csv> <no_mcp> (HERMES_HOME = the profile):
         toolset names AND the tools the model really receives
-    bot-identity <profile .env> <expected bot username>
+    bot-identity <profile .env | -> <expected bot username>
+                                                 (`-`: token on stdin, for a
+                                                 profile not created yet)
     listen <port>                                (on the HOST: reads `ss`)
     memory <memory> <balloon> <balloon bytes> <required MiB> [meminfo]
                                                  (on the HOST: Proxmox values)
@@ -486,9 +488,12 @@ def main(argv: list[str]) -> int:
         import urllib.error
         import urllib.request
 
-        from dotenv import dotenv_values
+        if argv[1] == "-":
+            token = sys.stdin.readline().strip()
+        else:
+            from dotenv import dotenv_values
 
-        token = (dotenv_values(argv[1]).get("TELEGRAM_BOT_TOKEN") or "").strip()
+            token = (dotenv_values(argv[1]).get("TELEGRAM_BOT_TOKEN") or "").strip()
         if not token:
             return _report(["TELEGRAM_BOT_TOKEN missing or empty"], "")
         try:

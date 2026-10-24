@@ -65,12 +65,23 @@
       # demarrage du gateway. Convention D2 : <assistant>_<6 alphanum>_bot.
       - hermes_profiles[idx].telegram_bot_username is not defined
         or hermes_profiles[idx].telegram_bot_username is match('^[a-z]+_[A-Za-z0-9]{6}_bot$')
+      # Rend TOUTES les valeurs de config : le templating paresseux ne les
+      # resout sinon qu'au `config set` de profile.yml, profil deja cree. Une
+      # cle vault absente (contexte prive, par exemple) echoue ici, avant
+      # toute ecriture. Le resultat n'est jamais affiche.
+      - hermes_profiles[idx].config | default({}) | to_json is string
+      # Une cle masquee mal orthographiee ne masquerait rien, sans bruit.
+      - hermes_profiles[idx].config_no_log | default([]) is sequence
+      - hermes_profiles[idx].config_no_log | default([]) is not string
+      - hermes_profiles[idx].config_no_log | default([])
+        | difference(hermes_profiles[idx].config | default({}) | list) | length == 0
     fail_msg: >-
       Profil n°{{ idx }} invalide : nom [a-z0-9_-] autre que default et present
       dans hermes_profile_reserved_ports, api_server_port egal a son port
       reserve, pas de telegram_allowed_users (liste blanche globale), aucune
       cle TELEGRAM_* / API_SERVER_* / GATEWAY_ALLOW* dans env,
-      telegram_bot_username au format <assistant>_<6 alphanum>_bot.
+      telegram_bot_username au format <assistant>_<6 alphanum>_bot,
+      config_no_log limite a des cles de config.
     quiet: true
   loop: "{{ range(hermes_profiles | length) | list }}"
   loop_control:

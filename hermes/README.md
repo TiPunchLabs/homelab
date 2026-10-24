@@ -22,7 +22,8 @@ This project automates the deployment of [Hermes Agent](https://github.com/nousr
    caddy-70 ──────────────────┼─► hermes-dashboard   0.0.0.0:9119    │
    https://hermes.internal    │   hermes (gateway)   127.0.0.1:8642  │
                               │   ├ gateway-cafe-ia    127.0.0.1:8646│
-                              │   └ gateway-tech-watch 127.0.0.1:8643│
+                              │   ├ gateway-tech-watch 127.0.0.1:8643│
+                              │   └ gateway-job-search 127.0.0.1:8645│
    (internal CA, basic auth)  │        │                             │
                               │        ├── /opt/hermes/managed  → /etc/hermes:ro
    dns-71 ────────────────────┤        │    ├── config.yaml  ← Ansible (root)
@@ -170,8 +171,8 @@ cd ../caddy  && ansible-playbook ansible/deploy.yml --tags caddy    # vhost → 
 | Control | Implementation |
 |---|---|
 | Firewall | UFW default deny in — `22/tcp` (any) + `9119/tcp` (**from `192.168.10.70` only**) |
-| Gateway API | Binds `127.0.0.1:8642` (default), `127.0.0.1:8646` (Kaféine) and `127.0.0.1:8643` (Néo); `API_SERVER_KEY` as defense in depth |
-| Profiles | One gateway and **one Telegram bot per profile** (distinct tokens, checked by `getMe`); Kaféine and Néo: no MCP (no Kandidat), no cron, restricted toolsets **verified tool by tool** on every platform, `skills.write_approval` — see [`roles/hermes_agent/README.md`](ansible/roles/hermes_agent/README.md) |
+| Gateway API | Binds `127.0.0.1:8642` (default), `127.0.0.1:8646` (Kaféine), `127.0.0.1:8643` (Néo) and `127.0.0.1:8645` (Scout); `API_SERVER_KEY` as defense in depth |
+| Profiles | One gateway and **one Telegram bot per profile** (distinct tokens, checked by `getMe`); Kaféine, Néo and Scout: no MCP (no Kandidat), no cron, restricted toolsets **verified tool by tool** on every platform, `skills.write_approval` — see [`roles/hermes_agent/README.md`](ansible/roles/hermes_agent/README.md) |
 | Dashboard | Username/password, session-signing secret, TLS terminated by Caddy |
 | Secrets | Ansible Vault → managed `.env` (`0640 root:1000`, read-only mount) — the agent can read it, **not rewrite it**; never in `config.yaml`. Exception: each profile's **Telegram bot token** lives in that profile's own `.env` (`0600`), written key by key — see [`roles/hermes_agent/README.md`](ansible/roles/hermes_agent/README.md) |
 | Telegram | One shared allowlist, pinned in the managed layer for every profile; `*_ALLOW_ALL_USERS` pinned to `false` |
@@ -259,7 +260,7 @@ platforms       : {"telegram": {"enabled": true}}   ← survives untouched
 │           │   ├── validate.yml                # inventory guards, before any write
 │           │   ├── env_keys.yml                # .env keys, one by one, no_log
 │           │   ├── soul_seed.yml               # SOUL.md seeded once
-│           │   ├── profiles.yml, profile.yml   # additional profiles (cafe-ia, tech-watch)
+│           │   ├── profiles.yml, profile.yml   # additional profiles (cafe-ia, tech-watch, job-search)
 │           │   └── profile_content.yml         # owned content, no bytecode
 │           ├── handlers/main.yml
 │           ├── filter_plugins/hermes_profiles.py
@@ -267,7 +268,8 @@ platforms       : {"telegram": {"enabled": true}}   ← survives untouched
 │           │   ├── hermes_checks.py            # checks run inside the container
 │           │   └── profiles/
 │           │       ├── cafe-ia/                # Kaféine — deployed (M2)
-│           │       └── tech-watch/             # Néo — deployed (M3)
+│           │       ├── tech-watch/             # Néo — deployed (M3)
+│           │       └── job-search/             # Scout — deployed (M4.3)
 │           └── templates/
 │               ├── docker-compose.yml.j2
 │               ├── config.yaml.j2              # Managed layer — no secrets
