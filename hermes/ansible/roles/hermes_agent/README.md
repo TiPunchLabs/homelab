@@ -1081,24 +1081,25 @@ the tests; PSI 0; no OOM; host `pve` ~2.7 GiB available, swap 0.
   look again if MemAvailable drops under ~1280 MiB, PSI `some avg60` stops
   being 0, or a gateway passes ~400 MiB.
 
-## Nora — profile `default` (mission M5, prepared in M5.3.A, not deployed)
+## Nora — profile `default` (mission M5, deployed 2026-10-24)
 
 Nora is `default` itself: same `HERMES_HOME` (`/opt/data`), gateway `:8642`,
-bot and token. The declaration `hermes_default_nora` (group_vars) is
-**inactive**: the role default `hermes_default_profile: {}` skips
-`tasks/default_profile.yml` entirely. Activation (M5.4) is a dedicated commit
-adding `hermes_default_profile: "{{ hermes_default_nora }}"`; reverting it is
-the declarative rollback of the configuration.
+historical bot and token, no new profile or port. The declaration
+`hermes_default_nora` (group_vars) is **active** since the dedicated commit
+adding `hermes_default_profile: "{{ hermes_default_nora }}"` (M5.4); the role
+default `hermes_default_profile: {}` still skips `tasks/default_profile.yml`.
+Reverting that commit is the declarative rollback of the configuration.
 
 Prerequisites, none created by the repository (validate.yml stops with
-`PREREQUIS M5.4` while they are missing):
+`PREREQUIS M5.4` while they are missing), all in place since M5.4:
 
 - `vault_hermes_default_tavily_api_key`: dedicated key, checked distinct from
   the three profiles' keys without display;
 - `hermes_default_soul_predecessor_sha256`: sha256 of the live default
   SOUL.md, taken from the verified M5 backup's SHA256SUMS;
-- default's `memories/USER.md` and `MEMORY.md` moved out of the volume
-  (manual M5.4 step): the memory toolset injects them into every prompt.
+- default's `memories/USER.md` and `MEMORY.md` replaced by Nora's initial
+  memories (manual M5.4 step): the memory toolset injects them into every
+  prompt.
 
 What `default_profile.yml` does, in order, before the default Telegram check
 in `main.yml`:
@@ -1132,22 +1133,51 @@ in `main.yml`:
 | Kandidat MCP | off | `mcp_servers.kandidat.enabled: false` + `no_mcp` |
 | old local skills | disabled | `skills.disabled` (5 names), curator off |
 
-Known limits (M5.3.A):
+### M5.4 — as executed (2026-10-24)
+
+1. `m5-backup.yml`, id `20261024T1609` (SHA256SUMS, 8 SQLite images
+   integrity `ok`); its `soul_predecessor_sha256` declared in group_vars.
+2. Initial memory, by hand on hermes-30 (UID 1000, `0600`): the old
+   `USER.md` and `MEMORY.md` **copied** (`cp -a`) to
+   `/opt/hermes/archive/20261024T1609/memories/`, **without** an archive
+   `manifest.json` — the rollback refuses an item present both in the archive
+   and in place, and restores the memories from the backup `files/` instead.
+   Then a minimal `USER.md` (French, concise and structured answers, facts
+   checked with a source, uncertainty stated) and an empty `MEMORY.md`.
+3. `deploy.yml --tags hermes --check` (no handler, profiles unchanged), then
+   the real run: SOUL.md replaced (`.bak` beside it), `TAVILY_API_KEY`, 12
+   config keys, tools check, s6 restart of `gateway-default` only. Second run
+   `changed=0`.
+4. `docker restart hermes-dashboard` (see the limit below).
+
+The old sessions (`state.db`) and the historical workspace files stay in the
+volume, by decision.
+
+Known limits:
 
 - **Old sessions stay in `state.db`**: invisible to Nora's tools, but visible
   in the dashboard, reloadable with `/resume`, searchable again if
   `session_search` returns. Never resume a pre-Nora session.
+- **Dashboard config is loaded at its start**: the `hermes-dashboard`
+  container shares `/opt/data` but kept the pre-Nora config (it kept calling
+  Kandidat every 3 min) until restarted. `default_profile.yml` restarts
+  `gateway-default` only: after any change to default's config, run
+  `docker restart hermes-dashboard` (it never starts gateways:
+  `container_boot.py` skips reconciliation in a dashboard container).
 - **Stock prompt sentences**: Hermes' generic sections (all profiles) still
   name `skill_view` and `session_search`; neither tool is exposed.
 - **No file isolation between profiles**: one container, one UID. Separation
-  relies on exposed tools; historical workspace files must leave the volume
-  (M5.4).
-- **Restart path**: proven by code reading and the offline lab
-  (`_profile_suffix() == ""` → `gateway-default`), never executed on s6.
+  relies on exposed tools; the historical workspace files were kept in the
+  volume (decision M5.4), Nora has no file or terminal tool.
+- **Restart path**: executed once on s6 (M5.4): `gateway-default` restarted,
+  the three other gateways and the container untouched.
 
-### M5 preflight, backup and rollback (M5.3.B1, not executed)
+### M5 preflight, backup and rollback (M5.3.B1; preflight and backup executed in M5.4)
 
-Three playbooks, never reached by `deploy.yml`:
+Three playbooks, never reached by `deploy.yml`. `m5-preflight.yml` refuses
+once Nora is declared (by design: the backup describes default before Nora);
+after activation, the read-only gate is `profiles-preflight.yml`. The rollback
+was never executed.
 
 ```bash
 # 1. Read-only, any time (also checks the id is free):
@@ -1251,7 +1281,7 @@ uv run pytest hermes/tests -q
 | `test_m3_tech_watch.py` | Néo, activated after cafe-ia: identity, bot name declared once behind `mandatory` (getMe not skippable), SOUL.md (five domains, local AI, no Caribbean axis, no cron/file promise), Kaféine's tool matrix, Tavily, convergence, inactive scripts, context facts; **real image, offline** (skipped without it): config applied and converging, SOUL.md + context in the Telegram system prompt, effective toolsets; preflight of the deployed profiles (cafe-ia connected, cron, ESTOP) and of the candidate (shared token, port, existing profile, memory), `profiles-preflight` with no candidate (every profile probed, tech-watch included), rollback targeting tech-watch only |
 | `test_m331_web_tools.py` | M3.3.1, both profiles, **real image, offline**: `web_search` and `web_extract` exposed separately on telegram/api_server/cli/cron, exactly the 9 allowed tools, no `browser_*`, backend `tavily`, the `browser` cause reproduced, deploy check refusing the M3.3 configuration; pure `tool_errors` verdicts |
 | `test_m4_scout.py` | Scout, activated after tech-watch: identity, port, no Charlie, bot name checked by getMe, dedicated vault keys, no shared token, SOUL.md (domains, geography, languages graded from the private context, no sending, limits, no private fact), private context (vault reference, NO-GO when missing, **real profile.yml config tasks at `-vvv`**: set verbatim, never printed, even on failure), tool matrix; **real image, offline**: config converging with a multi-line context, 9 tools per platform, 7 for a real cron run, context in Scout's prompt only, `--continuity` losing the previous answer; cron drafts (schedules, no Kandidat/shell/file, no private fact, read by nothing); m4 preflight (deployed profiles, prerequisites, shared token, blank page, memory gate, getMe on stdin) and rollback (job-search only, data kept, others re-checked) |
-| `test_m5_nora.py` | Nora (default), prepared not active: declaration and prerequisites, SOUL.md (identity, limits, no private or job context), tool matrix (four allowlists, session_search and skills denied, Kandidat cut twice, memory approval, old skills, curator), enabled-MCP verdicts, validate.yml (accepts, PREREQUIS, malformed, shared Tavily key), **real default_soul.yml** guard (once, backup, unknown/absent/edited fail, targets, check mode), **real default_profile.yml** against a fake `docker` (`-p default` only, url kept, one targeted restart, second run 0 changed, check mode, other profiles untouched), no global restart, ordering, profiles unchanged since M4.3; **real image, offline**: keys converge, sticky `active_profile` ignored, 5 tools, approval, disabled skills, curator off, s6 slot, Nora prompt |
-| `test_m5_recovery.py` | M5.3.B1 on disposable data with a real WAL SQLite database: snapshot keeps `-wal` commits (a file copy loses them), one committed state, damaged copies flagged, report never touches a file; **real m5_backup.yml** (explicit id, 0700/0600, SHA256SUMS, predecessor checksum, numeric owners and modes in the archive, profiles/live DB/caches excluded, never overwritten, check mode, only inspect/svstat sent to docker); **real m5_rollback.yml** (confirmation, Nora still declared, tampered backup, byte-identical restore with modes, Tavily removed, archive returned, current files saved first, replayable, archive conflict, profiles untouched, check mode, databases only on flag and never while open, sidecars moved together); **real m5_preflight.yml** (GO on the observed state without resolving vault references, 8 NO-GO cases); static guards (not reachable from deploy.yml, no restart, no deletion, UID drop) |
+| `test_m5_nora.py` | Nora (default), active through one group_vars reference: declaration, declared predecessor checksum and prerequisites, SOUL.md (identity, limits, no private or job context), tool matrix (four allowlists, session_search and skills denied, Kandidat cut twice, memory approval, old skills, curator), enabled-MCP verdicts, validate.yml (accepts, PREREQUIS, malformed, shared Tavily key), **real default_soul.yml** guard (once, backup, unknown/absent/edited fail, targets, check mode), **real default_profile.yml** against a fake `docker` (`-p default` only, url kept, one targeted restart, second run 0 changed, check mode, other profiles untouched), no global restart, ordering, profiles unchanged since M4.3; **real image, offline**: keys converge, sticky `active_profile` ignored, 5 tools, approval, disabled skills, curator off, s6 slot, Nora prompt |
+| `test_m5_recovery.py` | M5.3.B1 on disposable data with a real WAL SQLite database: snapshot keeps `-wal` commits (a file copy loses them), one committed state, damaged copies flagged, report never touches a file; **real m5_backup.yml** (explicit id, 0700/0600, SHA256SUMS, predecessor checksum, numeric owners and modes in the archive, profiles/live DB/caches excluded, never overwritten, check mode, only inspect/svstat sent to docker); **real m5_rollback.yml** (confirmation, Nora still declared, tampered backup, byte-identical restore with modes, Tavily removed, archive returned, current files saved first, replayable, archive conflict, profiles untouched, check mode, databases only on flag and never while open, sidecars moved together); **real m5_preflight.yml** (GO on the observed state without resolving vault references, 8 NO-GO cases, `active_agents` read as the int Hermes writes: 1-2 NO-GO, any other shape FAIL); static guards (not reachable from deploy.yml, no restart, no deletion, UID drop) |
 
 Fake tokens only; nothing reaches hermes-30.
