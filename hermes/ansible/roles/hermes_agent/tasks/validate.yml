@@ -142,3 +142,61 @@
           + (hermes_profiles | map(attribute='telegram_bot_token', default='') | list))
          | select | list }}
   no_log: true
+
+# =============================================================================
+# Identite declaree du profil default (hermes_default_profile, M5 Nora).
+# Vide : rien a valider, default reste tel qu'il tourne.
+# =============================================================================
+- name: Validate the default profile declaration
+  ansible.builtin.assert:
+    that:
+      - hermes_default_profile is mapping
+      - hermes_default_profile | list | difference(['soul_predecessor_sha256', 'env', 'config', 'config_no_log']) | length == 0
+      # Rend TOUTES les valeurs : une cle vault ou un prerequis absent echoue
+      # ici, avant toute ecriture. Le resultat n'est jamais affiche.
+      - hermes_default_profile | to_json is string
+      - hermes_default_profile.soul_predecessor_sha256 | default('') is match('^[0-9a-f]{64}$')
+      # Le jeton et le port de default restent ceux de main.yml ; l'API
+      # vient du managed.
+      - hermes_default_profile.env | default({}) | dict2items | map(attribute='key')
+        | select('match', '^(TELEGRAM_|API_SERVER_|GATEWAY_ALLOW)') | list | length == 0
+      # De mcp_servers, seul l'interrupteur `enabled` est gere : url, commande
+      # ou en-tetes ne passent jamais par le depot.
+      - hermes_default_profile.config | default({}) | list | select('match', '^mcp_servers\.')
+        | reject('match', '^mcp_servers\.[A-Za-z0-9_-]+\.enabled$') | list | length == 0
+      # Le fournisseur et le modele sont epingles dans le managed.
+      - hermes_default_profile.config | default({}) | list | select('match', '^(model|providers)\.') | list | length == 0
+      - hermes_default_profile.config_no_log | default([]) is sequence
+      - hermes_default_profile.config_no_log | default([]) is not string
+      - hermes_default_profile.config_no_log | default([])
+        | difference(hermes_default_profile.config | default({}) | list) | length == 0
+    fail_msg: >-
+      hermes_default_profile invalide : cles autorisees soul_predecessor_sha256
+      (64 hex), env, config, config_no_log ; aucune cle TELEGRAM_* /
+      API_SERVER_* / GATEWAY_ALLOW* dans env ; de mcp_servers, seule
+      <serveur>.enabled ; ni model.* ni providers.* ; prerequis M5.4 poses.
+    quiet: true
+  when: hermes_default_profile | length > 0
+
+- name: Assert that each default profile env value is set
+  ansible.builtin.assert:
+    that:
+      - hermes_default_profile.env | default({}) | dict2items | map(attribute='value')
+        | map('string') | map('trim') | select('equalto', '') | list | length == 0
+    fail_msg: "hermes_default_profile : une cle de env est vide."
+    quiet: true
+  when: hermes_default_profile | length > 0
+  no_log: true
+
+# Une cle de recherche par assistant : quota, revocation et fuite restent
+# separes. Comparees sans jamais etre affichees.
+- name: Assert that the default profile does not reuse a profile web search key
+  ansible.builtin.assert:
+    that:
+      - hermes_default_profile.env.TAVILY_API_KEY
+        not in (hermes_profiles | map(attribute='env', default={}) | map(attribute='TAVILY_API_KEY', default='') | list)
+    quiet: true
+  when:
+    - hermes_default_profile | length > 0
+    - hermes_default_profile.env.TAVILY_API_KEY is defined
+  no_log: true

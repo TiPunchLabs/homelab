@@ -99,6 +99,23 @@ hermes_profile_reserved_ports: {}
 hermes_profiles_src_dir: "{{ role_path }}/files/profiles"
 
 # ============================================================
+# Identite declaree du profil default (M5 : Nora)
+# ============================================================
+# Vide = default reste tel qu'il tourne (aucune tache de default_profile.yml).
+# Schema :
+#
+#   soul_predecessor_sha256: "<64 hex>"  # seul SOUL.md en service remplacable
+#   env: { TAVILY_API_KEY: "..." }       # cles .env de default, cle par cle
+#   config: { web.backend: tavily }      # `hermes -p default config set`
+#   config_no_log: []                    # cles dont la valeur reste masquee
+#
+# Le SOUL.md livre est {{ hermes_default_src_dir }}/SOUL.md. Les changements
+# de .env et de config redemarrent la SEULE gateway default (jamais le
+# conteneur, donc jamais Kaféine, Néo ni Scout).
+hermes_default_profile: {}
+hermes_default_src_dir: "{{ role_path }}/files/default"
+
+# ============================================================
 # Preflight, sauvegarde et rollback du deploiement M1
 # ============================================================
 # Fenetre de securite cron (minutes) : aucun job ne doit etre du dans ce

@@ -247,6 +247,28 @@ def toolset_errors(
     return errors
 
 
+_MCP_OFF = {"false", "0", "no", "off"}
+
+
+def enabled_mcp_servers(servers: Any) -> set[str]:
+    """Return the MCP servers Hermes would connect, from config `mcp_servers`.
+
+    Mirrors tools/mcp_tool.py v0.20.4 (`_parse_boolish(v.get("enabled", True),
+    default=True)`): only an explicit false-ish `enabled` turns a server off;
+    an absent, unknown or malformed value keeps it on, so the check fails
+    closed. A disabled server (Kandidat on Nora) keeps its url in config.yaml.
+    """
+    if not isinstance(servers, Mapping):
+        return set()
+    enabled = set()
+    for name, spec in servers.items():
+        flag = spec.get("enabled", True) if isinstance(spec, Mapping) else True
+        if flag is False or (isinstance(flag, str) and flag.strip().lower() in _MCP_OFF):
+            continue
+        enabled.add(str(name))
+    return enabled
+
+
 def tool_errors(exposed: Mapping[str, set[str]], expected: set[str]) -> list[str]:
     """Judge the tools the model really receives on each platform of a profile.
 
@@ -476,7 +498,7 @@ def main(argv: list[str]) -> int:
             effective,
             allowed,
             {t for t in argv[2].split(",") if t},
-            set(cfg.get("mcp_servers") or {}),
+            enabled_mcp_servers(cfg.get("mcp_servers")),
             argv[3] == "true",
         ) + tool_errors(exposed, set().union(*(resolve_toolset(t) for t in allowed)))
         return _report(

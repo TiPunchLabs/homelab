@@ -21,7 +21,7 @@ HERMES = REPO / "hermes"
 GROUP_VARS = HERMES / "ansible/group_vars/hermes/all/main.yml"
 TASKS = sorted((ROLE / "tasks").glob("*.yml"))
 TEMPLATES = ROLE / "templates"
-FUTURE_IDS = {"tech-watch", "daily-life", "job-search", "cafe-ia"}
+FUTURE_IDS = {"tech-watch", "job-search", "cafe-ia"}
 
 
 @pytest.fixture(scope="module")
@@ -83,10 +83,9 @@ def test_t15_effective_value_is_cafe_ia_tech_watch_then_job_search() -> None:
 
 
 def test_t16_reserved_ports_use_definitive_ids(group_vars: dict[str, Any]) -> None:
-    """T16: the four future profiles, by their definitive ids, on fixed ports."""
+    """T16: the three additional profiles, by their definitive ids, on fixed ports (M5: no daily-life)."""
     assert group_vars["hermes_profile_reserved_ports"] == {
         "tech-watch": 8643,
-        "daily-life": 8644,
         "job-search": 8645,
         "cafe-ia": 8646,
     }

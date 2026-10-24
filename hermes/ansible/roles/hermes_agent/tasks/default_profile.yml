@@ -1,0 +1,156 @@
+---
+# =============================================================================
+# Identite declaree du profil default (M5 : Nora).
+#
+# Meme mecanique que profile.yml pour un profil supplementaire — cles .env
+# une par une, cles de config une par une par `config get`/`config set`, puis
+# controle des outils AVANT tout redemarrage — avec trois differences :
+#
+#   - `-p default` EXPLICITE : sans lui, la CLI suit `active_profile` (pose
+#     depuis le dashboard, par exemple) et ecrirait dans un autre profil
+#     (hermes_cli/main.py, _apply_profile_override) ;
+#   - SOUL.md remplace une seule fois sous garde d'empreinte
+#     (default_soul.yml), jamais seme ;
+#   - redemarrage CIBLE : `hermes -p default gateway restart` passe par s6 et
+#     ne relance que gateway-default (hermes_cli/gateway.py,
+#     _dispatch_via_service_manager_if_s6). Jamais le handler « Restart
+#     hermes », qui redemarre le conteneur et donc les quatre gateways.
+#
+# Inclus par main.yml AVANT le controle Telegram de default : ce controle juge
+# ainsi la gateway redemarree, et « default survived the profiles » compare
+# toujours le meme processus.
+#
+# Ne gere ni USER.md, ni MEMORY.md, ni state.db : ecrits par l'agent.
+# =============================================================================
+
+- name: Replace the default SOUL.md once
+  ansible.builtin.include_tasks: default_soul.yml
+  vars:
+    hermes_soul_src: "{{ hermes_default_src_dir }}/SOUL.md"
+    hermes_soul_dest: "{{ hermes_data_dir }}/SOUL.md"
+    hermes_soul_predecessor_sha256: "{{ hermes_default_profile.soul_predecessor_sha256 }}"
+
+# TELEGRAM_BOT_TOKEN reste gere par main.yml : validate.yml refuse toute cle
+# TELEGRAM_* / API_SERVER_* / GATEWAY_ALLOW* ici.
+- name: Pin the declared .env keys of the default profile
+  ansible.builtin.include_tasks: env_keys.yml
+  vars:
+    hermes_env_path: "{{ hermes_data_dir }}/.env"
+    hermes_env_keys: "{{ hermes_default_profile.env | default({}) }}"
+
+- name: Remember whether the default .env changed
+  ansible.builtin.set_fact:
+    hermes_default_env_changed: "{{ hermes_env_keys_result is changed }}"
+
+- name: Read the config keys of the default profile
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - hermes
+      - -p
+      - default
+      - config
+      - get
+      - "{{ item.key }}"
+      - --json
+  loop: "{{ hermes_default_profile.config | default({}) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: hermes_default_config_current
+  changed_when: false
+  # rc=1 : cle absente, donc a poser.
+  failed_when: hermes_default_config_current.rc not in [0, 1]
+  when: not ansible_check_mode
+  no_log: "{{ item.key in hermes_default_profile.config_no_log | default([]) }}"
+
+# Seules les cles declarees sont ecrites : mcp_servers.kandidat.url,
+# _config_version et toute cle non declaree restent telles quelles.
+- name: Set the config keys of the default profile
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - hermes
+      - -p
+      - default
+      - config
+      - set
+      - "{{ item.item.key }}"
+      - "{{ item.item.value | hermes_config_arg }}"
+  loop: "{{ hermes_default_config_current.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when:
+    - not ansible_check_mode
+    - item.rc == 1 or not (item.stdout | hermes_config_equal(item.item.value))
+  register: hermes_default_config_set
+  no_log: "{{ item.item.key in hermes_default_profile.config_no_log | default([]) }}"
+
+# Meme chemin de code que le gateway, sur le config.yaml qui vient d'etre
+# ecrit : un outil de trop arrete le playbook AVANT le redemarrage, la gateway
+# en service gardant son ancienne configuration. Un serveur MCP desactive
+# (`enabled: false`, Kandidat) ne compte pas ; un serveur actif, si.
+- name: Verify that the declared tool restrictions are effective (default)
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - -e
+      - HERMES_HOME=/opt/data
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - toolsets
+      - "{{ hermes_allowed | reject('eq', 'no_mcp') | join(',') }}"
+      - "{{ hermes_default_profile.config['agent.disabled_toolsets'] | join(',') }}"
+      - "{{ 'true' if 'no_mcp' in hermes_allowed else 'false' }}"
+  vars:
+    hermes_allowed: "{{ hermes_default_profile.config['platform_toolsets.telegram'] | default([]) }}"
+  register: hermes_default_toolsets
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - "'agent.disabled_toolsets' in (hermes_default_profile.config | default({}))"
+
+- name: Report the default tool restrictions
+  ansible.builtin.debug:
+    var: hermes_default_toolsets.stdout
+  when:
+    - not ansible_check_mode
+    - hermes_default_toolsets is not skipped
+
+# .env et config ne sont lus qu'au demarrage du gateway ; SOUL.md est relu a
+# chaque nouvelle session (`/new` cote Telegram, procedure M5.4).
+- name: Restart the default gateway only, with its new keys
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - hermes
+      - -p
+      - default
+      - gateway
+      - restart
+  when:
+    - not ansible_check_mode
+    - hermes_default_env_changed | bool or hermes_default_config_set is changed
+
+- name: Wait for the default gateway to listen again
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ hermes_gateway_port }}"
+    timeout: 120
+  when: not ansible_check_mode

@@ -1081,6 +1081,70 @@ the tests; PSI 0; no OOM; host `pve` ~2.7 GiB available, swap 0.
   look again if MemAvailable drops under ~1280 MiB, PSI `some avg60` stops
   being 0, or a gateway passes ~400 MiB.
 
+## Nora — profile `default` (mission M5, prepared in M5.3.A, not deployed)
+
+Nora is `default` itself: same `HERMES_HOME` (`/opt/data`), gateway `:8642`,
+bot and token. The declaration `hermes_default_nora` (group_vars) is
+**inactive**: the role default `hermes_default_profile: {}` skips
+`tasks/default_profile.yml` entirely. Activation (M5.4) is a dedicated commit
+adding `hermes_default_profile: "{{ hermes_default_nora }}"`; reverting it is
+the declarative rollback of the configuration.
+
+Prerequisites, none created by the repository (validate.yml stops with
+`PREREQUIS M5.4` while they are missing):
+
+- `vault_hermes_default_tavily_api_key`: dedicated key, checked distinct from
+  the three profiles' keys without display;
+- `hermes_default_soul_predecessor_sha256`: sha256 of the live default
+  SOUL.md, taken from the verified M5 backup's SHA256SUMS;
+- default's `memories/USER.md` and `MEMORY.md` moved out of the volume
+  (manual M5.4 step): the memory toolset injects them into every prompt.
+
+What `default_profile.yml` does, in order, before the default Telegram check
+in `main.yml`:
+
+1. `default_soul.yml`: SOUL.md replaced **once**, only if its sha256 equals
+   the declared predecessor (`backup: true` leaves a copy beside it); already
+   Nora = no-op; anything else, or absent = **fail**, nothing written.
+   `soul_seed.yml` still refuses default.
+2. `.env` keys through `env_keys.yml` (`TAVILY_API_KEY`); `TELEGRAM_BOT_TOKEN`
+   stays managed by `main.yml`.
+3. config keys one by one through `hermes -p default config get/set`.
+   `-p default` is mandatory: without it the CLI follows a sticky
+   `active_profile` into another profile (`hermes_cli/main.py`). Only declared
+   keys are written; `mcp_servers.kandidat.url`, `_config_version` and every
+   undeclared key stay.
+4. `hermes_checks.py toolsets` on `/opt/data`: four platforms, allowed
+   toolsets only, exact tools `web_search, web_extract, memory, todo, clarify`,
+   no **enabled** MCP server (Kandidat is declared with `enabled: false`).
+5. `hermes -p default gateway restart` when `.env` or config changed: s6
+   restarts `gateway-default` only. Never the `Restart hermes` handler
+   (container, four gateways). A SOUL.md change alone needs no restart.
+
+| Capability | State | Mechanism |
+|---|---|---|
+| web_search, web_extract | on | `web` toolset, Tavily backend |
+| memory | on, gated | `memory.write_approval: true` → `/memory pending`, `/memory approve <id>` |
+| todo, clarify | on | allowlist |
+| session_search, skills | off | out of the 4 allowlists + `agent.disabled_toolsets` |
+| terminal, file, code, delegation, cron | off | out of the allowlists + deny list |
+| browser_* | off | out of the allowlists (never in the deny list, M3.3.1) |
+| Kandidat MCP | off | `mcp_servers.kandidat.enabled: false` + `no_mcp` |
+| old local skills | disabled | `skills.disabled` (5 names), curator off |
+
+Known limits (M5.3.A):
+
+- **Old sessions stay in `state.db`**: invisible to Nora's tools, but visible
+  in the dashboard, reloadable with `/resume`, searchable again if
+  `session_search` returns. Never resume a pre-Nora session.
+- **Stock prompt sentences**: Hermes' generic sections (all profiles) still
+  name `skill_view` and `session_search`; neither tool is exposed.
+- **No file isolation between profiles**: one container, one UID. Separation
+  relies on exposed tools; historical workspace files must leave the volume
+  (M5.4).
+- **Restart path**: proven by code reading and the offline lab
+  (`_profile_suffix() == ""` → `gateway-default`), never executed on s6.
+
 ## Operating profiles
 
 All from `hermes/`, with `direnv` loaded (the memory gate reads
@@ -1141,5 +1205,6 @@ uv run pytest hermes/tests -q
 | `test_m3_tech_watch.py` | Néo, activated after cafe-ia: identity, bot name declared once behind `mandatory` (getMe not skippable), SOUL.md (five domains, local AI, no Caribbean axis, no cron/file promise), Kaféine's tool matrix, Tavily, convergence, inactive scripts, context facts; **real image, offline** (skipped without it): config applied and converging, SOUL.md + context in the Telegram system prompt, effective toolsets; preflight of the deployed profiles (cafe-ia connected, cron, ESTOP) and of the candidate (shared token, port, existing profile, memory), `profiles-preflight` with no candidate (every profile probed, tech-watch included), rollback targeting tech-watch only |
 | `test_m331_web_tools.py` | M3.3.1, both profiles, **real image, offline**: `web_search` and `web_extract` exposed separately on telegram/api_server/cli/cron, exactly the 9 allowed tools, no `browser_*`, backend `tavily`, the `browser` cause reproduced, deploy check refusing the M3.3 configuration; pure `tool_errors` verdicts |
 | `test_m4_scout.py` | Scout, activated after tech-watch: identity, port, no Charlie, bot name checked by getMe, dedicated vault keys, no shared token, SOUL.md (domains, geography, languages graded from the private context, no sending, limits, no private fact), private context (vault reference, NO-GO when missing, **real profile.yml config tasks at `-vvv`**: set verbatim, never printed, even on failure), tool matrix; **real image, offline**: config converging with a multi-line context, 9 tools per platform, 7 for a real cron run, context in Scout's prompt only, `--continuity` losing the previous answer; cron drafts (schedules, no Kandidat/shell/file, no private fact, read by nothing); m4 preflight (deployed profiles, prerequisites, shared token, blank page, memory gate, getMe on stdin) and rollback (job-search only, data kept, others re-checked) |
+| `test_m5_nora.py` | Nora (default), prepared not active: declaration and prerequisites, SOUL.md (identity, limits, no private or job context), tool matrix (four allowlists, session_search and skills denied, Kandidat cut twice, memory approval, old skills, curator), enabled-MCP verdicts, validate.yml (accepts, PREREQUIS, malformed, shared Tavily key), **real default_soul.yml** guard (once, backup, unknown/absent/edited fail, targets, check mode), **real default_profile.yml** against a fake `docker` (`-p default` only, url kept, one targeted restart, second run 0 changed, check mode, other profiles untouched), no global restart, ordering, profiles unchanged since M4.3; **real image, offline**: keys converge, sticky `active_profile` ignored, 5 tools, approval, disabled skills, curator off, s6 slot, Nora prompt |
 
 Fake tokens only; nothing reaches hermes-30.

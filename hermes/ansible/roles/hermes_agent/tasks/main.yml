@@ -241,6 +241,12 @@
     var: hermes_ca_probe.stdout
   when: not ansible_check_mode
 
+# Avant le controle Telegram de default : s'il redemarre sa gateway, c'est le
+# nouveau processus qui est juge, puis compare apres les profils.
+- name: Apply the declared identity of the default profile
+  ansible.builtin.include_tasks: default_profile.yml
+  when: hermes_default_profile | length > 0
+
 # =============================================================================
 # Sante Telegram du profil default — la panne du 2026-08-24 etait MUETTE :
 # playbook vert, conteneur Up, bot mort. Trois niveaux controles ici :
