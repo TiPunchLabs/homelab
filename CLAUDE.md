@@ -288,9 +288,11 @@ ansible-playbook ansible/deploy.yml --tags komodo-periphery
 > aucune regle UFW a ajouter. La cle d'onboarding est a **usage unique** —
 > voir `hermes/ansible/roles/komodo_periphery/README.md`.
 
-> 🧬 **Multiprofils** : trois gateways dans le conteneur `hermes` — `default`
-> (:8642), **Kaféine** `cafe-ia` (:8646, M2, 2026-10-20) et **Néo**
-> `tech-watch` (:8643, M3, 2026-10-22), un bot Telegram par profil.
+> 🧬 **Multiprofils** : quatre gateways dans le conteneur `hermes` — `default`
+> (:8642), **Kaféine** `cafe-ia` (:8646, M2, 2026-10-20), **Néo**
+> `tech-watch` (:8643, M3, 2026-10-22) et **Scout** `job-search` (:8645, M4,
+> 2026-10-24), un bot Telegram par profil. Aucun cron actif depuis le
+> 2026-10-23 ; persistance au reboot non demontree.
 > Activation = entree dans `hermes_profiles` par commit dedie ; nouveau profil :
 > `ansible/m<N>-preflight.yml` (GO obligatoire, hors fenetres cron) puis
 > `--tags hermes` ; mise a jour de profils deployes : `ansible/profiles-preflight.yml`
