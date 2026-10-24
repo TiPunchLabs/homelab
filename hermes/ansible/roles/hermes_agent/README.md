@@ -583,13 +583,36 @@ Terraform):
 - `qm set 9030 --balloon 3584`, applied live: nothing pending, no reboot,
   gateway pid 162 unchanged, crons unchanged.
 
-`hermes/terraform` now says `vm_memory_floating = 3584`, like Proxmox: its
-plan shows no `memory` change (only an older cloud-init DNS drift, to settle
-separately). `bpg/proxmox` 0.96.0 would **reboot** hermes-30 for a floor
+`hermes/terraform` then said `vm_memory_floating = 3584`, like Proxmox: its
+plan showed no `memory` change (only an older cloud-init DNS drift, settled
+since). `bpg/proxmox` 0.96.0 would **reboot** hermes-30 for a floor
 change that Proxmox applies live (`qemu-server`, PVE 9.1.1: only
 enabling/disabling the device is not hotpluggable; `reboot_after_update`
-defaults to `true`), so floor changes go through `qm set`, and **never
-`apply` hermes from a branch that still says 2048** (`main` before M2).
+defaults to `true`), so floor changes went through `qm set` until M4-MEM
+(below), and **never `apply` hermes from a branch that still says 2048**
+(`main` before M2).
+
+**Floor raised to 4096 (M4-MEM, 2026-10-23)**, room for a fourth gateway:
+
+- Terraform now carries the floor change itself. The shared module exposes
+  `vm_reboot_after_update`, and hermes sets it to `false`. bpg then pushes the
+  config and only warns that a reboot is required. Apply at 19:32 UTC:
+  `balloon: 4096`, nothing pending, no reboot, and the next plan says
+  `No changes`.
+- **The new floor did not take effect on its own.** `pve` was above its
+  ballooning target, so `pvestatd` only shrinks VMs, and it leaves a VM that
+  sits below its new floor where it is. The config change sends no balloon
+  command either. The live balloon stayed at 3584.
+- The live balloon reached 4096 at 23:54 UTC, after a manual QEMU monitor
+  session on `pve` (`qm monitor 9030`; the HMP `balloon` command takes MiB).
+  Guest MemTotal went from 3333 to 3845 MiB and MemAvailable to ~2130 MiB.
+  Gateway PIDs did not change, PSI stayed at 0, and there was no OOM. Once the
+  live balloon is at the floor, `pvestatd` never shrinks below it.
+- The global ballooning policy was not changed (`ballooning-target` still
+  unset, default 80 %).
+- After a floor change, check `qm status 9030 --verbose` (`balloon` against
+  `balloon_min`) and the guest MemTotal. `qm config` alone does not prove the
+  change is live.
 
 **Not needed: A2** (balloon device on bastion): bastion is stopped.
 
@@ -881,7 +904,9 @@ preflights do.
   run it without checking every profile `.env` first.
 - **Restart persistence** of the profile slots: see "Not proven yet" above.
 - **Memory**: three gateways fit the 3584 floor, with ~1442 MiB available
-  after real use — under the 1536 MiB required to add one. See
+  after real use (2026-10-22), under the 1536 MiB required to add one. The
+  floor is 4096 since M4-MEM (2026-10-23, see the M2 memory section), but a
+  fourth gateway still needs a new memory preflight GO. See
   [M3.3 — as executed](#m33--as-executed-2026-10-22): 7-day watch, no fourth
   gateway without a new memory preflight, any floor change through Terraform.
 - **Restart persistence** of `gateway-tech-watch`: like Kaféine's, not proven
