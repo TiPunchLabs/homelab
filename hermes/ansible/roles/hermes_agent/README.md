@@ -603,8 +603,9 @@ defaults to `true`), so floor changes went through `qm set` until M4-MEM
   ballooning target, so `pvestatd` only shrinks VMs, and it leaves a VM that
   sits below its new floor where it is. The config change sends no balloon
   command either. The live balloon stayed at 3584.
-- The live balloon reached 4096 at 23:54 UTC, after a manual QEMU monitor
-  session on `pve` (`qm monitor 9030`; the HMP `balloon` command takes MiB).
+- The live balloon reached 4096 at 23:54 UTC, when the administrator ran a
+  one-off `balloon 4096` by hand in the QEMU monitor on `pve`
+  (`qm monitor 9030`; the HMP `balloon` command takes MiB).
   Guest MemTotal went from 3333 to 3845 MiB and MemAvailable to ~2130 MiB.
   Gateway PIDs did not change, PSI stayed at 0, and there was no OOM. Once the
   live balloon is at the floor, `pvestatd` never shrinks below it.

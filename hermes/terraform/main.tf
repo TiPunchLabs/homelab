@@ -23,10 +23,15 @@ module "hermes_vm" {
   #
   # 4096 (M4-MEM.2A, 2026-10-23) : place pour un quatrieme gateway. Sans
   # `memory` dans hotplug, bpg classe toute modif memoire « reboot requis » ;
-  # a false il pousse la config et avertit au lieu de redemarrer. Proxmox
-  # applique le plancher a chaud tant que le ballooning reste actif (les deux
-  # valeurs non nulles) : `qm pending 9030` doit rester vide apres l'apply.
-  # Tant que l'apply n'est pas fait, la production est encore a 3584.
+  # a false il pousse la config et avertit au lieu de redemarrer.
+  #
+  # Etat au 2026-10-23 : plancher 4096 configure ET effectif, maximum 8192,
+  # aucun redemarrage. L'apply ne change que la config : hote au-dessus de
+  # 80 %, pvestatd ne remonte pas un ballon sous son nouveau plancher, il est
+  # reste a 3584. Rendu effectif par un `balloon 4096` ponctuel lance a la main
+  # par l'administrateur dans le moniteur QEMU (`qm monitor 9030`). Apres tout
+  # changement de plancher, verifier `qm status 9030 --verbose` (balloon contre
+  # balloon_min), pas seulement `qm config`.
   vm_memory_floating     = 4096
   vm_reboot_after_update = false
 
