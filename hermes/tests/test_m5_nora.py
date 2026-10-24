@@ -133,10 +133,10 @@ def tasks_of(path: Path) -> list[dict[str, Any]]:
 # --- Declaration and activation ------------------------------------------------
 
 
-def test_n01_prepared_but_not_active(group_vars: dict[str, Any]) -> None:
-    """M5.3.A prepares Nora; activation is a dedicated M5.4 commit, so default runs as before."""
+def test_n01_active_through_one_declaration(group_vars: dict[str, Any]) -> None:
+    """M5.4 activates Nora by one group_vars reference; the role default still leaves default alone."""
     assert "hermes_default_nora" in group_vars
-    assert "hermes_default_profile" not in group_vars
+    assert group_vars["hermes_default_profile"] == "{{ hermes_default_nora }}"
     defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text())
     assert defaults["hermes_default_profile"] == {}
     main = tasks_of(TASKS / "main.yml")
@@ -153,12 +153,15 @@ def test_n01_no_new_profile_port_or_bot(group_vars: dict[str, Any], nora: dict[s
 
 
 def test_n01_prerequisites_are_never_created(nora: dict[str, Any]) -> None:
-    """The Tavily key and the predecessor checksum are mandatory references, never values in Git."""
+    """The Tavily key stays in the vault; the predecessor is the checksum of the verified M5 backup."""
     assert "vault_hermes_default_tavily_api_key" in nora["env"]["TAVILY_API_KEY"]
     assert "mandatory(" in nora["env"]["TAVILY_API_KEY"]
     assert "hermes_default_soul_predecessor_sha256" in nora["soul_predecessor_sha256"]
     assert "mandatory(" in nora["soul_predecessor_sha256"]
-    assert "hermes_default_soul_predecessor_sha256:" not in GROUP_VARS.read_text()
+    group_vars = yaml.safe_load(GROUP_VARS.read_text())
+    predecessor = group_vars["hermes_default_soul_predecessor_sha256"]
+    assert predecessor == "a0a58fb6004320b5e575933cba43b24e7068f0b6b50efb6aed339ea487321f74"
+    assert predecessor != hashlib.sha256((ROLE / "files/default/SOUL.md").read_bytes()).hexdigest()
     vault = (REPO / "hermes/ansible/group_vars/hermes/vault/config.yml").read_text()
     assert vault.startswith("$ANSIBLE_VAULT;")
 

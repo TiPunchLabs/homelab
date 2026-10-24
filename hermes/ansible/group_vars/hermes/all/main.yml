@@ -346,13 +346,10 @@ hermes_profile_job_search:
 # LUI-MEME (HERMES_HOME /opt/data, gateway :8642, meme bot Telegram, meme
 # jeton) : aucun nouveau profil, aucun nouveau port. Preparee en M5.3.A.
 #
-# ⚠️ INACTIVE tant que hermes_default_profile n'y fait pas reference : la
-# valeur par defaut du role ({}) laisse default tel qu'il tourne. Activation
-# en M5.4, par un commit dedie qui ajoute ici
-#   hermes_default_profile: "{{ hermes_default_nora }}"
-# une fois les prerequis poses ; le revert de ce commit est le rollback
-# declaratif de la configuration (le SOUL.md, lui, se restaure depuis sa
-# copie .bak ou la sauvegarde M5).
+# ✅ ACTIVE depuis M5.4 : hermes_default_profile (fin de section) y fait
+# reference. Le revert du commit d'activation est le rollback declaratif de
+# la configuration (le SOUL.md, lui, se restaure depuis sa copie .bak ou la
+# sauvegarde M5 20261024T1609, via m5-rollback.yml).
 #
 # Prerequis M5.4 (aucun n'est cree par ce depot) :
 #   - vault_hermes_default_tavily_api_key : cle Tavily DEDIEE, jamais celle
@@ -444,6 +441,13 @@ hermes_default_nora:
     agent.environment_hint: |-
       Fuseau horaire de l'utilisateur : America/Guadeloupe (UTC-4, sans heure d'été).
       Aucun rappel programmé n'est disponible : Nora ne peut pas envoyer de message à une heure donnée.
+
+# sha256 du SOUL.md de default en service avant Nora, releve dans le
+# manifest et les SHA256SUMS verifies de la sauvegarde M5 20261024T1609.
+hermes_default_soul_predecessor_sha256: a0a58fb6004320b5e575933cba43b24e7068f0b6b50efb6aed339ea487321f74
+
+# Activation M5.4 : default devient Nora.
+hermes_default_profile: "{{ hermes_default_nora }}"
 
 # ============================================================
 # 👁️ Komodo Periphery - Role komodo_periphery
