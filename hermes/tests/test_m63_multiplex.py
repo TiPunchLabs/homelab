@@ -94,11 +94,11 @@ def test_inventory_has_both_hosts_with_their_ssh_aliases() -> None:
     assert hosts == {"hermes-30": {"ansible_host": "hermes-30"}, "hermes-31": {"ansible_host": "hermes-31"}}
 
 
-def test_hermes_31_is_v0225_multiplexed_and_starts_without_telegram() -> None:
-    """Exact tag, multiplex on, Telegram off (phase 1), Komodo identity not hermes-30's."""
+def test_hermes_31_is_v0225_multiplexed_with_telegram() -> None:
+    """Exact tag, multiplex on, Telegram on (M6.4), Komodo identity not hermes-30's."""
     assert HOST_31["hermes_image_tag"] == "v0.22.5"
     assert HOST_31["hermes_gateway_multiplex"] is True
-    assert HOST_31["hermes_telegram_enabled"] is False
+    assert HOST_31["hermes_telegram_enabled"] is True
     assert HOST_31["komodo_connect_as"] == "hermes-31"
     assert overlay() == {"tools.tool_search.enabled": "off"}
 
@@ -621,10 +621,10 @@ def effective(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str, A
 
 
 def test_effective_hermes_31(effective: dict[str, dict[str, Any]]) -> None:
-    """v0.22.5, multiplexed, Telegram off, four profiles with tool_search off, distinct secrets."""
+    """v0.22.5, multiplexed, Telegram on, four profiles with tool_search off, distinct secrets."""
     e = effective["hermes-31"]
     assert e["image"] == "nousresearch/hermes-agent:v0.22.5"
-    assert e["multiplex"] is True and e["telegram"] is False
+    assert e["multiplex"] is True and e["telegram"] is True
     assert e["profiles"] == NAMES
     assert e["tool_search"] == ["off"] * 4
     assert e["tokens_distinct"] and e["tavily_distinct"]
