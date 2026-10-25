@@ -388,6 +388,50 @@ def test_compose_renders_one_gateway_and_the_separate_dashboard(tmp_path: Path, 
     assert all(s["network_mode"] == "host" for s in services.values())
 
 
+CA_TARGETS = ("/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/cert.pem")
+
+
+def ca_mounts(compose: dict[str, Any], service: str) -> list[str]:
+    """The service's read-only CA bundle mounts, as rendered."""
+    return [v for v in compose["services"][service]["volumes"] if v.split(":")[1] in CA_TARGETS]
+
+
+@pytest.mark.parametrize("host", ["hermes-30", "hermes-31"])
+def test_compose_mounts_the_ca_bundle_at_both_default_paths(tmp_path: Path, host: str) -> None:
+    """Debian OpenSSL (v0.20.4) reads ca-certificates.crt, the v0.22.5 standalone Python reads /etc/ssl/cert.pem."""
+    tag = HOST_31["hermes_image_tag"] if host == "hermes-31" else DEFAULTS["hermes_image_tag"]
+    compose = yaml.safe_load(render(tmp_path, "docker-compose.yml.j2", COMPOSE_VARS | {"hermes_image_tag": tag}))
+    bundle = DEFAULTS["hermes_ca_bundle"]
+    for service in ("gateway", "dashboard"):
+        assert ca_mounts(compose, service) == [f"{bundle}:{target}:ro" for target in CA_TARGETS]
+
+
+@pytest.mark.parametrize("service", ["gateway", "dashboard"])
+@pytest.mark.parametrize("host", ["hermes-30", "hermes-31"])
+def test_real_image_trusts_the_mounted_bundle(tmp_path: Path, host: str, service: str) -> None:
+    """Each pinned image's default TLS context loads a private CA through the rendered mounts only (offline)."""
+    tag = HOST_31["hermes_image_tag"] if host == "hermes-31" else DEFAULTS["hermes_image_tag"]
+    image = f"{DEFAULTS['hermes_image']}:{tag}"
+    if not shutil.which("docker") or _docker("image", "inspect", image).returncode != 0:
+        pytest.skip(f"{image} not available locally")
+    bundle = tmp_path / "bundle.crt"
+    subprocess.run(
+        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=hermes-ca-probe",
+         "-keyout", str(tmp_path / "ca.key"), "-out", str(bundle)],
+        capture_output=True, check=True,
+    )
+    bundle.chmod(0o644)
+    compose = yaml.safe_load(render(tmp_path, "docker-compose.yml.j2",
+                                    COMPOSE_VARS | {"hermes_image_tag": tag, "hermes_ca_bundle": str(bundle)}))
+    mounts = [x for m in ca_mounts(compose, service) for x in ("-v", m)]
+    probe = "import ssl; print(sorted(dict(x[0] for x in c['subject'])['commonName'] " \
+            "for c in ssl.create_default_context().get_ca_certs()))"
+    run = _docker("run", "--rm", "--network", "none", "-u", f"{os.getuid()}", *mounts,
+                  "--entrypoint", "/opt/hermes/.venv/bin/python3", image, "-c", probe)
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "['hermes-ca-probe']"
+
+
 # --- Real profile_multiplex.yml against a fake container ---------------------------------
 
 FAKE_DOCKER = r'''#!/usr/bin/env python3

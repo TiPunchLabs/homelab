@@ -26,7 +26,14 @@ services:
       # ces variables ne couvrent qu'une bibliotheque chacune, et laquelle
       # depend de l'implementation du client HTTP. Le chemin, lui, est lu par
       # toutes.
+      #
+      # Deux chemins, car le fichier CA par defaut d'OpenSSL depend de la
+      # compilation de l'image : /usr/lib/ssl/cert.pem -> ca-certificates.crt
+      # (Debian, v0.20.4) mais /etc/ssl/cert.pem (Python autonome de v0.22.5,
+      # absent de l'image). Sans le second, le conteneur v0.22.5 ne fait plus
+      # confiance a Caddy.
       - {{ hermes_ca_bundle }}:/etc/ssl/certs/ca-certificates.crt:ro
+      - {{ hermes_ca_bundle }}:/etc/ssl/cert.pem:ro
     environment:
       - PUID={{ hermes_puid }}
       - PGID={{ hermes_pgid }}
@@ -59,7 +66,14 @@ services:
       # ces variables ne couvrent qu'une bibliotheque chacune, et laquelle
       # depend de l'implementation du client HTTP. Le chemin, lui, est lu par
       # toutes.
+      #
+      # Deux chemins, car le fichier CA par defaut d'OpenSSL depend de la
+      # compilation de l'image : /usr/lib/ssl/cert.pem -> ca-certificates.crt
+      # (Debian, v0.20.4) mais /etc/ssl/cert.pem (Python autonome de v0.22.5,
+      # absent de l'image). Sans le second, le conteneur v0.22.5 ne fait plus
+      # confiance a Caddy.
       - {{ hermes_ca_bundle }}:/etc/ssl/certs/ca-certificates.crt:ro
+      - {{ hermes_ca_bundle }}:/etc/ssl/cert.pem:ro
     environment:
       - PUID={{ hermes_puid }}
       - PGID={{ hermes_pgid }}
