@@ -1,9 +1,27 @@
 ---
-- name: Configure hermes-30
+- name: Configure a Hermes host
   become: true
   hosts:
     - hermes
   pre_tasks:
+    # Le groupe porte deux generations de Hermes (hermes-30 en v0.20.4, de
+    # repli ; hermes-31 en v0.22.5) : une cible explicite est exigee, et
+    # l'hote verrouille ne se deploie que deverrouille par son nom.
+    # `always` : joue aussi sous --tags, avant toute ecriture.
+    - name: Refuse an implicit or locked deployment target
+      ansible.builtin.assert:
+        that:
+          - ansible_limit is defined
+          - not (hermes_deploy_locked | default(false) | bool)
+            or (hermes_deploy_unlock | default('')) == inventory_hostname
+        fail_msg: >-
+          Cible refusee pour {{ inventory_hostname }} : passer --limit <hote>
+          ({{ groups['hermes'] | join(', ') }}). Hote verrouille (repli) :
+          ajouter -e hermes_deploy_unlock={{ inventory_hostname }}.
+        quiet: true
+      tags:
+        - always
+
     # Hermes planifie ses taches en heure locale : le fuseau ne doit pas
     # dependre d'un geste manuel non rejoue.
     - name: Recuperer le fuseau horaire courant

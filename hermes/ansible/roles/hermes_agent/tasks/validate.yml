@@ -19,6 +19,15 @@
     fail_msg: "hermes_profiles doit etre une liste (vide tant qu'aucun profil n'est deploye)."
     quiet: true
 
+# Une chaine "false" serait vraie en Jinja : le chemin multiplexe partirait
+# sur une image v0.20.4, ou l'inverse.
+- name: Assert that hermes_gateway_multiplex is a boolean
+  ansible.builtin.assert:
+    that:
+      - hermes_gateway_multiplex is boolean
+    fail_msg: "hermes_gateway_multiplex doit etre un booleen (true : Hermes v0.22, une gateway multiplexee)."
+    quiet: true
+
 # La liste blanche vit dans la couche managed et s'impose aux bots de TOUS
 # les profils. Vide, Hermes retomberait sur l'appairage : n'importe qui
 # connaissant un bot obtiendrait un code.
