@@ -12,10 +12,11 @@ hermes_image_tag: "v0.22.5"
 # Une gateway (gateway-default) sert les quatre profils : profile_multiplex.yml.
 hermes_gateway_multiplex: true
 
-# PHASE 1 de M6.3.C : aucun jeton Telegram ecrit, aucun bot connecte, tant
-# que la configuration et les permissions ne sont pas verifiees sur la VM.
-# Passer a true (commit dedie) ouvre la phase 2.
-hermes_telegram_enabled: false
+# M6.4 : les quatre bots sur la gateway multiplexee (jetons verifies par getMe
+# en M6.4.A). hermes-30 porte les MEMES jetons : ne jamais la demarrer tant
+# que ce drapeau est vrai, sinon les deux hotes se volent le polling (409).
+# Repli : revenir a false et rejouer --tags hermes retire les quatre jetons.
+hermes_telegram_enabled: true
 
 # Cles de config propres a v0.22, posees dans chaque profil (default
 # compris) en plus de sa declaration de group_vars.
