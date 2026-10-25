@@ -117,9 +117,9 @@ def test_schedule_window_cron_in_error_is_reported_not_blocking() -> None:
 
 
 def pre_tasks() -> list[dict[str, Any]]:
-    """The deploy.yml pre_tasks, tags stripped."""
+    """The deploy.yml timezone pre_tasks, tags stripped (the M6.3 target guard is tested in test_m63_multiplex)."""
     tasks = yaml.safe_load(DEPLOY.read_text())[0]["pre_tasks"]
-    return [{k: v for k, v in task.items() if k != "tags"} for task in tasks]
+    return [{k: v for k, v in task.items() if k != "tags"} for task in tasks if "fuseau" in task["name"]]
 
 
 def test_timezone_read_runs_in_check_mode() -> None:

@@ -12,6 +12,8 @@ Usage (argv after `-c`):
     managed <expected_allowlist>
     env-key <dotenv_path> <KEY>
     telegram <gateway_state.json> <s6 service name, e.g. gateway-default>
+             [<platform key, e.g. cafe-ia:telegram (multiplexed profile)>]
+    multiplex <root gateway_state.json> <profiles,csv incl. default>
     schedule-window <minutes>
     api-key <profile .env>                       (HERMES_HOME = the profile)
     toolsets <allowed,csv> <denied,csv> <no_mcp> (HERMES_HOME = the profile):
@@ -106,6 +108,7 @@ def telegram_verdict(
     state: Any,
     s6_status: str,
     pid_is_live: Callable[[Mapping[str, Any]], bool],
+    platform: str = "telegram",
 ) -> tuple[bool, str]:
     """Decide whether Telegram is connected for the CURRENT gateway process.
 
@@ -114,6 +117,10 @@ def telegram_verdict(
     written by the process s6 supervises right now, identified by (pid,
     start_time). Otherwise a bot that died at restart would still read
     `connected` from the previous life.
+
+    `platform` is the entry key: `telegram` for the profile that owns the
+    state file, `<profile>:telegram` for a profile served by the multiplexed
+    root gateway (Hermes v0.22, gateway/run_adapters.py).
     """
     match = _S6_UP.match(s6_status.strip())
     if not match:
@@ -130,14 +137,46 @@ def telegram_verdict(
         return False, f"level 3: gateway_state is {state.get('gateway_state')!r}"
 
     platforms = state.get("platforms")
-    entry = platforms.get("telegram") if isinstance(platforms, Mapping) else None
+    entry = platforms.get(platform) if isinstance(platforms, Mapping) else None
     if not isinstance(entry, Mapping):
-        return False, "level 3: no telegram entry (adapter not started: token missing?)"
+        return False, f"level 3: no {platform} entry (adapter not started: token missing?)"
     if (entry.get("writer_pid"), entry.get("writer_start_time")) != (state.get("pid"), state.get("start_time")):
-        return False, "level 3: telegram entry left over from a previous gateway process"
+        return False, f"level 3: {platform} entry left over from a previous gateway process"
     if entry.get("state") != "connected":
-        return False, f"level 3: telegram state is {entry.get('state')!r}"
-    return True, f"telegram connected (gateway pid {s6_pid})"
+        return False, f"level 3: {platform} state is {entry.get('state')!r}"
+    return True, f"{platform} connected (gateway pid {s6_pid})"
+
+
+def multiplex_verdict(
+    state: Any,
+    s6_statuses: Mapping[str, str],
+    expected_profiles: set[str],
+    pid_is_live: Callable[[Mapping[str, Any]], bool],
+) -> tuple[bool, str]:
+    """Decide whether ONE multiplexed gateway serves exactly `expected_profiles`.
+
+    Hermes v0.22: the root slot gateway-default is the only gateway process;
+    named slots stay registered but down, and the served set is published as
+    `served_profiles` in the root gateway_state.json by that same process.
+    `s6_statuses` maps a slot name (gateway-<profile>) to its s6-svstat line.
+    """
+    match = _S6_UP.match((s6_statuses.get("gateway-default") or "").strip())
+    if not match:
+        return False, f"gateway-default not up under s6 ({(s6_statuses.get('gateway-default') or 'no output').strip()})"
+    s6_pid = int(match.group(1))
+    second = sorted(slot for slot, status in s6_statuses.items() if slot != "gateway-default" and _S6_UP.match(status.strip()))
+    if second:
+        return False, f"named gateway slot(s) up beside the multiplexer: {', '.join(second)}"
+    if not isinstance(state, Mapping):
+        return False, "gateway_state.json absent or malformed"
+    if state.get("pid") != s6_pid:
+        return False, f"gateway_state.json written by pid {state.get('pid')}, s6 runs {s6_pid}"
+    if not pid_is_live(state):
+        return False, "gateway_state.json belongs to a dead process"
+    served = state.get("served_profiles")
+    if not isinstance(served, list) or {str(p) for p in served} != expected_profiles:
+        return False, f"served profiles {served!r}, expected {sorted(expected_profiles)}"
+    return True, f"one multiplexed gateway (pid {s6_pid}) serves: {', '.join(sorted(expected_profiles))}"
 
 
 def _parse_instant(value: Any, now: datetime) -> datetime | None:
@@ -478,7 +517,7 @@ def main(argv: list[str]) -> int:
         from dotenv import dotenv_values
 
         return _report(env_key_errors(dotenv_values(argv[1]), argv[2]), f"{argv[2]} present in {argv[1]}")
-    if mode == "telegram" and len(argv) == 3:
+    if mode == "telegram" and len(argv) in (3, 4):
         import subprocess
 
         from gateway.status import runtime_status_pid_is_live
@@ -494,7 +533,32 @@ def main(argv: list[str]) -> int:
                 state = json.load(handle)
         except (OSError, ValueError):
             state = None
-        ok, message = telegram_verdict(state, svstat.stdout or svstat.stderr, runtime_status_pid_is_live)
+        ok, message = telegram_verdict(
+            state, svstat.stdout or svstat.stderr, runtime_status_pid_is_live, *argv[3:]
+        )
+        print(message)
+        return 0 if ok else 1
+    if mode == "multiplex" and len(argv) == 3:
+        import subprocess
+
+        from gateway.status import runtime_status_pid_is_live
+
+        expected = {p for p in argv[2].split(",") if p}
+        statuses = {}
+        for profile in sorted(expected | {"default"}):
+            svstat = subprocess.run(
+                ["/command/s6-svstat", f"/run/service/gateway-{profile}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            statuses[f"gateway-{profile}"] = svstat.stdout or svstat.stderr
+        try:
+            with open(argv[1], encoding="utf-8") as handle:
+                state = json.load(handle)
+        except (OSError, ValueError):
+            state = None
+        ok, message = multiplex_verdict(state, statuses, expected, runtime_status_pid_is_live)
         print(message)
         return 0 if ok else 1
     if mode == "schedule-window" and len(argv) == 2:

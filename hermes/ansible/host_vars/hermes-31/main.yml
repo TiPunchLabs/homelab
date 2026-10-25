@@ -1,0 +1,48 @@
+# ============================================================
+# 🧬 hermes-31 — Hermes v0.22.5, gateway multiplexee (M6.3)
+# ============================================================
+# Installation NEUVE : aucune base SQLite ni session reprise de hermes-30.
+# Memes quatre assistants, memes declarations (group_vars) ; seules les
+# differences propres a v0.22 vivent ici.
+
+# Epingle a la main pendant la migration (pas d'annotation Renovate) : toute
+# montee de version repasse par une validation hors ligne sur l'image.
+hermes_image_tag: "v0.22.5"
+
+# Une gateway (gateway-default) sert les quatre profils : profile_multiplex.yml.
+hermes_gateway_multiplex: true
+
+# PHASE 1 de M6.3.C : aucun jeton Telegram ecrit, aucun bot connecte, tant
+# que la configuration et les permissions ne sont pas verifiees sur la VM.
+# Passer a true (commit dedie) ouvre la phase 2.
+hermes_telegram_enabled: false
+
+# Cles de config propres a v0.22, posees dans chaque profil (default
+# compris) en plus de sa declaration de group_vars.
+#
+# tools.tool_search.enabled: "off" — v0.22 differe par defaut session_search
+# et todo_list derriere trois outils NOUVEAUX (tool_search, tool_describe,
+# tool_call). "off" garde la surface d'outils de v0.20.4 a l'identique :
+# aucun outil ajoute, et le controle `toolsets` du role reste exact. Prouve
+# sur l'image (tests/test_m63_multiplex.py).
+hermes_v022_config:
+  tools.tool_search.enabled: "off"
+
+hermes_profiles:
+  - "{{ hermes_profile_cafe_ia | combine({'config': hermes_profile_cafe_ia.config | combine(hermes_v022_config)}) }}"
+  - "{{ hermes_profile_tech_watch | combine({'config': hermes_profile_tech_watch.config | combine(hermes_v022_config)}) }}"
+  - "{{ hermes_profile_job_search | combine({'config': hermes_profile_job_search.config | combine(hermes_v022_config)}) }}"
+
+hermes_default_profile: "{{ hermes_default_nora | combine({'config': hermes_default_nora.config | combine(hermes_v022_config)}) }}"
+
+# SOUL.md de default a remplacer (une fois, default_soul.yml) : sur une
+# installation neuve, celui que l'image seme dans /opt/data au premier boot
+# (stage2-hook.sh, seed_one "SOUL.md" "docker/SOUL.md"), sha256 de
+# /opt/hermes/docker/SOUL.md dans nousresearch/hermes-agent:v0.22.5. Avec
+# l'empreinte de hermes-30, le premier deploiement echouerait (SOUL.md inconnu).
+hermes_default_soul_predecessor_sha256: 3bd38ef92efb90d0fdda1bb73036185d4a4bc11079963cb0e2db71c84281e64e
+
+# Komodo n'est pas branche sur hermes-31 en M6.3 (cle d'onboarding a usage
+# unique, Core inchange) : deployer avec --skip-tags komodo-periphery. Si le
+# role tourne quand meme, il ne se presente pas sous le nom de hermes-30.
+komodo_connect_as: "hermes-31"

@@ -1,0 +1,193 @@
+---
+# =============================================================================
+# Un profil servi par la gateway MULTIPLEXEE (hermes_gateway_multiplex, Hermes
+# v0.22). Pendant de profile.yml, qui reste le chemin de hermes-30 a l'octet
+# pres ; les taches de creation, de contenu et de config sont les memes (un
+# test le verifie).
+#
+# Ce qui change :
+#   - aucune gateway propre : la gateway racine (gateway-default) sert tout
+#     profil dont le repertoire porte un SOUL.md, rescan <= 30 s
+#     (hermes_cli/profiles.py, profiles_to_serve). `gateway start` d'un profil
+#     nomme est refuse (exit 78) ;
+#   - aucun port d'API propre : API_SERVER_PORT est une cle globale du
+#     processus (agent/secret_scope.py), seule l'API racine ecoute ;
+#   - le jeton Telegram est ecrit EN DERNIER, apres les controles d'outils :
+#     le rescan peut connecter le bot des que le jeton est la. Le getMe passe
+#     donc par stdin, avant l'ecriture (candidate_bot_identity.yml) ;
+#   - un seul redemarrage, celui de la gateway racine, en fin de main.yml si
+#     un profil a change (hermes_multiplex_restart).
+# =============================================================================
+
+- name: "Create the profile {{ hermes_profile.name }}"
+  ansible.builtin.command:
+    # --no-alias : le wrapper ~/.local/bin/<name> atterrirait dans un $HOME
+    # ephemere du conteneur.
+    argv: >-
+      {{ ['docker', 'exec', '-u', hermes_puid | string, 'hermes',
+          'hermes', 'profile', 'create', hermes_profile.name, '--no-alias']
+         + (['--description', hermes_profile.description]
+            if hermes_profile.description | default('') else []) }}
+    creates: "{{ hermes_data_dir }}/profiles/{{ hermes_profile.name }}"
+
+- name: "Read the stock SOUL.md checksum of this Hermes image ({{ hermes_profile.name }})"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - |
+        import hashlib
+        from hermes_cli.default_soul import DEFAULT_SOUL_MD
+        print(hashlib.sha256(DEFAULT_SOUL_MD.encode("utf-8")).hexdigest())
+  register: hermes_stock_soul
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: "Seed the SOUL.md of profile {{ hermes_profile.name }}"
+  ansible.builtin.include_tasks: soul_seed.yml
+  vars:
+    hermes_soul_src: "{{ hermes_profiles_src_dir }}/{{ hermes_profile.name }}/SOUL.md"
+    hermes_soul_dest: "{{ hermes_data_dir }}/profiles/{{ hermes_profile.name }}/SOUL.md"
+    hermes_soul_stock_sha256: "{{ [hermes_stock_soul.stdout | default('')] | select | list }}"
+
+- name: "Deploy the owned content of profile {{ hermes_profile.name }}"
+  ansible.builtin.include_tasks: profile_content.yml
+  vars:
+    hermes_content_src: "{{ hermes_profiles_src_dir }}/{{ hermes_profile.name }}"
+    hermes_content_dest: "{{ hermes_data_dir }}/profiles/{{ hermes_profile.name }}"
+
+- name: "Read the config keys of profile {{ hermes_profile.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - hermes
+      - -p
+      - "{{ hermes_profile.name }}"
+      - config
+      - get
+      - "{{ item.key }}"
+      - --json
+  loop: "{{ hermes_profile.config | default({}) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: hermes_profile_config_current
+  changed_when: false
+  # rc=1 : cle absente, donc a poser.
+  failed_when: hermes_profile_config_current.rc not in [0, 1]
+  when: not ansible_check_mode
+  # Valeur privee (config_no_log) : ni le stdout lu ici ni l'argv du `config
+  # set` ne doivent apparaitre, meme en echec ou en -vvv. Evalue par element.
+  no_log: "{{ item.key in hermes_profile.config_no_log | default([]) }}"
+
+# Comparaison typee (filtre hermes_config_equal) : true != "true", 42 != "42",
+# mappings et listes compares en JSON canonique.
+- name: "Set the config keys of profile {{ hermes_profile.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - hermes
+      - -p
+      - "{{ hermes_profile.name }}"
+      - config
+      - set
+      - "{{ item.item.key }}"
+      - "{{ item.item.value | hermes_config_arg }}"
+  loop: "{{ hermes_profile_config_current.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when:
+    - not ansible_check_mode
+    - item.rc == 1 or not (item.stdout | hermes_config_equal(item.item.value))
+  register: hermes_profile_config_set
+  no_log: "{{ item.item.key in hermes_profile.config_no_log | default([]) }}"
+
+# Le hook stage2 de l'image n'ecrit que dans /opt/data/.env ; la cle d'API
+# doit venir du managed (charge en dernier), jamais d'un .env de profil.
+- name: "Verify that API_SERVER_KEY comes from managed only ({{ hermes_profile.name }})"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - -e
+      - "HERMES_HOME=/opt/data/profiles/{{ hermes_profile.name }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - api-key
+      - "/opt/data/profiles/{{ hermes_profile.name }}/.env"
+  changed_when: false
+  when: not ansible_check_mode
+
+# Meme chemin de code que la gateway (tools_config._get_platform_tools, lu
+# sous le HERMES_HOME du profil : gateway/run.py, _profile_runtime_scope).
+# Sur v0.22, sans `tools.tool_search.enabled: off` (inventaire de hermes-31),
+# ce controle echoue : tool_search/tool_describe/tool_call en plus,
+# session_search/todo_list differes.
+- name: "Verify that the declared tool restrictions are effective ({{ hermes_profile.name }})"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - -e
+      - "HERMES_HOME=/opt/data/profiles/{{ hermes_profile.name }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - toolsets
+      - "{{ hermes_allowed | reject('eq', 'no_mcp') | join(',') }}"
+      - "{{ hermes_profile.config['agent.disabled_toolsets'] | join(',') }}"
+      - "{{ 'true' if 'no_mcp' in hermes_allowed else 'false' }}"
+  vars:
+    hermes_allowed: "{{ hermes_profile.config['platform_toolsets.telegram'] | default([]) }}"
+  register: hermes_profile_toolsets
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - "'agent.disabled_toolsets' in (hermes_profile.config | default({}))"
+
+# getMe AVANT d'ecrire le jeton : jeton sur stdin, jamais en argv ni en
+# sortie. Rattrape un jeton valide colle sous la mauvaise cle du vault.
+- name: "Verify that the token belongs to the declared bot ({{ hermes_profile.name }})"
+  ansible.builtin.include_tasks: candidate_bot_identity.yml
+  vars:
+    hermes_pf_profile: "{{ hermes_profile }}"
+  when:
+    - not ansible_check_mode
+    - hermes_telegram_enabled
+    - hermes_profile.telegram_bot_username is defined
+
+# Dernier : des que le jeton est la, le rescan peut connecter le bot.
+# Telegram coupe (hermes_telegram_enabled: false) : jeton retire, aucun bot.
+# API_SERVER_PORT retire : un port de profil qu'aucune gateway n'ecoute.
+- name: "Pin the .env keys of profile {{ hermes_profile.name }}"
+  ansible.builtin.include_tasks: env_keys.yml
+  vars:
+    hermes_env_path: "{{ hermes_data_dir }}/profiles/{{ hermes_profile.name }}/.env"
+    hermes_env_keys: >-
+      {{ {'TELEGRAM_BOT_TOKEN': hermes_profile.telegram_bot_token if hermes_telegram_enabled else '',
+          'API_SERVER_PORT': ''}
+         | combine(hermes_profile.env | default({})) }}
+
+- name: "Schedule one restart of the multiplexed gateway ({{ hermes_profile.name }})"
+  ansible.builtin.set_fact:
+    hermes_multiplex_restart: true
+  when: hermes_env_keys_result is changed or hermes_profile_config_set is changed

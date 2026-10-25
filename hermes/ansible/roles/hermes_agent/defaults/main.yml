@@ -99,6 +99,18 @@ hermes_profile_reserved_ports: {}
 hermes_profiles_src_dir: "{{ role_path }}/files/profiles"
 
 # ============================================================
+# Topologie de gateway
+# ============================================================
+# false : une gateway s6 par profil (Hermes v0.20.4, hermes-30) — profile.yml.
+# true  : UNE gateway multiplexee sert tous les profils (Hermes v0.22, defaut
+#         amont « one gateway per machine ») — profile_multiplex.yml. Les slots
+#         nommes restent enregistres mais arretes, aucun port d'API par profil
+#         n'ecoute, et `hermes -p <name> gateway start` est refuse (exit 78).
+# A poser avec l'image : une image v0.22 replie d'office les slots nommes au
+# boot (container_boot.py), et le chemin false casserait au premier profil.
+hermes_gateway_multiplex: false
+
+# ============================================================
 # Identite declaree du profil default (M5 : Nora)
 # ============================================================
 # Vide = default reste tel qu'il tourne (aucune tache de default_profile.yml).

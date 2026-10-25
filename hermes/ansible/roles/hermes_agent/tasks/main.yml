@@ -299,8 +299,10 @@
   until: hermes_default_telegram.rc == 0
   retries: "{{ hermes_telegram_check_retries }}"
   delay: "{{ hermes_telegram_check_delay }}"
+  # Multiplexe : juge une seule fois, apres l'unique redemarrage de fin.
   when:
     - hermes_telegram_enabled
+    - not hermes_gateway_multiplex
     - not ansible_check_mode
 
 - name: Report the default Telegram state
@@ -308,11 +310,22 @@
     var: hermes_default_telegram.stdout
   when:
     - hermes_telegram_enabled
+    - not hermes_gateway_multiplex
     - not ansible_check_mode
 
 - name: Deploy the additional Hermes profiles
   ansible.builtin.include_tasks: profiles.yml
-  when: hermes_profiles | length > 0
+  when:
+    - hermes_profiles | length > 0
+    - not hermes_gateway_multiplex
+
+- name: Deploy the additional Hermes profiles (multiplexed gateway)
+  ansible.builtin.include_tasks: profile_multiplex.yml
+  loop: "{{ hermes_profiles }}"
+  loop_control:
+    loop_var: hermes_profile
+    label: "{{ hermes_profile.name }}"
+  when: hermes_gateway_multiplex
 
 # `gateway run --replace` tue le detenteur d'un meme jeton, quel que soit son
 # profil. Le controle d'avant ne jugeait default qu'AVANT les profils : celui-ci
@@ -338,6 +351,114 @@
     or hermes_default_telegram_after.stdout != hermes_default_telegram.stdout
   when:
     - hermes_profiles | length > 0
+    - hermes_telegram_enabled
+    - not hermes_gateway_multiplex
+    - not ansible_check_mode
+
+# =============================================================================
+# Gateway multiplexee (Hermes v0.22) : UN processus, gateway-default, sert les
+# quatre profils. Un seul redemarrage, apres le dernier profil, pour qu'il
+# lise toutes les configurations finales ; puis les controles jugent CE
+# processus-la :
+#   - l'API racine, seule a ecouter (miroirs /p/<profil>/), en loopback ;
+#   - gateway-default seul up, slots nommes down, served_profiles exact ;
+#   - Telegram par profil : entrees `telegram` (default) et `<profil>:telegram`
+#     du gateway_state.json RACINE, ecrites par ce meme pid.
+# =============================================================================
+- name: Restart the multiplexed gateway once with the final profile configuration
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - hermes
+      - -p
+      - default
+      - gateway
+      - restart
+  when:
+    - hermes_gateway_multiplex
+    - hermes_multiplex_restart | default(false) | bool
+    - not ansible_check_mode
+
+- name: Wait for the multiplexed gateway API to listen
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ hermes_gateway_port }}"
+    timeout: 120
+  when:
+    - hermes_gateway_multiplex
+    - not ansible_check_mode
+
+# Sur l'HOTE (network_mode: host) : `ss` n'existe pas dans l'image.
+- name: Verify that the multiplexed gateway API listens on loopback only
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - listen
+      - "{{ hermes_gateway_port }}"
+  changed_when: false
+  when:
+    - hermes_gateway_multiplex
+    - not ansible_check_mode
+
+- name: Verify that one multiplexed gateway serves every profile
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - multiplex
+      - /opt/data/gateway_state.json
+      - "{{ (['default'] + hermes_profiles | map(attribute='name') | list) | join(',') }}"
+  register: hermes_multiplex_served
+  changed_when: false
+  until: hermes_multiplex_served.rc == 0
+  retries: "{{ hermes_telegram_check_retries }}"
+  delay: "{{ hermes_telegram_check_delay }}"
+  when:
+    - hermes_gateway_multiplex
+    - not ansible_check_mode
+
+- name: Report the multiplexed gateway topology
+  ansible.builtin.debug:
+    var: hermes_multiplex_served.stdout
+  when:
+    - hermes_gateway_multiplex
+    - not ansible_check_mode
+
+- name: Wait until Telegram is connected for every multiplexed profile (levels 2-3)
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - telegram
+      - /opt/data/gateway_state.json
+      - gateway-default
+      - "{{ 'telegram' if item == 'default' else item ~ ':telegram' }}"
+  loop: "{{ ['default'] + hermes_profiles | map(attribute='name') | list }}"
+  register: hermes_multiplex_telegram
+  changed_when: false
+  until: hermes_multiplex_telegram.rc == 0
+  retries: "{{ hermes_telegram_check_retries }}"
+  delay: "{{ hermes_telegram_check_delay }}"
+  when:
+    - hermes_gateway_multiplex
     - hermes_telegram_enabled
     - not ansible_check_mode
 
