@@ -16,5 +16,5 @@ variable "pm_api_token_secret" {
 variable "vm_started" {
   description = "Whether the VM should be started (true) or stopped (false)"
   type        = bool
-  default     = false
+  default     = true
 }

@@ -74,8 +74,11 @@ module "hermes_vm" {
   # Autorise les noms courts : `ping komodo` -> komodo.internal.
   vm_dns_domain = "internal"
 
-  # L'agent tourne 24/7 : demarrage automatique au boot du noeud.
-  vm_on_boot = true
+  # M6.3.D (2026-10-25) : hermes-31 remplace hermes-30, conservee arretee pour
+  # le rollback jusqu'a M6.6. Plus de demarrage au boot du noeud : sinon un
+  # reboot de pve la relancerait a cote de hermes-31 (double polling Telegram,
+  # 8 Gio sur un hote deja juste).
+  vm_on_boot = false
   vm_startup = {
     order      = 10
     up_delay   = 30

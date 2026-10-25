@@ -13,8 +13,9 @@ variable "pm_api_token_secret" {
   sensitive = true
 }
 
+# false depuis M6.3.D : hermes-30 est arretee, un apply ne doit pas la relancer.
 variable "vm_started" {
   description = "Whether the VM should be started (true) or stopped (false)"
   type        = bool
-  default     = true
+  default     = false
 }
