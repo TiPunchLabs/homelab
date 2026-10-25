@@ -42,7 +42,9 @@ hermes_default_profile: "{{ hermes_default_nora | combine({'config': hermes_defa
 # l'empreinte de hermes-30, le premier deploiement echouerait (SOUL.md inconnu).
 hermes_default_soul_predecessor_sha256: 3bd38ef92efb90d0fdda1bb73036185d4a4bc11079963cb0e2db71c84281e64e
 
-# Komodo n'est pas branche sur hermes-31 en M6.3 (cle d'onboarding a usage
-# unique, Core inchange) : deployer avec --skip-tags komodo-periphery. Si le
-# role tourne quand meme, il ne se presente pas sous le nom de hermes-30.
+# Komodo (M6.3.D) : nouveau Server "hermes-31", celui de hermes-30 reste en
+# place pour le repli. Brancher par `--limit hermes-31 --tags komodo-periphery`,
+# une fois verifie dans l'UI que la cle d'onboarding du vault est encore active
+# (les cles v2 sont reutilisables, mais peuvent expirer ou etre desactivees).
+# Tant que ce n'est pas fait, deployer avec --skip-tags komodo-periphery.
 komodo_connect_as: "hermes-31"

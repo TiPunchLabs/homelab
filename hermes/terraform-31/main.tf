@@ -18,10 +18,14 @@ module "hermes_31_vm" {
   vm_ip_start    = 31
 
   # pve n'a que ~2,4 Gio libres avec hermes-30 en service : 4096 fixe, sans
-  # ballooning, et VM creee arretee (vm_started = false par defaut). La
-  # demarrer seulement apres avoir verifie la memoire disponible sur l'hote.
+  # ballooning. Creee arretee, demarree par `qm start 9031` (M6.3.C) ;
+  # vm_started = true par defaut depuis M6.3.D.
   vm_cpu_cores = 2
   vm_memory    = 4096
+
+  # Comme hermes-30 : une modif non hotpluggable avertit au lieu de redemarrer
+  # la VM en service.
+  vm_reboot_after_update = false
 
   vm_disk0_size     = 32
   vm_disk0_discard  = "on"
@@ -44,10 +48,15 @@ module "hermes_31_vm" {
   vm_dns_servers = ["192.168.10.71"]
   vm_dns_domain  = "internal"
 
-  # Un reboot du noeud ne doit pas demarrer hermes-31 a cote de hermes-30 tant
-  # que la bascule n'est pas faite. false explicite : laisse a null, bpg
-  # applique on_boot = true.
-  vm_on_boot = false
+  # hermes-31 remplace hermes-30 (M6.3.D) : demarrage au boot du noeud, meme
+  # sequence que hermes-30. A n'appliquer qu'avec hermes-30 en on_boot = false,
+  # sinon un reboot de pve les demarre toutes les deux.
+  vm_on_boot = true
+  vm_startup = {
+    order      = 10
+    up_delay   = 30
+    down_delay = 60
+  }
 
   vm_started          = var.vm_started
   vm_ssh_keys         = [trimspace(file("~/.ssh/id_vm_proxmox_rsa.pub"))]

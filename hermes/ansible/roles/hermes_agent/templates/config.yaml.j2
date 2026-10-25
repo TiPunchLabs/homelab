@@ -22,6 +22,11 @@ providers:
 model:
   provider: {{ hermes_provider_name }}
   default: {{ hermes_model_default }}
+  # Epingle aussi : le config.yaml seme par l'image porte
+  # `model.base_url: https://openrouter.ai/api/v1`, et v0.22.5 le prefere a
+  # providers.<nom>.base_url. Sans cette cle, chaque requete DeepSeek part chez
+  # OpenRouter sans cle et echoue en 401 (constate sur hermes-31, M6.3.D).
+  base_url: {{ hermes_provider_base_url }}
 
 dashboard:
   # Derriere Caddy : les callbacks et redirections doivent pointer sur l'URL
