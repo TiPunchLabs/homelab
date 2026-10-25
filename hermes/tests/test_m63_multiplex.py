@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -372,7 +373,8 @@ def render(tmp_path: Path, template: str, variables: dict[str, Any]) -> str:
 
 COMPOSE_VARS = {k: DEFAULTS[k] for k in (
     "hermes_image", "hermes_data_dir", "hermes_managed_dir", "hermes_ca_bundle", "hermes_puid", "hermes_pgid",
-    "hermes_memory_limit", "hermes_cpu_limit", "hermes_dashboard_port")}
+    "hermes_memory_limit", "hermes_cpu_limit", "hermes_dashboard_port",
+    "hermes_s6_kill_gracetime_ms", "hermes_stop_grace_period")}
 
 
 @pytest.mark.parametrize("host", ["hermes-30", "hermes-31"])
@@ -386,6 +388,59 @@ def test_compose_renders_one_gateway_and_the_separate_dashboard(tmp_path: Path, 
     assert services["gateway"]["command"] == ["gateway", "run"]
     assert services["dashboard"]["command"][0] == "dashboard"
     assert all(s["network_mode"] == "host" for s in services.values())
+
+
+_DURATION_UNITS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
+
+
+def compose_seconds(duration: str) -> float:
+    """A Compose duration ("30s", "1m30s", "500ms") in seconds."""
+    parts = re.findall(r"(\d+(?:\.\d+)?)(ms|s|m|h)", duration)
+    assert parts and "".join(n + u for n, u in parts) == duration, f"unparsed duration {duration!r}"
+    return sum(float(n) * _DURATION_UNITS[u] for n, u in parts)
+
+
+def shutdown_budget_errors(compose: dict[str, Any]) -> list[str]:
+    """Why the rendered gateway could still be SIGKILLed before its clean exit stamp (M6.5.A.1)."""
+    service = compose["services"]["gateway"]
+    env = dict(item.split("=", 1) for item in service.get("environment", []))
+    if "S6_KILL_GRACETIME" not in env:
+        return ["S6_KILL_GRACETIME missing: s6 kills the gateway 3000 ms after SIGTERM"]
+    if "stop_grace_period" not in service:
+        return ["stop_grace_period missing: Docker kills after 10 s"]
+    if compose_seconds(service["stop_grace_period"]) <= int(env["S6_KILL_GRACETIME"]) / 1000:
+        return ["stop_grace_period must exceed S6_KILL_GRACETIME, or Docker kills before s6"]
+    return []
+
+
+@pytest.mark.parametrize("host", ["hermes-30", "hermes-31"])
+def test_compose_gives_the_gateway_time_to_stop_cleanly(tmp_path: Path, host: str) -> None:
+    """M6.5.A.1: 20 s s6 grace for the sequential adapter teardown, 30 s for Docker; dashboard untouched."""
+    tag = HOST_31["hermes_image_tag"] if host == "hermes-31" else DEFAULTS["hermes_image_tag"]
+    compose = yaml.safe_load(render(tmp_path, "docker-compose.yml.j2", COMPOSE_VARS | {"hermes_image_tag": tag}))
+    gateway, dashboard = compose["services"]["gateway"], compose["services"]["dashboard"]
+    assert "S6_KILL_GRACETIME=20000" in gateway["environment"]
+    assert gateway["stop_grace_period"] == "30s"
+    assert gateway["environment"][:2] == [f"PUID={DEFAULTS['hermes_puid']}", f"PGID={DEFAULTS['hermes_pgid']}"]
+    assert shutdown_budget_errors(compose) == []
+    assert "stop_grace_period" not in dashboard
+    assert not [e for e in dashboard.get("environment", []) if str(e).startswith("S6_")]
+
+
+def test_shutdown_budget_check_rejects_docker_killing_before_s6(tmp_path: Path) -> None:
+    """The ordering check is not vacuous: a Docker grace at or below the s6 grace is refused."""
+    inverted = COMPOSE_VARS | {"hermes_image_tag": HOST_31["hermes_image_tag"],
+                               "hermes_s6_kill_gracetime_ms": 30000, "hermes_stop_grace_period": "30s"}
+    compose = yaml.safe_load(render(tmp_path, "docker-compose.yml.j2", inverted))
+    assert shutdown_budget_errors(compose) == [
+        "stop_grace_period must exceed S6_KILL_GRACETIME, or Docker kills before s6"]
+
+
+def test_inventory_keeps_the_role_shutdown_timeouts() -> None:
+    """No group_vars or host_vars overrides the two timeouts, so both hosts render the tested values."""
+    keys = {"hermes_s6_kill_gracetime_ms", "hermes_stop_grace_period"}
+    for layer in (GROUP_VARS, HOST_30, HOST_31):
+        assert not keys & set(layer)
 
 
 CA_TARGETS = ("/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/cert.pem")

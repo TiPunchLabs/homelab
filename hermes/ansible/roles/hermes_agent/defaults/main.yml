@@ -223,3 +223,13 @@ hermes_dashboard_public_url: "https://hermes.internal"
 # Plafonds de ressources : un agent parti en boucle ne doit pas emporter la VM.
 hermes_memory_limit: "4G"
 hermes_cpu_limit: "2.0"
+
+# Arret propre de la gateway (M6.5.A.1). A l'arret du conteneur, s6-overlay
+# envoie SIGTERM a tous les processus puis SIGKILL apres S6_KILL_GRACETIME
+# (3000 ms par defaut). Or la gateway v0.22.5 deconnecte ses adaptateurs l'un
+# apres l'autre, jusqu'a 5 s chacun : 4,41 s mesurees avec trois bots, d'ou un
+# SIGKILL avant le tampon de fin propre et un « exited UNCLEANLY » au boot.
+# 20 s couvrent quatre bots au plafond de 5 s. Docker doit attendre PLUS que
+# s6, sinon son propre SIGKILL (10 s par defaut) devient la nouvelle limite.
+hermes_s6_kill_gracetime_ms: 20000
+hermes_stop_grace_period: "30s"
