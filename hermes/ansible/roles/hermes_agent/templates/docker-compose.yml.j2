@@ -37,6 +37,10 @@ services:
     environment:
       - PUID={{ hermes_puid }}
       - PGID={{ hermes_pgid }}
+      # Delai SIGTERM -> SIGKILL de s6 a l'arret : voir defaults/main.yml.
+      - S6_KILL_GRACETIME={{ hermes_s6_kill_gracetime_ms }}
+    # Superieur a S6_KILL_GRACETIME : Docker ne doit pas tuer avant s6.
+    stop_grace_period: {{ hermes_stop_grace_period }}
     command: ["gateway", "run"]
     deploy:
       resources:
