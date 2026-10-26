@@ -49,7 +49,7 @@ ansible-lint:
 terraform-lint:
   stage: lint
   image:
-    name: hashicorp/terraform:1.11
+    name: hashicorp/terraform:1.17
     entrypoint: [""]
   retry:
     max: 2
