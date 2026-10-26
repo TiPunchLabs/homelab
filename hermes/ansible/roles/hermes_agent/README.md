@@ -1,12 +1,19 @@
 # Role: hermes_agent
 
-Deploy Hermes Agent (v0.20.4, image `nousresearch/hermes-agent:v2026.8.18`) on
-**hermes-30** as one Docker Compose stack, and prepare it to host several
-**profiles**: one s6-supervised gateway and one Telegram bot per profile, all in
-the same container.
+Deploy Hermes Agent as one Docker Compose stack hosting several **profiles**,
+one Telegram bot per profile, all in the same container.
 
-> **Current state (mission M4.3 deployed, 2026-10-24).** Four gateways run in
-> the container: `default` (unchanged, bot of its own, **no cron** since
+> **Current host: hermes-31** (Hermes v0.22.5, one multiplexed gateway serving
+> the four profiles) — see
+> [hermes-31](#hermes-31--hermes-v0225-one-multiplexed-gateway-mission-m63).
+> hermes-30 (v0.20.4, one s6 gateway per profile, image `v2026.8.18`, still the
+> role defaults) was **destroyed in M6.6.C (2026-10-26)**. Most sections below
+> were written and measured on hermes-30: they remain as the design history of
+> the role, and their hermes-30 commands no longer have a target.
+
+> **State of hermes-30 before M6 (mission M4.3 deployed, 2026-10-24),
+> historical.**
+> Four gateways ran in the container: `default` (unchanged, bot of its own, **no cron** since
 > 2026-10-23), **Kaféine** (`cafe-ia`, `gateway-cafe-ia`, `127.0.0.1:8646`,
 > bot `kafeine_r64gnb_bot`), **Néo** (`tech-watch`, `gateway-tech-watch`,
 > `127.0.0.1:8643`, bot `neo_r64gnb_bot`) and **Scout** (`job-search`,
@@ -1242,18 +1249,19 @@ preflights do.
 ## hermes-31 — Hermes v0.22.5, one multiplexed gateway (mission M6.3)
 
 Everything above describes **hermes-30** (v0.20.4, one s6 gateway per
-profile), which is now stopped and kept as the rollback environment. hermes-31
-is a **fresh** install: same four assistants, same `group_vars` declarations,
+profile), destroyed in M6.6.C (2026-10-26) with its data and snapshots: there
+is no rollback environment any more. hermes-31 is a **fresh** install: same four assistants, same `group_vars` declarations,
 no SQLite database or session carried over. Its differences live in
 `host_vars/hermes-31/main.yml`:
 
-| Key | hermes-30 (defaults) | hermes-31 |
+| Key | role defaults (hermes-30, destroyed) | hermes-31 |
 |---|---|---|
 | `hermes_image_tag` | `v2026.8.18` (v0.20.4) | `v0.22.5` |
 | `hermes_gateway_multiplex` | `false` → `profile.yml` | `true` → `profile_multiplex.yml` |
-| `hermes_telegram_enabled` | `true` | `false` until M6.3.C phase 2 |
+| `hermes_telegram_enabled` | `true` | `true` since M6.4 |
 | profile config | `group_vars` | `group_vars` + `tools.tool_search.enabled: "off"` |
-| `deploy.yml` | refused unless `-e hermes_deploy_unlock=hermes-30` | `--limit hermes-31` |
+| `komodo_connect_as` | none (must be declared per host) | `hermes-31` |
+| `deploy.yml` | `--limit` required | `--limit hermes-31` |
 
 **Multiplex topology** (verified on the v0.22.5 source and image, offline):
 `gateway-default` is the only gateway process and serves every profile whose
@@ -1287,16 +1295,20 @@ loopback, checks the topology (`hermes_checks.py multiplex`) and, with
 Telegram enabled, the four `telegram` / `<profile>:telegram` entries.
 
 Not applicable to hermes-31: the per-profile memory gate (one process instead
-of four), `profile_rollback.yml` and the `m*-preflight` / `m*-rollback`
-playbooks (all v0.20.4, hermes-30 only — run them with `--limit hermes-30`).
-Komodo is not connected in M6.3: deploy with `--skip-tags komodo-periphery`.
+of four), `profile_rollback.yml` and the `m1-*` to `m5-*` and
+`profiles-preflight` playbooks (all v0.20.4). Since M6.6.D.1 their first
+pre_task (`tasks/legacy_v0204_guard.yml`) refuses a host whose
+`hermes_gateway_multiplex` is true, before any read or write: they are kept as
+history and for their offline tests, not as tools for hermes-31. Komodo is
+connected since M6.3.D (Server `hermes-31`).
 
 ## Limits and follow-up (after M4.3)
 
 - **No independent backup of `/opt/hermes/data`** — every profile, memories,
   sessions, crons (Known Gaps of [`hermes/README.md`](../../../README.md)).
-  Snapshot `pre-ch7` (2026-10-20) is kept for now; it is not a backup (same
-  host, same storage) and is deleted only on explicit approval.
+  hermes-30's snapshots (`base-clean`, `pre-ch7`) and its M5 backup were
+  destroyed with it in M6.6.C; hermes-31 has no snapshot, backup or tested
+  restore.
 - **`hermes update`** runs `backfill_profile_envs`, which copies default's
   `.env` — Telegram token included — into a profile **without** `.env`. Never
   run it without checking every profile `.env` first.
@@ -1335,6 +1347,8 @@ uv run pytest hermes/tests -q
 | `test_m4_scout.py` | Scout, activated after tech-watch: identity, port, no Charlie, bot name checked by getMe, dedicated vault keys, no shared token, SOUL.md (domains, geography, languages graded from the private context, no sending, limits, no private fact), private context (vault reference, NO-GO when missing, **real profile.yml config tasks at `-vvv`**: set verbatim, never printed, even on failure), tool matrix; **real image, offline**: config converging with a multi-line context, 9 tools per platform, 7 for a real cron run, context in Scout's prompt only, `--continuity` losing the previous answer; cron drafts (schedules, no Kandidat/shell/file, no private fact, read by nothing); m4 preflight (deployed profiles, prerequisites, shared token, blank page, memory gate, getMe on stdin) and rollback (job-search only, data kept, others re-checked) |
 | `test_m5_nora.py` | Nora (default), active through one group_vars reference: declaration, declared predecessor checksum and prerequisites, SOUL.md (identity, limits, no private or job context), tool matrix (four allowlists, session_search and skills denied, Kandidat cut twice, memory approval, old skills, curator), enabled-MCP verdicts, validate.yml (accepts, PREREQUIS, malformed, shared Tavily key), **real default_soul.yml** guard (once, backup, unknown/absent/edited fail, targets, check mode), **real default_profile.yml** against a fake `docker` (`-p default` only, url kept, one targeted restart, second run 0 changed, check mode, other profiles untouched), no global restart, ordering, profiles unchanged since M4.3; **real image, offline**: keys converge, sticky `active_profile` ignored, 5 tools, approval, disabled skills, curator off, s6 slot, Nora prompt |
 | `test_m5_recovery.py` | M5.3.B1 on disposable data with a real WAL SQLite database: snapshot keeps `-wal` commits (a file copy loses them), one committed state, damaged copies flagged, report never touches a file; **real m5_backup.yml** (explicit id, 0700/0600, SHA256SUMS, predecessor checksum, numeric owners and modes in the archive, profiles/live DB/caches excluded, never overwritten, check mode, only inspect/svstat sent to docker); **real m5_rollback.yml** (confirmation, Nora still declared, tampered backup, byte-identical restore with modes, Tavily removed, archive returned, current files saved first, replayable, archive conflict, profiles untouched, check mode, databases only on flag and never while open, sidecars moved together); **real m5_preflight.yml** (GO on the observed state without resolving vault references, 8 NO-GO cases, `active_agents` read as the int Hermes writes: 1-2 NO-GO, any other shape FAIL); static guards (not reachable from deploy.yml, no restart, no deletion, UID drop) |
-| `test_m63_multiplex.py` | M6.3.B, hermes-31: inventory and host_vars (hermes-31 v0.22.5 multiplexed with Telegram off, hermes-30 unchanged and locked), **real deploy.yml target guard** (6 cases), multiplex and `<profile>:telegram` verdicts, `profile_multiplex.yml` sharing `profile.yml`'s tasks, token last, no per-profile gateway action, main.yml order, rendered compose; **real profile_multiplex.yml** against a fake `docker` (phase 1 no token, phase 2 getMe on stdin before the write, idempotence, check mode); effective inventory (vault: four distinct tokens and Tavily keys, hermes-31 = hermes-30 + overlay only); **real v0.22.5 image, offline**: fresh boot, every key applied, managed contract, 9/5-tool surfaces with tool_search off and the bridge refused without it, API key, one gateway serving four, only `127.0.0.1:8642`, `gateway start` exit 78, no bot without tokens, managed allowlist in every profile scope (hostile profile `.env` included), one entry per bot, container restart, dashboard login and profile list |
+| `test_m63_multiplex.py` | M6.3.B, hermes-31: inventory and host_vars (hermes-31 alone, v0.22.5 multiplexed with Telegram on; role defaults still v0.20.4), **real deploy.yml target guard** (6 cases, synthetic locked host), multiplex and `<profile>:telegram` verdicts, `profile_multiplex.yml` sharing `profile.yml`'s tasks, token last, no per-profile gateway action, main.yml order, rendered compose; **real profile_multiplex.yml** against a fake `docker` (phase 1 no token, phase 2 getMe on stdin before the write, idempotence, check mode); effective inventory (vault: hermes-31 alone, four distinct tokens and Tavily keys, hermes-31 = group_vars declarations + overlay only); **real v0.22.5 image, offline**: fresh boot, every key applied, managed contract, 9/5-tool surfaces with tool_search off and the bridge refused without it, API key, one gateway serving four, only `127.0.0.1:8642`, `gateway start` exit 78, no bot without tokens, managed allowlist in every profile scope (hostile profile `.env` included), one entry per bot, container restart, dashboard login and profile list |
 
-Fake tokens only; nothing reaches hermes-30.
+| `test_m66_retirement.py` | M6.6.D.1: no active inventory, variable, Caddy route, hermes-31 Terraform argument or CI value names hermes-30 / `.30` / 9030 (comments and docs may); `hermes/terraform` and `host_vars/hermes-30` untracked; the 13 historical playbooks run `legacy_v0204_guard.yml` first (real run: multiplexed refused, standalone passes); `komodo_connect_as` has no default and its real check refuses an empty name |
+
+Fake tokens only; nothing reaches a real host.

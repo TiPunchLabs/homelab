@@ -1,9 +1,9 @@
 # ============================================================
 # 🧬 hermes-31 — Hermes v0.22.5, gateway multiplexee (M6.3)
 # ============================================================
-# Installation NEUVE : aucune base SQLite ni session reprise de hermes-30.
-# Memes quatre assistants, memes declarations (group_vars) ; seules les
-# differences propres a v0.22 vivent ici.
+# Installation NEUVE : aucune base SQLite ni session reprise de hermes-30
+# (v0.20.4, detruite en M6.6.C). Memes quatre assistants, memes declarations
+# (group_vars) ; seules les differences propres a v0.22 vivent ici.
 
 # Epingle a la main pendant la migration (pas d'annotation Renovate) : toute
 # montee de version repasse par une validation hors ligne sur l'image.
@@ -13,9 +13,10 @@ hermes_image_tag: "v0.22.5"
 hermes_gateway_multiplex: true
 
 # M6.4 : les quatre bots sur la gateway multiplexee (jetons verifies par getMe
-# en M6.4.A). hermes-30 porte les MEMES jetons : ne jamais la demarrer tant
-# que ce drapeau est vrai, sinon les deux hotes se volent le polling (409).
-# Repli : revenir a false et rejouer --tags hermes retire les quatre jetons.
+# en M6.4.A). Un jeton ne doit etre servi que par un seul hote : un second
+# hote avec les memes jetons se volerait le polling (409) avec celui-ci.
+# Couper Telegram : revenir a false et rejouer --tags hermes retire les quatre
+# jetons.
 hermes_telegram_enabled: true
 
 # Cles de config propres a v0.22, posees dans chaque profil (default
@@ -40,12 +41,12 @@ hermes_default_profile: "{{ hermes_default_nora | combine({'config': hermes_defa
 # installation neuve, celui que l'image seme dans /opt/data au premier boot
 # (stage2-hook.sh, seed_one "SOUL.md" "docker/SOUL.md"), sha256 de
 # /opt/hermes/docker/SOUL.md dans nousresearch/hermes-agent:v0.22.5. Avec
-# l'empreinte de hermes-30, le premier deploiement echouerait (SOUL.md inconnu).
+# l'empreinte de group_vars (SOUL.md de hermes-30), le premier deploiement
+# echouerait (SOUL.md inconnu).
 hermes_default_soul_predecessor_sha256: 3bd38ef92efb90d0fdda1bb73036185d4a4bc11079963cb0e2db71c84281e64e
 
-# Komodo (M6.3.D) : nouveau Server "hermes-31", celui de hermes-30 reste en
-# place pour le repli. Brancher par `--limit hermes-31 --tags komodo-periphery`,
-# une fois verifie dans l'UI que la cle d'onboarding du vault est encore active
-# (les cles v2 sont reutilisables, mais peuvent expirer ou etre desactivees).
-# Tant que ce n'est pas fait, deployer avec --skip-tags komodo-periphery.
+# Komodo (M6.3.D) : Server "hermes-31", connecte depuis M6.3.D. Obligatoire :
+# le role komodo_periphery n'a pas de nom par defaut. Un Server "hermes-30"
+# encore present dans l'UI Komodo est orphelin depuis M6.6.C (retrait manuel,
+# hors Ansible).
 komodo_connect_as: "hermes-31"

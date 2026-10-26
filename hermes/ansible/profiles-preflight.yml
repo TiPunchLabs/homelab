@@ -6,10 +6,17 @@
 # NO-GO si default est deconnecte ou si un de ses crons peut partir, si un
 # profil de hermes_profiles est deconnecte ou a un cron imminent, ou si un
 # ESTOP est pose.
-- name: Preflight des profils deployes de hermes-30 — LECTURE SEULE (default + hermes_profiles)
+- name: Preflight des profils deployes (v0.20.4, historique) — LECTURE SEULE (default + hermes_profiles)
   hosts: hermes
   become: true
   gather_facts: false
+  pre_tasks:
+    - name: Run legacy_v0204_guard.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: legacy_v0204_guard.yml
+      tags:
+        - always
   tasks:
     - name: Run preflight.yml
       ansible.builtin.include_role:

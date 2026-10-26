@@ -7,10 +7,17 @@
 # d'activation) et rejouer deploy.yml --tags hermes : changed=0 attendu.
 # Si des crons emploi ont deja ete bascules sur Scout (M4.4), les reprendre
 # d'abord sur default (procedure du README du role, section Scout).
-- name: Rollback M4 de hermes-30 — arret du profil job-search
+- name: Rollback M4 (v0.20.4, historique) — arret du profil job-search
   hosts: hermes
   become: true
   gather_facts: false
+  pre_tasks:
+    - name: Run legacy_v0204_guard.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: legacy_v0204_guard.yml
+      tags:
+        - always
   tasks:
     - name: Run profile_rollback.yml for job-search
       ansible.builtin.include_role:

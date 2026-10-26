@@ -1,23 +1,23 @@
 # Role: komodo_periphery
 
-Connect **hermes-30** to the Komodo Core running on dockhost-90, as a
+Connect the Hermes host (**hermes-31**) to the Komodo Core running on dockhost-90, as a
 **read-only observer**. Deploys the Periphery agent as a Docker Compose stack.
 
 ## Mental Model
 
 ```
-┌─ dockhost-90 ─────────┐        ┌─ hermes-30 ───────────────────────┐
+┌─ dockhost-90 ─────────┐        ┌─ hermes-31 ───────────────────────┐
 │ komodo-core   :9120   │◀═══════│ komodo-periphery                  │
 │ (role dockhost/komodo)│  ws:// │  ↳ docker.sock  :ro  ← the fence   │
 └───────────────────────┘outbound│  ↳ /proc, keys (named volume)     │
                                  │                                   │
-  Server "hermes-30"             │ hermes / hermes-dashboard          │
+  Server "hermes-31"             │ hermes / hermes-dashboard          │
   visible in the UI              │  ↳ still owned by `hermes_agent`   │
                                  └───────────────────────────────────┘
 ```
 
 The connection is **outbound**: Periphery dials Core, never the reverse. UFW on
-hermes-30 is untouched by this role — nothing to open.
+hermes-31 is untouched by this role — nothing to open.
 
 ## The fence
 
@@ -31,6 +31,15 @@ Ansible (`hermes_agent`) stays the sole controller of the Hermes stack.
 > To let Komodo restart Hermes from the UI, set
 > `komodo_periphery_docker_socket_mode: "rw"`. Understand what you give up:
 > Periphery could then also destroy the stack Ansible owns.
+
+## Server name
+
+`komodo_connect_as` is the Server name shown in the UI, and the agent's
+identity towards Core. It has **no default**: declare it in each host's
+`host_vars` (`hermes-31` for hermes-31). The role's first task refuses an
+empty value, before any write. The old default `"hermes-30"` named a VM
+destroyed in M6.6.C; a `hermes-30` Server still listed in the UI is an orphan
+to delete by hand.
 
 ## Required Vault secret
 
@@ -46,7 +55,7 @@ Generate it in the Komodo UI: **Settings → Onboarding → Create Onboarding Ke
 
 Core exchanges it, on first contact, for the public key Periphery generates —
 then discards it. The private key now lives in the `keys` named volume on
-hermes-30. **That volume is the server's identity.**
+hermes-31. **That volume is the server's identity.**
 
 | Situation | Result |
 |---|---|
@@ -58,11 +67,11 @@ hermes-30. **That volume is the server's identity.**
 
 Needed whenever the `keys` volume is lost:
 
-1. Komodo UI → **Servers** → delete `hermes-30`
+1. Komodo UI → **Servers** → delete `hermes-31`
 2. **Settings → Onboarding** → create a **new** key
 3. `ansible-vault edit hermes/ansible/group_vars/hermes/vault/config.yml` →
    replace `vault_komodo_onboarding_key`
-4. `ansible-playbook ansible/deploy.yml --tags komodo-periphery`
+4. `ansible-playbook ansible/deploy.yml --limit hermes-31 --tags komodo-periphery`
 
 The role's final assertion catches this case: a `docker compose up` that
 "succeeds" while the agent crash-loops would otherwise leave the playbook
@@ -72,10 +81,10 @@ entirely green with the server disconnected.
 
 ```bash
 cd hermes
-ansible-playbook ansible/deploy.yml --tags komodo-periphery
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags komodo-periphery
 ```
 
-Then check the UI at `https://komodo.internal` → Servers → **hermes-30** green,
+Then check the UI at `https://komodo.internal` → Servers → **hermes-31** green,
 with `hermes` and `hermes-dashboard` listed.
 
 ## Why `ws://` and not `https://komodo.internal`

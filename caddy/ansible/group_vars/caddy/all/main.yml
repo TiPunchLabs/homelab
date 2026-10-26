@@ -39,7 +39,7 @@ caddy_backends:
     upstream: http://192.168.10.90:8000
     tls_internal: true
     tls_insecure_skip_verify: false
-  # Serveur MCP de kandidat, consomme par l'agent Hermes (hermes-30).
+  # Serveur MCP de kandidat, consomme par l'agent Hermes (hermes-31).
   #
   # `tls_internal` comme kandidat lui-meme, et pour la meme raison : le trafic
   # MCP transporte le contenu des candidatures — CV, contacts, entretiens. Le
@@ -98,7 +98,8 @@ caddy_backends:
   # Dashboard de l'agent Hermes. tls internal comme portail-client : le
   # dashboard demande des identifiants, ils ne doivent pas traverser le LAN en
   # clair depuis le navigateur. Cote hermes, UFW n'ouvre 9119 qu'a cette IP.
-  # hermes-31 depuis M6.3.D ; repli = remettre 192.168.10.30.
+  # hermes-31 depuis M6.3.D. hermes-30 (.30) est detruite (M6.6.C) : plus
+  # aucun repli vers .30.
   - name: hermes
     domain: hermes.internal
     upstream: http://192.168.10.31:9119

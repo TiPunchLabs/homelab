@@ -4,10 +4,17 @@
 #   ansible-playbook ansible/m2-rollback.yml
 # Puis retirer cafe-ia de hermes_profiles (git revert du commit d'activation)
 # et rejouer deploy.yml --tags hermes : changed=0 attendu.
-- name: Rollback M2 de hermes-30 — arret du profil cafe-ia
+- name: Rollback M2 (v0.20.4, historique) — arret du profil cafe-ia
   hosts: hermes
   become: true
   gather_facts: false
+  pre_tasks:
+    - name: Run legacy_v0204_guard.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: legacy_v0204_guard.yml
+      tags:
+        - always
   tasks:
     - name: Run profile_rollback.yml for cafe-ia
       ansible.builtin.include_role:

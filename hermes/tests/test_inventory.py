@@ -57,7 +57,7 @@ def test_t15_group_vars_declare_cafe_ia_tech_watch_then_job_search(group_vars: d
 
 
 def test_t15_effective_value_is_cafe_ia_tech_watch_then_job_search() -> None:
-    """T15 (M4.3): the profiles Ansible actually resolves for hermes-30 are cafe-ia, tech-watch then job-search.
+    """T15 (M4.3): the profiles Ansible actually resolves for the hermes group (hermes-31) are cafe-ia, tech-watch then job-search.
 
     Needs the vault password (pass) to load group_vars; skipped without it.
     Prints the profile names only: the resolved list carries the tokens.

@@ -5,6 +5,13 @@
   hosts: hermes
   become: true
   gather_facts: false
+  pre_tasks:
+    - name: Run legacy_v0204_guard.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: legacy_v0204_guard.yml
+      tags:
+        - always
   tasks:
     - name: Run m1_backup.yml
       ansible.builtin.include_role:

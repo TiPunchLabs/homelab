@@ -1,9 +1,9 @@
 ---
 # =============================================================================
 # Un profil servi par la gateway MULTIPLEXEE (hermes_gateway_multiplex, Hermes
-# v0.22). Pendant de profile.yml, qui reste le chemin de hermes-30 a l'octet
-# pres ; les taches de creation, de contenu et de config sont les memes (un
-# test le verifie).
+# v0.22). Pendant de profile.yml, le chemin v0.20.4 (celui de hermes-30,
+# detruite en M6.6.C) reste inchange a l'octet pres ; les taches de creation,
+# de contenu et de config sont les memes (un test le verifie).
 #
 # Ce qui change :
 #   - aucune gateway propre : la gateway racine (gateway-default) sert tout

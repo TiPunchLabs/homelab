@@ -1,0 +1,21 @@
+---
+# =============================================================================
+# Garde des playbooks historiques v0.20.4 (m1-* a m5-*, profiles-preflight).
+#
+# Ils supposent une gateway s6 par profil (profile.yml), le modele de
+# hermes-30, detruite en M6.6.C. Sur un hote multiplexe (hermes-31, v0.22.5)
+# les slots nommes restent `down` et `hermes -p <nom> gateway start` sort en
+# 78 : leurs verdicts seraient faux et leurs rollbacks agiraient sur un modele
+# qui n'existe pas. Ils sont conserves comme historique et pour leurs tests
+# hors ligne ; ils refusent un hote multiplexe avant toute lecture ou ecriture.
+# =============================================================================
+
+- name: Refuse a multiplexed host (historical v0.20.4 playbook)
+  ansible.builtin.assert:
+    that:
+      - not (hermes_gateway_multiplex | default(false) | bool)
+    fail_msg: >-
+      Playbook historique v0.20.4 (une gateway par profil) : sans objet sur
+      {{ inventory_hostname }}, dont la gateway est multiplexee. Rien n'a ete
+      lu ni modifie. Voir hermes/ansible/roles/hermes_agent/README.md.
+    quiet: true

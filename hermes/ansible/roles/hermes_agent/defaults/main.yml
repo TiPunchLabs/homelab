@@ -101,7 +101,8 @@ hermes_profiles_src_dir: "{{ role_path }}/files/profiles"
 # ============================================================
 # Topologie de gateway
 # ============================================================
-# false : une gateway s6 par profil (Hermes v0.20.4, hermes-30) — profile.yml.
+# false : une gateway s6 par profil (Hermes v0.20.4, modele de hermes-30,
+# detruite en M6.6.C) — profile.yml.
 # true  : UNE gateway multiplexee sert tous les profils (Hermes v0.22, defaut
 #         amont « one gateway per machine ») — profile_multiplex.yml. Les slots
 #         nommes restent enregistres mais arretes, aucun port d'API par profil

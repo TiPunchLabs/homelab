@@ -3,10 +3,17 @@
 #   ansible-playbook ansible/m3-preflight.yml
 # Resoudre la declaration de Néo exige ses cles vault ET le nom de son bot
 # (hermes_tech_watch_telegram_bot_username) : leur absence est un NO-GO voulu.
-- name: Preflight M3 de hermes-30 — LECTURE SEULE (default, cafe-ia, profil tech-watch)
+- name: Preflight M3 (v0.20.4, historique) — LECTURE SEULE (default, cafe-ia, profil tech-watch)
   hosts: hermes
   become: true
   gather_facts: false
+  pre_tasks:
+    - name: Run legacy_v0204_guard.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: legacy_v0204_guard.yml
+      tags:
+        - always
   tasks:
     - name: Run preflight.yml
       ansible.builtin.include_role:
