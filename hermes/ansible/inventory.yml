@@ -2,11 +2,8 @@ all:
   children:
     hermes:
       hosts:
-        # Hermes v0.20.4, une gateway par profil. ARRETEE depuis M6, gardee
-        # intacte comme environnement de repli : deploy.yml la refuse sans
-        # deverrouillage explicite (host_vars/hermes-30).
-        hermes-30:
-          ansible_host: hermes-30
         # Hermes v0.22.5, gateway multiplexee (M6.3). host_vars/hermes-31.
+        # hermes-30 (v0.20.4) a ete detruite en M6.6.C (2026-10-26) : ne pas
+        # la reintroduire, aucune VM ne repond plus a ce nom.
         hermes-31:
           ansible_host: hermes-31

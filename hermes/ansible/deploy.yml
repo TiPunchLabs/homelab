@@ -4,9 +4,10 @@
   hosts:
     - hermes
   pre_tasks:
-    # Le groupe porte deux generations de Hermes (hermes-30 en v0.20.4, de
-    # repli ; hermes-31 en v0.22.5) : une cible explicite est exigee, et
-    # l'hote verrouille ne se deploie que deverrouille par son nom.
+    # Une cible explicite est exigee (--limit hermes-31), et un hote marque
+    # `hermes_deploy_locked` ne se deploie que deverrouille par son nom. Le
+    # verrou servait a hermes-30 (repli v0.20.4, detruite en M6.6.C) ; aucun
+    # hote ne le porte aujourd'hui, le mecanisme reste disponible.
     # `always` : joue aussi sous --tags, avant toute ecriture.
     - name: Refuse an implicit or locked deployment target
       ansible.builtin.assert:
@@ -16,7 +17,7 @@
             or (hermes_deploy_unlock | default('')) == inventory_hostname
         fail_msg: >-
           Cible refusee pour {{ inventory_hostname }} : passer --limit <hote>
-          ({{ groups['hermes'] | join(', ') }}). Hote verrouille (repli) :
+          ({{ groups['hermes'] | join(', ') }}). Hote verrouille :
           ajouter -e hermes_deploy_unlock={{ inventory_hostname }}.
         quiet: true
       tags:

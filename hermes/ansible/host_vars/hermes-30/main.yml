@@ -1,9 +1,0 @@
-# ============================================================
-# 🧊 hermes-30 — environnement de repli (M6)
-# ============================================================
-# Hermes v0.20.4 (image et topologie : valeurs par defaut du role). Arretee
-# depuis la bascule vers hermes-31, conservee telle quelle pour un retour
-# arriere. deploy.yml refuse de la viser tant que ce verrou est pose ; pour
-# une restauration deliberee :
-#   ansible-playbook ansible/deploy.yml --limit hermes-30 -e hermes_deploy_unlock=hermes-30
-hermes_deploy_locked: true

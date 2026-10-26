@@ -1,6 +1,7 @@
 # Role: dns_resolver
 
-Local split-horizon resolver on hermes-30. `.internal` is pinned to the Pi-hole;
+Local split-horizon resolver on the Hermes host (hermes-31; first built for
+hermes-30, destroyed in M6.6.C). `.internal` is pinned to the Pi-hole;
 everything else goes to public resolvers.
 
 ## Mental Model
@@ -75,7 +76,7 @@ instance. Proxmox computes the NoCloud instance-id as
 |---|---|---|
 | network rendering | rewrites `50-cloud-init.yaml` **with** `nameservers`; netplan merges → two DNS servers on the link | `99-disable-network-config.cfg` |
 | `ssh` | deletes and regenerates the SSH host keys | `99-preserve-ssh-host-keys.cfg` |
-| `package_update_upgrade_install` | `apt dist-upgrade` during boot (Proxmox user-data carries `package_upgrade: true`) | **not in this role** — user-data outranks `cloud.cfg.d`; switched off on the Proxmox side (`qm set 9030 --ciupgrade 0`, see the guide) |
+| `package_update_upgrade_install` | `apt dist-upgrade` during boot (Proxmox user-data carries `package_upgrade: true`) | **not in this role** — user-data outranks `cloud.cfg.d`; switched off on the Proxmox side for hermes-30 (`qm set 9030 --ciupgrade 0`, see the guide); **not set on hermes-31** (`qm config 9031` has no `ciupgrade` key, 2026-10-26) |
 | others (`users_groups`, `apt_configure`, `locale`, `set_passwords`...) | re-run with the same inputs, no expected change | — |
 
 Both files live in `/etc/cloud/cloud.cfg.d/` and only exist on VMs this role
@@ -84,13 +85,13 @@ still gets its network rendered and its own host keys generated — the template
 build (`proxmox/`, virt-customize) is untouched.
 
 > ⚠️ With network rendering disabled, `/etc/netplan` is the only source of
-> truth. It matches the NIC by MAC (`bc:24:11:c4:2d:d7`, pinned in Proxmox
-> `net0`). A plan that replaces the network device would leave the VM without
+> truth. It matches the NIC by MAC (hermes-31: `bc:24:11:18:12:c8`, pinned in
+> Proxmox `net0`). A plan that replaces the network device would leave the VM without
 > network at the next boot — rebuild instead.
 
 ## Terraform side
 
-`hermes/terraform/main.tf` keeps `vm_dns_servers = ["192.168.10.71"]` — **bootstrap
+`hermes/terraform-31/main.tf` keeps `vm_dns_servers = ["192.168.10.71"]` — **bootstrap
 only**. Do not point it at `127.0.0.1`: on first boot dnsmasq does not exist yet.
 
 > ⚠️ A change to `initialization {}` does not reach a **running** guest, but it

@@ -1,6 +1,6 @@
 ---
 # =============================================================================
-# Agent Komodo (Periphery) — hermes-30 rejoint le Core deja deploye sur
+# Agent Komodo (Periphery) — l'hote Hermes rejoint le Core deja deploye sur
 # dockhost-90, en OBSERVATEUR.
 #
 # Le socket Docker est monte en lecture seule : Komodo voit la stack Hermes,
@@ -33,8 +33,11 @@ komodo_periphery_root: "/etc/komodo"
 # aucun contenu lisible.
 komodo_core_address: "ws://192.168.10.90:9120"
 
-# Nom du Server tel qu'il apparait dans l'UI Komodo.
-komodo_connect_as: "hermes-30"
+# Nom du Server tel qu'il apparait dans l'UI Komodo. Volontairement vide :
+# a declarer par hote (host_vars), tasks/main.yml refuse une valeur vide.
+# Un nom par defaut ferait rejoindre Core sous l'identite d'un autre Server
+# (le defaut valait "hermes-30", VM detruite en M6.6.C).
+komodo_connect_as: ""
 
 # "ro" fait de « observer seulement » une propriete du systeme et non une
 # discipline. Passer a "rw" rendrait a Komodo le pouvoir d'arreter ou de

@@ -1,12 +1,12 @@
 """M6.3.B: hermes-31 on Hermes v0.22.5, one multiplexed gateway for the four assistants.
 
-Static: inventory and host_vars (hermes-31 multiplexed, hermes-30 unchanged and locked), the
+Static: inventory and host_vars (hermes-31 multiplexed; hermes-30 destroyed in M6.6.C), the
 deploy.yml target guard (run for real on localhost), the multiplex task file against profile.yml,
 main.yml ordering, rendered templates. hermes_checks: multiplex and per-profile Telegram verdicts.
 Real profile_multiplex.yml against a fake container. Effective inventory (vault, skipped without).
 **Real image, offline** (v0.22.5, `--network none`, skipped without it): multiplex boot, served
 profiles, one API on loopback, tool surfaces, managed allowlist in every profile scope, lifecycle
-verbs, container restart, dashboard login. Fake secrets only; nothing reaches hermes-30 or hermes-31.
+verbs, container restart, dashboard login. Fake secrets only; nothing reaches hermes-31.
 """
 
 from __future__ import annotations
@@ -36,7 +36,6 @@ ANSIBLE_DIR = REPO / "hermes/ansible"
 TASKS = ROLE / "tasks"
 GROUP_VARS = yaml.safe_load((ANSIBLE_DIR / "group_vars/hermes/all/main.yml").read_text())
 HOST_31 = yaml.safe_load((ANSIBLE_DIR / "host_vars/hermes-31/main.yml").read_text())
-HOST_30 = yaml.safe_load((ANSIBLE_DIR / "host_vars/hermes-30/main.yml").read_text())
 DEFAULTS = yaml.safe_load((ROLE / "defaults/main.yml").read_text())
 IMAGE = f"{DEFAULTS['hermes_image']}:{HOST_31['hermes_image_tag']}"
 ALLOWLIST = GROUP_VARS["hermes_telegram_allowed_users"]
@@ -89,14 +88,14 @@ def effective_configs() -> dict[str, dict[str, Any]]:
 # --- Inventory and host_vars ------------------------------------------------------------
 
 
-def test_inventory_has_both_hosts_with_their_ssh_aliases() -> None:
-    """hermes-31 joins the hermes group beside hermes-30, each through its own SSH alias."""
+def test_inventory_has_hermes_31_only_with_its_ssh_alias() -> None:
+    """M6.6.D.1: hermes-31 is the only Hermes host; hermes-30 (destroyed in M6.6.C) is gone."""
     hosts = yaml.safe_load((ANSIBLE_DIR / "inventory.yml").read_text())["all"]["children"]["hermes"]["hosts"]
-    assert hosts == {"hermes-30": {"ansible_host": "hermes-30"}, "hermes-31": {"ansible_host": "hermes-31"}}
+    assert hosts == {"hermes-31": {"ansible_host": "hermes-31"}}
 
 
 def test_hermes_31_is_v0225_multiplexed_with_telegram() -> None:
-    """Exact tag, multiplex on, Telegram on (M6.4), Komodo identity not hermes-30's."""
+    """Exact tag, multiplex on, Telegram on (M6.4), its own Komodo identity."""
     assert HOST_31["hermes_image_tag"] == "v0.22.5"
     assert HOST_31["hermes_gateway_multiplex"] is True
     assert HOST_31["hermes_telegram_enabled"] is True
@@ -120,17 +119,18 @@ def test_hermes_31_reuses_the_four_declarations_plus_the_overlay_only() -> None:
 
 
 def test_hermes_31_replaces_the_image_stock_soul_not_hermes_30s() -> None:
-    """Fresh volume: the predecessor is v0.22.5's seeded docker/SOUL.md; hermes-30 keeps its own."""
+    """Fresh volume: the predecessor is v0.22.5's seeded docker/SOUL.md, not group_vars' (hermes-30's)."""
     assert HOST_31["hermes_default_soul_predecessor_sha256"] == V0225_STOCK_SOUL_SHA
     assert GROUP_VARS["hermes_default_soul_predecessor_sha256"] != V0225_STOCK_SOUL_SHA
 
 
-def test_hermes_30_keeps_the_role_defaults_and_is_locked() -> None:
-    """hermes-30: no image, topology or profile override; only the deploy lock."""
-    assert HOST_30 == {"hermes_deploy_locked": True}
-    assert DEFAULTS["hermes_image_tag"] == "v2026.8.18"
-    assert DEFAULTS["hermes_gateway_multiplex"] is False
+def test_hermes_31_overrides_the_v0204_role_defaults() -> None:
+    """The role defaults still describe v0.20.4 standalone gateways; hermes-31 overrides image and topology."""
+    assert not (ANSIBLE_DIR / "host_vars/hermes-30").exists()
+    assert DEFAULTS["hermes_image_tag"] == "v2026.8.18" != HOST_31["hermes_image_tag"]
+    assert DEFAULTS["hermes_gateway_multiplex"] is False and HOST_31["hermes_gateway_multiplex"] is True
     assert "tools.tool_search.enabled" not in str(GROUP_VARS)
+    assert "hermes_deploy_locked" not in HOST_31
 
 
 # --- deploy.yml target guard (real task, localhost) ---------------------------------------
@@ -151,24 +151,24 @@ def test_guard_runs_first_and_always() -> None:
 @pytest.mark.parametrize(
     ("limit", "extra", "ok"),
     [
-        (None, [], {"hermes-30": False, "hermes-31": False}),
+        (None, [], {"hermes-locked": False, "hermes-31": False}),
         ("hermes-31", [], {"hermes-31": True}),
-        ("hermes-30", [], {"hermes-30": False}),
-        ("hermes-30", ["-e", "hermes_deploy_unlock=hermes-30"], {"hermes-30": True}),
-        ("hermes-30", ["-e", "hermes_deploy_unlock=hermes-31"], {"hermes-30": False}),
-        ("hermes", [], {"hermes-30": False, "hermes-31": True}),
+        ("hermes-locked", [], {"hermes-locked": False}),
+        ("hermes-locked", ["-e", "hermes_deploy_unlock=hermes-locked"], {"hermes-locked": True}),
+        ("hermes-locked", ["-e", "hermes_deploy_unlock=hermes-31"], {"hermes-locked": False}),
+        ("hermes", [], {"hermes-locked": False, "hermes-31": True}),
     ],
-    ids=["no-limit", "limit-31", "limit-30-locked", "limit-30-unlocked", "unlock-wrong-host", "limit-group"],
+    ids=["no-limit", "limit-31", "limit-locked", "limit-unlocked", "unlock-wrong-host", "limit-group"],
 )
 def test_guard_verdicts(tmp_path: Path, limit: str | None, extra: list[str], ok: dict[str, bool]) -> None:
-    """Explicit --limit required; hermes-30 refused unless unlocked by its own name."""
+    """Explicit --limit required; a locked host (synthetic: none is locked since M6.6.C) needs its own unlock."""
     task = {k: v for k, v in guard_task().items() if k != "tags"}
     (tmp_path / "play.yml").write_text(
         yaml.safe_dump([{"hosts": "hermes", "connection": "local", "gather_facts": False, "tasks": [task]}])
     )
     (tmp_path / "inventory.yml").write_text(
         yaml.safe_dump(
-            {"all": {"children": {"hermes": {"hosts": {"hermes-30": {"hermes_deploy_locked": True}, "hermes-31": {}}}}}}
+            {"all": {"children": {"hermes": {"hosts": {"hermes-locked": {"hermes_deploy_locked": True}, "hermes-31": {}}}}}}
         )
     )
     (tmp_path / "ansible.cfg").write_text("[defaults]\n")
@@ -281,7 +281,7 @@ def by_prefix(tasks: list[dict[str, Any]], prefix: str) -> dict[str, Any]:
 
 @pytest.mark.parametrize("prefix", SHARED)
 def test_multiplex_profile_shares_the_deployed_tasks(prefix: str) -> None:
-    """Creation, content, config and checks are the very tasks of profile.yml (hermes-30's path)."""
+    """Creation, content, config and checks are the very tasks of profile.yml (the v0.20.4 standalone path)."""
     multiplex, standalone = tasks_of(TASKS / "profile_multiplex.yml"), tasks_of(TASKS / "profile.yml")
     assert by_prefix(multiplex, prefix) == by_prefix(standalone, prefix)
 
@@ -377,7 +377,7 @@ COMPOSE_VARS = {k: DEFAULTS[k] for k in (
     "hermes_s6_kill_gracetime_ms", "hermes_stop_grace_period")}
 
 
-@pytest.mark.parametrize("host", ["hermes-30", "hermes-31"])
+@pytest.mark.parametrize("host", ["role-defaults", "hermes-31"])
 def test_compose_renders_one_gateway_and_the_separate_dashboard(tmp_path: Path, host: str) -> None:
     """Same compose for both hosts: `gateway run` + dashboard container; only the tag differs."""
     tag = HOST_31["hermes_image_tag"] if host == "hermes-31" else DEFAULTS["hermes_image_tag"]
@@ -413,7 +413,7 @@ def shutdown_budget_errors(compose: dict[str, Any]) -> list[str]:
     return []
 
 
-@pytest.mark.parametrize("host", ["hermes-30", "hermes-31"])
+@pytest.mark.parametrize("host", ["role-defaults", "hermes-31"])
 def test_compose_gives_the_gateway_time_to_stop_cleanly(tmp_path: Path, host: str) -> None:
     """M6.5.A.1: 20 s s6 grace for the sequential adapter teardown, 30 s for Docker; dashboard untouched."""
     tag = HOST_31["hermes_image_tag"] if host == "hermes-31" else DEFAULTS["hermes_image_tag"]
@@ -439,7 +439,7 @@ def test_shutdown_budget_check_rejects_docker_killing_before_s6(tmp_path: Path) 
 def test_inventory_keeps_the_role_shutdown_timeouts() -> None:
     """No group_vars or host_vars overrides the two timeouts, so both hosts render the tested values."""
     keys = {"hermes_s6_kill_gracetime_ms", "hermes_stop_grace_period"}
-    for layer in (GROUP_VARS, HOST_30, HOST_31):
+    for layer in (GROUP_VARS, HOST_31):
         assert not keys & set(layer)
 
 
@@ -451,7 +451,7 @@ def ca_mounts(compose: dict[str, Any], service: str) -> list[str]:
     return [v for v in compose["services"][service]["volumes"] if v.split(":")[1] in CA_TARGETS]
 
 
-@pytest.mark.parametrize("host", ["hermes-30", "hermes-31"])
+@pytest.mark.parametrize("host", ["role-defaults", "hermes-31"])
 def test_compose_mounts_the_ca_bundle_at_both_default_paths(tmp_path: Path, host: str) -> None:
     """Debian OpenSSL (v0.20.4) reads ca-certificates.crt, the v0.22.5 standalone Python reads /etc/ssl/cert.pem."""
     tag = HOST_31["hermes_image_tag"] if host == "hermes-31" else DEFAULTS["hermes_image_tag"]
@@ -462,7 +462,7 @@ def test_compose_mounts_the_ca_bundle_at_both_default_paths(tmp_path: Path, host
 
 
 @pytest.mark.parametrize("service", ["gateway", "dashboard"])
-@pytest.mark.parametrize("host", ["hermes-30", "hermes-31"])
+@pytest.mark.parametrize("host", ["role-defaults", "hermes-31"])
 def test_real_image_trusts_the_mounted_bundle(tmp_path: Path, host: str, service: str) -> None:
     """Each pinned image's default TLS context loads a private CA through the rendered mounts only (offline)."""
     tag = HOST_31["hermes_image_tag"] if host == "hermes-31" else DEFAULTS["hermes_image_tag"]
@@ -635,17 +635,17 @@ EFFECTIVE = r"""{% set ns = namespace(ts=[]) %}{% for p in hermes_profiles + [he
  'tool_search': ns.ts,
  'tokens_distinct': ([hermes_telegram_bot_token] + hermes_profiles | map(attribute='telegram_bot_token') | list) | select | unique | list | length == 4,
  'tavily_distinct': ([hermes_default_profile.env.TAVILY_API_KEY] + hermes_profiles | map(attribute='env') | map(attribute='TAVILY_API_KEY') | list) | select | unique | list | length == 4,
- 'same_as_30': hermes_profiles | map(attribute='config') | map('dict2items') | map('rejectattr', 'key', 'eq', 'tools.tool_search.enabled') | map('items2dict') | list
-   == hostvars['hermes-30'].hermes_profiles | map(attribute='config') | list,
- 'nora_same_as_30': (hermes_default_profile.config | dict2items | rejectattr('key', 'eq', 'tools.tool_search.enabled') | items2dict)
-   == hostvars['hermes-30'].hermes_default_profile.config,
+ 'same_as_declared': hermes_profiles | map(attribute='config') | map('dict2items') | map('rejectattr', 'key', 'eq', 'tools.tool_search.enabled') | map('items2dict') | list
+   == [hermes_profile_cafe_ia.config, hermes_profile_tech_watch.config, hermes_profile_job_search.config],
+ 'nora_same_as_declared': (hermes_default_profile.config | dict2items | rejectattr('key', 'eq', 'tools.tool_search.enabled') | items2dict)
+   == hermes_default_nora.config,
  'soul_predecessor': hermes_default_profile.soul_predecessor_sha256,
  'allowlist': hermes_telegram_allowed_users} | to_json }}"""
 
 
 @pytest.fixture(scope="module")
 def effective(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str, Any]]:
-    """Both hosts as Ansible resolves them, after the role's real validate.yml; prints no secret."""
+    """Every Hermes host as Ansible resolves it, after the role's real validate.yml; prints no secret."""
     tmp = tmp_path_factory.mktemp("effective")
     (tmp / "probe.j2").write_text(EFFECTIVE)
     (tmp / "play.yml").write_text(
@@ -687,20 +687,15 @@ def test_effective_hermes_31(effective: dict[str, dict[str, Any]]) -> None:
     assert e["soul_predecessor"] == V0225_STOCK_SOUL_SHA
 
 
-def test_effective_hermes_31_differs_from_hermes_30_by_the_overlay_only(effective: dict[str, dict[str, Any]]) -> None:
-    """Every identity, allowlist, tool and approval key equals hermes-30's; only tool_search is added."""
-    assert effective["hermes-31"]["same_as_30"] is True
-    assert effective["hermes-31"]["nora_same_as_30"] is True
+def test_effective_hermes_31_differs_from_the_declarations_by_the_overlay_only(effective: dict[str, dict[str, Any]]) -> None:
+    """Every identity, allowlist, tool and approval key equals its group_vars declaration; only tool_search is added."""
+    assert effective["hermes-31"]["same_as_declared"] is True
+    assert effective["hermes-31"]["nora_same_as_declared"] is True
 
 
-def test_effective_hermes_30_unchanged(effective: dict[str, dict[str, Any]]) -> None:
-    """hermes-30 still resolves to v0.20.4, standalone gateways, Telegram on, no v0.22 key."""
-    e = effective["hermes-30"]
-    assert e["image"] == "nousresearch/hermes-agent:v2026.8.18"
-    assert e["multiplex"] is False and e["telegram"] is True
-    assert e["profiles"] == NAMES
-    assert e["tool_search"] == ["ABSENT"] * 4
-    assert e["soul_predecessor"] == GROUP_VARS["hermes_default_soul_predecessor_sha256"]
+def test_effective_inventory_resolves_hermes_31_only(effective: dict[str, dict[str, Any]]) -> None:
+    """M6.6.D.1: the hermes group resolves to hermes-31 alone; hermes-30 (destroyed) is no target."""
+    assert set(effective) == {"hermes-31"}
 
 
 # --- Lab: the real v0.22.5 image, offline ------------------------------------------------------

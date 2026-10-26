@@ -1,6 +1,6 @@
 ---
 # =============================================================================
-# Komodo Periphery — hermes-30 rejoint le Core de dockhost-90 en OBSERVATEUR.
+# Komodo Periphery — l'hote Hermes rejoint le Core de dockhost-90 en OBSERVATEUR.
 #
 # UN `docker compose up` REUSSI NE PROUVE RIEN ICI.
 #
@@ -17,6 +17,18 @@
 # doit pas bouger pendant la fenetre d'observation.
 # =============================================================================
 
+# Le nom du Server est l'identite de l'agent cote Core : pas de valeur par
+# defaut (voir defaults/main.yml), chaque hote le declare dans ses host_vars.
+- name: Assert that the Komodo Server name is declared for this host
+  ansible.builtin.assert:
+    that:
+      - komodo_connect_as | default('') | length > 0
+    fail_msg: >-
+      komodo_connect_as est vide pour {{ inventory_hostname }} : le declarer
+      dans host_vars/{{ inventory_hostname }}/main.yml (nom du Server dans
+      l'UI Komodo). Rien n'a ete modifie.
+    quiet: true
+
 - name: Create the Periphery install directory
   ansible.builtin.file:
     path: "{{ komodo_periphery_install_dir }}"
@@ -25,7 +37,7 @@
     group: root
     mode: '0750'
 
-# Periphery ecrit ici les stacks qu'il gere. hermes-30 n'en heberge aucune —
+# Periphery ecrit ici les stacks qu'il gere. L'hote Hermes n'en heberge aucune —
 # le repertoire n'existe que parce que l'agent refuse de demarrer sans sa
 # racine. Il doit rester vide : une stack qui y apparaitrait signalerait que
 # quelqu'un a franchi la frontiere « observer seulement ».

@@ -3,10 +3,17 @@
 #   ansible-playbook ansible/m5-preflight.yml [-e hermes_m5_backup_id=AAAAMMJJTHHMM]
 # Avec l'identifiant prevu, verifie aussi qu'aucune sauvegarde ne le porte.
 # Ne jamais passer hermes_default_profile ni un seuil en -e.
-- name: Preflight M5 de hermes-30 — LECTURE SEULE (default avant Nora, Kaféine, Néo, Scout)
+- name: Preflight M5 (v0.20.4, historique) — LECTURE SEULE (default avant Nora, Kaféine, Néo, Scout)
   hosts: hermes
   become: true
   gather_facts: false
+  pre_tasks:
+    - name: Run legacy_v0204_guard.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: legacy_v0204_guard.yml
+      tags:
+        - always
   tasks:
     - name: Run preflight.yml
       ansible.builtin.include_role:

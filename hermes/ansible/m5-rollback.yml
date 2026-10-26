@@ -6,10 +6,17 @@
 #     -e "hermes_m5_rollback_confirm=ROLLBACK <id>"
 # Bases SQLite (dernier recours, gateway default ET hermes-dashboard arretes) :
 #   ... -e hermes_m5_rollback_restore_databases=true
-- name: Rollback M5 de hermes-30 — default revient a son etat d'avant Nora
+- name: Rollback M5 (v0.20.4, historique) — default revient a son etat d'avant Nora
   hosts: hermes
   become: true
   gather_facts: false
+  pre_tasks:
+    - name: Run legacy_v0204_guard.yml
+      ansible.builtin.include_role:
+        name: hermes_agent
+        tasks_from: legacy_v0204_guard.yml
+      tags:
+        - always
   tasks:
     - name: Run m5_rollback.yml
       ansible.builtin.include_role:

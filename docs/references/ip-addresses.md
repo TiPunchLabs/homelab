@@ -13,8 +13,7 @@
 
 | VM | VMID | IP | Usage |
 |----|------|-----|-------|
-| hermes-30 | 9030 | 192.168.10.30 | Hermes AI agent host |
-| hermes-31 | 9031 | 192.168.10.31 | Hermes AI agent v0.22.5 (migration M6, `hermes/terraform-31`) |
+| hermes-31 | 9031 | 192.168.10.31 | Hermes AI agent v0.22.5 (`hermes/terraform-31`). hermes-30 (9030, `.30`) detruite en M6.6.C (2026-10-26) : VMID et IP libres |
 | bastion-60 | 9060 | 192.168.10.60 | Bastion (GitLab Runner shell, Terraform, Ansible) |
 | vpngate-50 | 9050 | 192.168.10.50 | WireGuard VPN Gateway |
 | dockhost-90 | 9090 | 192.168.10.90 | Docker services (Portainer, GitLab Runner) |
@@ -157,7 +156,7 @@ SSH aliases are configured in `~/.ssh/config`:
 | Alias | IP | User | Key |
 |-------|-----|------|-----|
 | `pve` | 192.168.10.100 | ansible | `~/.ssh/proxmox` |
-| `hermes-30` | 192.168.10.30 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
+| `hermes-31` | 192.168.10.31 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `bastion-60` | 192.168.10.60 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `dockhost-90` | 192.168.10.90 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `kubecluster-40` | 192.168.10.40 | ansible | `~/.ssh/id_vm_proxmox_rsa` |

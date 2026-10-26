@@ -452,10 +452,11 @@ hermes_default_profile: "{{ hermes_default_nora }}"
 # ============================================================
 # 👁️ Komodo Periphery - Role komodo_periphery
 # ============================================================
-# hermes-30 rejoint le Core de dockhost-90 en OBSERVATEUR. La connexion est
+# L'hote rejoint le Core de dockhost-90 en OBSERVATEUR. La connexion est
 # sortante (Periphery appelle Core) : aucune regle UFW a ajouter.
+# `komodo_connect_as` (nom du Server dans l'UI) n'a pas de valeur de groupe :
+# chaque hote le declare dans ses host_vars, le role refuse de deployer sans.
 komodo_core_address: "ws://192.168.10.90:9120"
-komodo_connect_as: "hermes-30"
 
 # Lecture seule : Komodo voit la stack Hermes, il ne peut pas la piloter.
 # Le deploiement reste la propriete exclusive du role hermes_agent.

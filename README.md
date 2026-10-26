@@ -113,9 +113,9 @@ homelab/
 │   ├── ansible/                    #   Roles: motd, security_hardening, wireguard
 │   └── terraform/                  #   VM provisioning (1 VM)
 │
-├── hermes/                         # Hermes AI agent host
+├── hermes/                         # Hermes AI agent host (hermes-31)
 │   ├── ansible/                    #   Roles: motd, security_hardening, docker, hermes_agent
-│   └── terraform/                  #   VM provisioning (1 VM)
+│   └── terraform-31/               #   VM provisioning (1 VM)
 │
 ├── dockhost/                       # Docker services VM
 │   ├── ansible/                    #   Roles: docker, motd, portainer, security, gitlab_runner
@@ -139,7 +139,7 @@ homelab/
 | Name | ID | IP | CPU | RAM | Disk | Purpose |
 |------|----|----|-----|-----|------|---------|
 | vpngate-50 | 9050 | 192.168.10.50 | 1 core | 512 MB | 22 GB | WireGuard VPN Gateway |
-| hermes-30 | 9030 | 192.168.10.30 | 4 cores | 8192 MB | 32 GB | Hermes AI agent host |
+| hermes-31 | 9031 | 192.168.10.31 | 2 cores | 4096 MB | 32 GB | Hermes AI agent host (v0.22.5) |
 | bastion-60 | 9060 | 192.168.10.60 | 2 cores | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
 | caddy-70 (LXC) | 1070 | 192.168.10.70 | 1 core | 512 MB | 8 GB | Caddy reverse proxy |
 | dns-71 (LXC) | 1071 | 192.168.10.71 | 1 core | 512 MB | 8 GB | Pi-hole DNS |

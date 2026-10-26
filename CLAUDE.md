@@ -238,16 +238,24 @@ ansible-playbook ansible/deploy.yml --tags wireguard
 ## Sous-projet : hermes/
 
 ### Description
-VM hebergeant l'agent Hermes AI. Pattern **two-stage deployment** : Terraform pour le provisioning VM (via module `proxmox_vm_template`), Ansible pour la configuration. L'inference est deportee chez DeepSeek en HTTPS : pas de GPU, pas de passthrough.
+VM hebergeant l'agent Hermes AI (**hermes-31**, Hermes Agent v0.22.5). Pattern **two-stage deployment** : Terraform pour le provisioning VM (via module `proxmox_vm_template`, racine `terraform-31/`), Ansible pour la configuration. L'inference est deportee chez DeepSeek en HTTPS : pas de GPU, pas de passthrough.
+
+> 🪦 **hermes-30** (VMID 9030, `.30`, v0.20.4) a ete **detruite** en M6.6.C
+> (2026-10-26), disques et snapshots compris. Plus aucun retour arriere vers
+> elle ; une reprise passe par le redeploiement de hermes-31 (Terraform +
+> Ansible). Aucune sauvegarde de `/opt/hermes/data` n'est en place ni testee.
 
 ### Structure
 ```
 hermes/
 ├── ansible/
-│   ├── deploy.yml                 # pre_tasks: fuseau America/Guadeloupe
-│   ├── inventory.yml
+│   ├── deploy.yml                 # garde --limit, pre_tasks: fuseau America/Guadeloupe
+│   ├── inventory.yml              # hermes-31 seul
+│   ├── m1-*.yml ... m5-*.yml      # historiques v0.20.4, refusent un hote multiplexe
+│   ├── profiles-preflight.yml     # historique v0.20.4, idem
 │   ├── group_vars/hermes/
 │   │   └── all/main.yml
+│   ├── host_vars/hermes-31/       # v0.22.5, multiplex, Telegram, Server Komodo
 │   └── roles/
 │       ├── motd/
 │       ├── security_hardening/    # SSH + UFW (port 22/tcp entrant)
@@ -256,14 +264,15 @@ hermes/
 │       ├── docker/                # Docker Engine + Compose plugin
 │       ├── hermes_agent/          # Stack Hermes Agent (managed scope + bundle CA)
 │       └── komodo_periphery/      # Agent Komodo, observateur (docker.sock :ro)
-├── terraform/
+├── terraform-31/
 │   ├── main.tf, providers.tf, variables.tf, outputs.tf
+├── tests/                         # uv run pytest hermes/tests -q (hors ligne)
 └── ansible.cfg
 ```
 
 ### Specs VM
-- CPU: 4 cores (type host) | RAM: 8192 MB (ballooning min 4096) | Disk: 32 GB SSD
-- Template ID: 9001 | VMID: 9030 | IP: 192.168.10.30
+- CPU: 2 cores | RAM: 4096 MB (fixe, sans ballooning) | Disk: 32 GB SSD
+- Template ID: 9001 | VMID: 9031 | IP: 192.168.10.31
 - Disque: `discard=on`, `ssd=1`, `iothread=1` avec controleur `virtio-scsi-single`
 - Demarrage automatique au boot du noeud (`on_boot`, startup order 10 / up 30 / down 60)
 
@@ -273,37 +282,35 @@ hermes/
 ### Commandes cles
 ```bash
 cd hermes
-ansible-playbook ansible/deploy.yml
-ansible-playbook ansible/deploy.yml --tags motd
-ansible-playbook ansible/deploy.yml --tags security-hardening
-ansible-playbook ansible/deploy.yml --tags dns
-ansible-playbook ansible/deploy.yml --tags ca
-ansible-playbook ansible/deploy.yml --tags docker
-ansible-playbook ansible/deploy.yml --tags hermes
-ansible-playbook ansible/deploy.yml --tags komodo-periphery
+ansible-playbook ansible/deploy.yml --limit hermes-31     # --limit obligatoire
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags motd
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags security-hardening
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags dns
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags ca
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags docker
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags hermes
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags komodo-periphery
 ```
 
-> 👁️ `komodo_periphery` rattache hermes-30 au Komodo Core de dockhost-90 en
-> **observateur** : `docker.sock` monte en lecture seule, connexion sortante,
-> aucune regle UFW a ajouter. La cle d'onboarding est a **usage unique** —
-> voir `hermes/ansible/roles/komodo_periphery/README.md`.
+> 👁️ `komodo_periphery` rattache hermes-31 (Server `hermes-31`) au Komodo Core
+> de dockhost-90 en **observateur** : `docker.sock` monte en lecture seule,
+> connexion sortante, aucune regle UFW a ajouter. `komodo_connect_as` n'a pas
+> de valeur par defaut : a declarer par hote. La cle d'onboarding est a
+> **usage unique** — voir `hermes/ansible/roles/komodo_periphery/README.md`.
 
-> 🧬 **Multiprofils** : quatre gateways dans le conteneur `hermes` — **Nora**
-> `default` (:8642, bot historique, M5, 2026-10-24), **Kaféine** `cafe-ia` (:8646, M2, 2026-10-20), **Néo**
-> `tech-watch` (:8643, M3, 2026-10-22) et **Scout** `job-search` (:8645, M4,
-> 2026-10-24), un bot Telegram par profil. Aucun cron actif depuis le
-> 2026-10-23 ; persistance au reboot non demontree.
-> Activation = entree dans `hermes_profiles` par commit dedie ; nouveau profil :
-> `ansible/m<N>-preflight.yml` (GO obligatoire, hors fenetres cron) puis
-> `--tags hermes` ; mise a jour de profils deployes : `ansible/profiles-preflight.yml`
-> (lecture seule) puis `--tags hermes` ; retrait = `ansible/m<N>-rollback.yml`
-> puis revert. Les restrictions d'outils sont verifiees outil par outil
-> (en v0.20.4, `browser` contient `web_search` : jamais en liste noire). Ne jamais lancer
+> 🧬 **Multiprofils** : **une gateway multiplexee** (`gateway-default`, API
+> `127.0.0.1:8642`) sert quatre profils, un bot Telegram par profil —
+> **Nora** `default`, **Kaféine** `cafe-ia`, **Néo** `tech-watch` et **Scout**
+> `job-search`. Dashboard : `https://hermes.internal` (Caddy `.70` →
+> `192.168.10.31:9119`).
+> Les playbooks `m<N>-*.yml` et `profiles-preflight.yml` decrivent le modele
+> v0.20.4 (une gateway par profil) : historiques, ils refusent un hote
+> multiplexe. Les restrictions d'outils sont verifiees outil par outil
+> (`browser` contient `web_search` : jamais en liste noire). Ne jamais lancer
 > `hermes update` sans controler les `.env` de profil — voir
-> `hermes/ansible/roles/hermes_agent/README.md`. Nora : `m5-preflight.yml`
-> refuse une fois Nora declaree (passer par `profiles-preflight.yml`), et le
-> dashboard ne relit pas la config de default : `docker restart hermes-dashboard`
-> apres toute modification de celle-ci.
+> `hermes/ansible/roles/hermes_agent/README.md`. Le dashboard ne relit pas la
+> config de default : `docker restart hermes-dashboard` apres toute
+> modification de celle-ci.
 
 ---
 

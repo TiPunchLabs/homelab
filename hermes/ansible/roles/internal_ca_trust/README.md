@@ -1,12 +1,12 @@
 # Role: internal_ca_trust
 
-Make hermes-30 — **host and containers** — trust Caddy's internal CA, so
+Make the Hermes host (hermes-31) — **host and containers** — trust Caddy's internal CA, so
 `.internal` services served over TLS validate without `-k`.
 
 ## Mental Model
 
 ```
-caddy-70                          hermes-30
+caddy-70                          hermes-31
 ┌──────────────┐    (commite)   ┌──────────────────────────────────┐
 │ pki/.../     │ ─ ─ ─ ─ ─ ─ ─▶ │ /usr/local/share/ca-certificates/│
 │  root.crt    │   files/       │        caddy-internal.crt        │
@@ -78,7 +78,7 @@ scp ansible@192.168.10.70:/var/lib/caddy/.local/share/caddy/pki/authorities/loca
 ```
 
 See `caddy/docs/runbook-https-internal.md` §3, which documents this as a manual
-per-machine step. This role automates it for hermes-30.
+per-machine step. This role automates it for the Hermes host.
 
 ## Usage
 

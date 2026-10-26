@@ -9,7 +9,7 @@
 #
 # Le runbook caddy/docs/runbook-https-internal.md decrit ce geste au §3 comme
 # une procedure MANUELLE, « a faire une fois par machine cliente ». Ce role
-# l'automatise pour hermes-30, et le rend rejouable.
+# l'automatise pour l'hote Hermes, et le rend rejouable.
 # =============================================================================
 
 # Destination du root dans le magasin de l'hote. `update-ca-certificates` ne

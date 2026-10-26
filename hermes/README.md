@@ -16,15 +16,16 @@ This project automates the deployment of [Hermes Agent](https://github.com/nousr
 ## 🌐 Project Architecture
 
 ```
-                                    hermes-30  (192.168.10.30)
+                                    hermes-31  (192.168.10.31)
                               ┌──────────────────────────────────────┐
                               │  UFW: 22/tcp · 9119/tcp from .70     │
    caddy-70 ──────────────────┼─► hermes-dashboard   0.0.0.0:9119    │
    https://hermes.internal    │   hermes (gateway)   127.0.0.1:8642  │
-                              │   ├ gateway-cafe-ia    127.0.0.1:8646│
-                              │   ├ gateway-tech-watch 127.0.0.1:8643│
-                              │   └ gateway-job-search 127.0.0.1:8645│
-   (internal CA, basic auth)  │        │                             │
+                              │   └ one multiplexed gateway serving  │
+                              │     default (Nora), cafe-ia (Kaféine)│
+                              │     tech-watch (Néo), job-search     │
+   (internal CA, basic auth)  │     (Scout); one Telegram bot each   │
+                              │        │                             │
                               │        ├── /opt/hermes/managed  → /etc/hermes:ro
    dns-71 ────────────────────┤        │    ├── config.yaml  ← Ansible (root)
    hermes.internal → .70      │        │    └── .env         ← Ansible (Vault)
@@ -73,7 +74,8 @@ Each role is deployed in this order by `deploy.yml`:
 
 | Component | Value |
 |---|---|
-| Image | `nousresearch/hermes-agent:v2026.8.18` (Docker Hub, **pinned**) |
+| Image | `nousresearch/hermes-agent:v0.22.5` (Docker Hub, **pinned** in `host_vars/hermes-31`) |
+| Gateway | one multiplexed gateway (`gateway-default`) serving the four profiles |
 | Containers | `hermes` (gateway) · `hermes-dashboard` |
 | Network mode | `host` — see [Why host networking](#-why-host-networking) |
 | Inference | DeepSeek direct (`https://api.deepseek.com/v1`), model `deepseek-v4-flash` |
@@ -82,8 +84,8 @@ Each role is deployed in this order by `deploy.yml`:
 
 ### VM Specs
 
-- CPU: 4 cores (type `host`) | RAM: 8192 MB (ballooning min 4096) | Disk: 32 GB SSD
-- Template ID: 9001 | VMID: 9030 | IP: 192.168.10.30
+- CPU: 2 cores | RAM: 4096 MB (fixed, no ballooning) | Disk: 32 GB SSD
+- Template ID: 9001 | VMID: 9031 | IP: 192.168.10.31 | Terraform root: `terraform-31/`
 - Disk: `discard=on`, `ssd=1`, `iothread=1` with a `virtio-scsi-single` controller
 - Autostart on node boot (`on_boot`, startup order 10 / up 30 / down 60)
 - DNS (cloud-init, bootstrap only): Pi-hole `192.168.10.71`, search domain `internal`;
@@ -102,11 +104,14 @@ Each role is deployed in this order by `deploy.yml`:
 ### 1. VM Provisioning with Terraform
 
 ```bash
-cd terraform
+cd terraform-31
 terraform init
 terraform plan
 terraform apply
 ```
+
+> 🪦 `terraform/` (hermes-30, VMID 9030) was retired in M6.6: the VM was destroyed
+> by Terraform in M6.6.C (2026-10-26) and its root removed from Git in M6.6.D.1.
 
 > ⚠️ **Changing `initialization {}` does not reach a running guest — until its next
 > boot.** `terraform plan` reports `update in-place` for DNS or user changes. Nothing
@@ -118,7 +123,7 @@ terraform apply
 > before aligning Proxmox. To really re-provision from cloud-init, rebuild:
 >
 > ```bash
-> terraform apply -replace='module.hermes_vm.proxmox_virtual_environment_vm.vm[0]'
+> terraform apply -replace='module.hermes_31_vm.proxmox_virtual_environment_vm.vm[0]'
 > ```
 
 ### 2. Fill the vault (first deployment only)
@@ -140,19 +145,21 @@ ansible-vault edit ansible/group_vars/hermes/vault/config.yml
 ### 3. Deployment with Ansible
 
 ```bash
-ansible-playbook ansible/deploy.yml
+# --limit is mandatory: deploy.yml refuses an implicit target
+ansible-playbook ansible/deploy.yml --limit hermes-31
 
 # Or a single layer
-ansible-playbook ansible/deploy.yml --tags motd
-ansible-playbook ansible/deploy.yml --tags security-hardening
-ansible-playbook ansible/deploy.yml --tags docker
-ansible-playbook ansible/deploy.yml --tags hermes
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags motd
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags security-hardening
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags docker
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags hermes
 ```
 
-> 🧬 Before replaying `--tags hermes` on the deployed profiles, run the
-> read-only `ansible-playbook ansible/profiles-preflight.yml` (GO required,
-> outside the cron windows of `default`). Adding a **new** profile has its own
-> `m<N>-preflight.yml` — see the role README.
+> 🧬 The `m<N>-*.yml` and `profiles-preflight.yml` playbooks belong to the
+> v0.20.4 model (one gateway per profile, hermes-30). They are kept as history
+> and for their offline tests, and refuse a multiplexed host such as hermes-31.
+> On hermes-31, `--tags hermes` itself checks the multiplexed topology and the
+> four Telegram connections after every run.
 
 ### 4. Publish the name and the route
 
@@ -160,7 +167,7 @@ The hostname and the reverse-proxy vhost live in **other sub-projects**:
 
 ```bash
 cd ../pihole && ansible-playbook ansible/deploy.yml --tags pihole   # hermes.internal → .70
-cd ../caddy  && ansible-playbook ansible/deploy.yml --tags caddy    # vhost → .30:9119
+cd ../caddy  && ansible-playbook ansible/deploy.yml --tags caddy    # vhost → .31:9119
 ```
 
 > Order matters: the UFW rule allowing `192.168.10.70` is created by step 3, before
@@ -171,8 +178,8 @@ cd ../caddy  && ansible-playbook ansible/deploy.yml --tags caddy    # vhost → 
 | Control | Implementation |
 |---|---|
 | Firewall | UFW default deny in — `22/tcp` (any) + `9119/tcp` (**from `192.168.10.70` only**) |
-| Gateway API | Binds `127.0.0.1:8642` (default), `127.0.0.1:8646` (Kaféine), `127.0.0.1:8643` (Néo) and `127.0.0.1:8645` (Scout); `API_SERVER_KEY` as defense in depth |
-| Profiles | One gateway and **one Telegram bot per profile** (distinct tokens, checked by `getMe`); Kaféine, Néo and Scout: no MCP (no Kandidat), no cron, restricted toolsets **verified tool by tool** on every platform, `skills.write_approval`. **Nora** is `default` itself (historical bot, `:8642`): tools limited to web (Tavily), memory under approval, todo, clarify; no session_search, skills, terminal, file or cron; Kandidat disabled — see [`roles/hermes_agent/README.md`](ansible/roles/hermes_agent/README.md) |
+| Gateway API | One multiplexed gateway, `127.0.0.1:8642` only (per-profile mirrors under `/p/<profile>/`); `API_SERVER_KEY` as defense in depth |
+| Profiles | One multiplexed gateway, **one Telegram bot per profile** (distinct tokens, checked by `getMe`); Kaféine, Néo and Scout: no MCP (no Kandidat), no cron, restricted toolsets **verified tool by tool** on every platform, `skills.write_approval`. **Nora** is `default` itself (historical bot, `:8642`): tools limited to web (Tavily), memory under approval, todo, clarify; no session_search, skills, terminal, file or cron; Kandidat disabled — see [`roles/hermes_agent/README.md`](ansible/roles/hermes_agent/README.md) |
 | Dashboard | Username/password, session-signing secret, TLS terminated by Caddy |
 | Secrets | Ansible Vault → managed `.env` (`0640 root:1000`, read-only mount) — the agent can read it, **not rewrite it**; never in `config.yaml`. Exception: each profile's **Telegram bot token** lives in that profile's own `.env` (`0600`), written key by key — see [`roles/hermes_agent/README.md`](ansible/roles/hermes_agent/README.md) |
 | Telegram | One shared allowlist, pinned in the managed layer for every profile; `*_ALLOW_ALL_USERS` pinned to `false` |
@@ -241,11 +248,11 @@ platforms       : {"telegram": {"enabled": true}}   ← survives untouched
 ```
 .
 ├── ansible/
-│   ├── deploy.yml                              # Main playbook
-│   ├── profiles-preflight.yml                  # read-only, before replaying --tags hermes
-│   ├── m2-*.yml, m3-*.yml, m4-*.yml            # per-profile preflight / rollback
-│   ├── m5-*.yml                                # Nora: preflight, backup, rollback of default
-│   ├── inventory.yml
+│   ├── deploy.yml                              # Main playbook (--limit hermes-31)
+│   ├── m1-*.yml ... m5-*.yml                   # historical v0.20.4: refuse a multiplexed host
+│   ├── profiles-preflight.yml                  # historical v0.20.4: idem
+│   ├── inventory.yml                           # hermes-31 only
+│   ├── host_vars/hermes-31/main.yml            # v0.22.5, multiplex, Telegram, Komodo Server
 │   ├── requirements.yml                        # community.docker, ansible.posix
 │   ├── group_vars/hermes/
 │   │   ├── all/main.yml                        # Tunables
@@ -276,7 +283,7 @@ platforms       : {"telegram": {"enabled": true}}   ← survives untouched
 │               ├── config.yaml.j2              # Managed layer — no secrets
 │               └── hermes.env.j2               # Managed layer — secrets, 0640
 ├── tests/                                      # uv run pytest hermes/tests -q
-├── terraform/
+├── terraform-31/
 │   ├── main.tf, providers.tf, variables.tf, outputs.tf
 ├── ansible.cfg
 └── README.md                                   # This file
@@ -290,7 +297,7 @@ A malformed `providers:` block does **not** raise an error — Hermes silently f
 back to the `auto` provider. Always check what was actually resolved:
 
 ```bash
-ssh hermes-30 'sudo docker exec hermes hermes status'
+ssh hermes-31 'sudo docker exec hermes hermes status'
 #   Model:     deepseek-v4-flash
 #   Provider:  DeepSeek
 #   DeepSeek   ✓ sk-d...
@@ -337,10 +344,10 @@ the client machine, same as `portail-client.internal`.
 ### Useful checks
 
 ```bash
-ssh hermes-30 'sudo docker compose -f /opt/hermes/docker-compose.yml ps'
-ssh hermes-30 'sudo ss -tlnp | grep -E "8642|8643|8646|9119"'
-ssh hermes-30 'sudo ufw status numbered'
-ssh hermes-30 'sudo docker logs hermes --tail 50'
+ssh hermes-31 'sudo docker compose -f /opt/hermes/docker-compose.yml ps'
+ssh hermes-31 'sudo ss -tlnp | grep -E "8642|9119"'
+ssh hermes-31 'sudo ufw status numbered'
+ssh hermes-31 'sudo docker logs hermes --tail 50'
 ```
 
 ## 📚 Documentation
@@ -353,9 +360,14 @@ ssh hermes-30 'sudo docker logs hermes --tail 50'
 ## ⚠️ Known Gaps
 
 - **No backup of `/opt/hermes/data`.** It is the only directory on this VM whose
-  loss would be irreversible — memory, skills, sessions, cron, `SOUL.md`. The
-  one-off M5 backup of default (`/root/hermes-m5-backup/20261024T1609`, same VM)
-  is a rollback point for Nora, not a backup policy.
+  loss would be irreversible — memory, skills, sessions, cron, `SOUL.md`. No
+  backup or restore procedure for hermes-31 exists or has been tested.
+- **No rollback VM.** hermes-30 (v0.20.4) was destroyed in M6.6.C (2026-10-26)
+  with its disks, its two snapshots and the one-off M5 backup it held. Recovery
+  means redeploying hermes-31 from `terraform-31/` and `deploy.yml`, which
+  rebuilds the configuration and the four profiles' declarations but **not**
+  their data: memories, sessions and skills would start empty. This path has
+  not been exercised end to end.
 - **The dashboard does not reload default's config**: after a change to
   default's config, `docker restart hermes-dashboard` (M5.4).
 - **AppArmor userns**: Ubuntu 24.04 restricts unprivileged user namespaces. Moot
