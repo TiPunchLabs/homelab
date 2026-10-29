@@ -1,7 +1,7 @@
 """Inventory and static guards for the M1 foundation.
 
-T15 (cafe-ia alone deployed, M2 phase B), T16 (definitive ids), static halves of T17/T18,
-and the M1 non-goals: no timezone (D1), no toolsets (D5), no MCP in managed.
+T15 (active profiles: cafe-ia then job-search since M7), T16 (definitive ids, tech-watch retired in M7),
+static halves of T17/T18, and the M1 non-goals: no timezone (D1), no toolsets (D5), no MCP in managed.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ HERMES = REPO / "hermes"
 GROUP_VARS = HERMES / "ansible/group_vars/hermes/all/main.yml"
 TASKS = sorted((ROLE / "tasks").glob("*.yml"))
 TEMPLATES = ROLE / "templates"
-FUTURE_IDS = {"tech-watch", "job-search", "cafe-ia"}
+FUTURE_IDS = {"job-search", "cafe-ia"}
 
 
 @pytest.fixture(scope="module")
@@ -46,18 +46,17 @@ ALL_TASKS = [(path.name, task) for path in TASKS for task in iter_tasks(yaml.saf
 # --- T15 --------------------------------------------------------------------
 
 
-def test_t15_group_vars_declare_cafe_ia_tech_watch_then_job_search(group_vars: dict[str, Any]) -> None:
-    """T15 (M4.3): the inventory itself pins cafe-ia, tech-watch then job-search, by reference to their declarations."""
+def test_t15_group_vars_declare_cafe_ia_then_job_search(group_vars: dict[str, Any]) -> None:
+    """T15 (M7): the inventory itself pins cafe-ia then job-search, by reference to their declarations."""
     assert "hermes_profiles" in group_vars
     assert group_vars["hermes_profiles"] == [
         "{{ hermes_profile_cafe_ia }}",
-        "{{ hermes_profile_tech_watch }}",
         "{{ hermes_profile_job_search }}",
     ]
 
 
-def test_t15_effective_value_is_cafe_ia_tech_watch_then_job_search() -> None:
-    """T15 (M4.3): the profiles Ansible actually resolves for the hermes group (hermes-31) are cafe-ia, tech-watch then job-search.
+def test_t15_effective_value_is_cafe_ia_then_job_search() -> None:
+    """T15 (M7): the profiles Ansible actually resolves for the hermes group (hermes-31) are cafe-ia then job-search.
 
     Needs the vault password (pass) to load group_vars; skipped without it.
     Prints the profile names only: the resolved list carries the tokens.
@@ -76,31 +75,31 @@ def test_t15_effective_value_is_cafe_ia_tech_watch_then_job_search() -> None:
     if result.returncode != 0 and re.search(r"[Vv]ault|[Dd]ecrypt|password", result.stdout + result.stderr):
         pytest.skip("vault password unavailable: effective inventory not resolvable here")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '"msg": "PROFILES=[\\"cafe-ia\\", \\"tech-watch\\", \\"job-search\\"]"' in result.stdout
+    assert '"msg": "PROFILES=[\\"cafe-ia\\", \\"job-search\\"]"' in result.stdout
 
 
 # --- T16 --------------------------------------------------------------------
 
 
 def test_t16_reserved_ports_use_definitive_ids(group_vars: dict[str, Any]) -> None:
-    """T16: the three additional profiles, by their definitive ids, on fixed ports (M5: no daily-life)."""
+    """T16: the additional profiles, by their definitive ids, on fixed ports (M5: no daily-life; M7: no tech-watch)."""
     assert group_vars["hermes_profile_reserved_ports"] == {
-        "tech-watch": 8643,
         "job-search": 8645,
         "cafe-ia": 8646,
     }
 
 
-def test_t16_tech_watch_is_prepared_not_active(group_vars: dict[str, Any]) -> None:
-    """T16/D2: Néo is tech-watch, on its own vault keys and bot name, still out of the list."""
-    neo = group_vars["hermes_profile_tech_watch"]
-    assert neo["name"] == "tech-watch"
-    assert neo["description"].startswith("Néo — ")
-    assert neo["api_server_port"] == group_vars["hermes_profile_reserved_ports"]["tech-watch"]
-    assert neo["telegram_bot_token"] == "{{ vault_hermes_tech_watch_telegram_bot_token }}"
-    assert "hermes_tech_watch_telegram_bot_username" in neo["telegram_bot_username"]
-    assert "telegram_allowed_users" not in neo
-    assert neo not in group_vars["hermes_profiles"]
+def test_t16_tech_watch_is_retired_from_the_declarations(group_vars: dict[str, Any]) -> None:
+    """T16/M7: Néo (tech-watch) is consolidated into Kaféine: no declaration, bot name, port or shipped content left.
+
+    Its vault entries stay until the production retirement (M7.3), so they are not checked here.
+    """
+    assert "hermes_profile_tech_watch" not in group_vars
+    assert "hermes_tech_watch_telegram_bot_username" not in group_vars
+    assert "tech-watch" not in group_vars["hermes_profile_reserved_ports"]
+    assert not (ROLE / "files/profiles/tech-watch").exists()
+    assert not (HERMES / "ansible/m3-preflight.yml").exists()
+    assert not (HERMES / "ansible/m3-rollback.yml").exists()
 
 
 def test_t16_no_veille_identifier_left() -> None:
@@ -124,13 +123,9 @@ def test_t16_no_veille_identifier_left() -> None:
     assert [path for path in tracked if "veille" in Path(path).name] == []
 
 
-def test_t16_prepared_profile_passes_the_guards(run_tasks: RunTasks, group_vars: dict[str, Any]) -> None:
-    """The prepared tech-watch definition is valid as is (fake token and bot name substituted)."""
-    neo = group_vars["hermes_profile_tech_watch"] | {
-        "telegram_bot_token": FAKE_TOKEN_2,
-        "telegram_bot_username": "neo_FAKE00_bot",
-    }
-    neo["env"] = {"TAVILY_API_KEY": "fake"}
+def test_t16_declared_profiles_pass_the_guards(run_tasks: RunTasks, group_vars: dict[str, Any]) -> None:
+    """The active cafe-ia definition is valid as is (fake token, Tavily key substituted), new M7 keys included."""
+    cafe = group_vars["hermes_profile_cafe_ia"] | {"telegram_bot_token": FAKE_TOKEN_2, "env": {"TAVILY_API_KEY": "fake"}}
     result = run_tasks(
         "validate.yml",
         {
@@ -138,7 +133,7 @@ def test_t16_prepared_profile_passes_the_guards(run_tasks: RunTasks, group_vars:
             "hermes_telegram_bot_token": FAKE_TOKEN,
             "hermes_telegram_allowed_users": group_vars["hermes_telegram_allowed_users"],
             "hermes_profile_reserved_ports": group_vars["hermes_profile_reserved_ports"],
-            "hermes_profiles": [neo],
+            "hermes_profiles": [cafe],
         },
     )
     assert result.returncode == 0, result.stdout

@@ -1,4 +1,4 @@
-"""M6.3.B: hermes-31 on Hermes v0.22.5, one multiplexed gateway for the four assistants.
+"""M6.3.B: hermes-31 on Hermes v0.22.5, one multiplexed gateway for every assistant (three since M7).
 
 Static: inventory and host_vars (hermes-31 multiplexed; hermes-30 destroyed in M6.6.C), the
 deploy.yml target guard (run for real on localhost), the multiplex task file against profile.yml,
@@ -39,12 +39,12 @@ HOST_31 = yaml.safe_load((ANSIBLE_DIR / "host_vars/hermes-31/main.yml").read_tex
 DEFAULTS = yaml.safe_load((ROLE / "defaults/main.yml").read_text())
 IMAGE = f"{DEFAULTS['hermes_image']}:{HOST_31['hermes_image_tag']}"
 ALLOWLIST = GROUP_VARS["hermes_telegram_allowed_users"]
-PROFILE_KEYS = ("hermes_profile_cafe_ia", "hermes_profile_tech_watch", "hermes_profile_job_search")
-NAMES = ["cafe-ia", "tech-watch", "job-search"]
+# M7: tech-watch (Néo) consolidated into cafe-ia; the M7 lab (test_m7_kafeine.py) covers its retirement.
+PROFILE_KEYS = ("hermes_profile_cafe_ia", "hermes_profile_job_search")
+NAMES = ["cafe-ia", "job-search"]
 TOKENS = {
     "default": "111111111:FAKE-default-aaaaaaaaaaaaaaaaaaaaaaaaaa",
     "cafe-ia": "222222222:FAKE-cafeia-bbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "tech-watch": "333333333:FAKE-techwatch-cccccccccccccccccccccc",
     "job-search": "444444444:FAKE-jobsearch-dddddddddddddddddddddd",
 }
 # Tool surface of v0.20.4 (M3.3.1, M4.3, M5.4): unchanged on v0.22.5 with tool_search off.
@@ -56,6 +56,8 @@ NORA_TOOLS = {"clarify", "memory", "todo_list", "web_extract", "web_search"}
 BRIDGE_TOOLS = {"tool_search", "tool_describe", "tool_call"}
 # sha256 of /opt/hermes/docker/SOUL.md in the v0.22.5 image, seeded into a fresh /opt/data by stage2-hook.sh.
 V0225_STOCK_SOUL_SHA = "3bd38ef92efb90d0fdda1bb73036185d4a4bc11079963cb0e2db71c84281e64e"
+# sha256 of Nora's SOUL.md in service on hermes-31 before M7 (read on 2026-10-29); M7 replaces it once.
+PRE_M7_NORA_SOUL_SHA = "e3dfd76a8e2b24621470d9102cfbfe38999404559ee84de22090d53246ef7318"
 
 
 def tasks_of(path: Path) -> list[dict[str, Any]]:
@@ -103,7 +105,7 @@ def test_hermes_31_is_v0225_multiplexed_with_telegram() -> None:
     assert overlay() == {"tools.tool_search.enabled": "off"}
 
 
-def test_hermes_31_reuses_the_four_declarations_plus_the_overlay_only() -> None:
+def test_hermes_31_reuses_the_declarations_plus_the_overlay_only() -> None:
     """Same declarations as group_vars, same order; the only addition is the v0.22 overlay."""
     expected = [
         f"{{{{ {key} | combine({{'config': {key}.config | combine(hermes_v022_config)}}) }}}}" for key in PROFILE_KEYS
@@ -119,9 +121,12 @@ def test_hermes_31_reuses_the_four_declarations_plus_the_overlay_only() -> None:
 
 
 def test_hermes_31_replaces_the_image_stock_soul_not_hermes_30s() -> None:
-    """Fresh volume: the predecessor is v0.22.5's seeded docker/SOUL.md, not group_vars' (hermes-30's)."""
-    assert HOST_31["hermes_default_soul_predecessor_sha256"] == V0225_STOCK_SOUL_SHA
-    assert GROUP_VARS["hermes_default_soul_predecessor_sha256"] != V0225_STOCK_SOUL_SHA
+    """Fresh volume: v0.22.5's seeded docker/SOUL.md is a predecessor, not group_vars' (hermes-30's).
+
+    M7 adds Nora's pre-M7 SOUL.md (the live one, which still named Néo): an explicit list of two, nothing else.
+    """
+    assert HOST_31["hermes_default_soul_predecessor_sha256"] == [V0225_STOCK_SOUL_SHA, PRE_M7_NORA_SOUL_SHA]
+    assert GROUP_VARS["hermes_default_soul_predecessor_sha256"] not in (V0225_STOCK_SOUL_SHA, PRE_M7_NORA_SOUL_SHA)
 
 
 def test_hermes_31_overrides_the_v0204_role_defaults() -> None:
@@ -318,7 +323,7 @@ def test_multiplex_getme_reads_the_token_from_stdin_without_logging() -> None:
 
 
 def test_main_orders_the_multiplex_block_after_the_profiles() -> None:
-    """Profiles, one restart, API, topology, then Telegram for the four: all gated on multiplex."""
+    """Profiles, one restart, API, topology, then Telegram for every profile: all gated on multiplex."""
     tasks = tasks_of(TASKS / "main.yml")
     names = [t.get("name", "") for t in tasks]
     order = [
@@ -633,10 +638,10 @@ EFFECTIVE = r"""{% set ns = namespace(ts=[]) %}{% for p in hermes_profiles + [he
  'image': hermes_image ~ ':' ~ hermes_image_tag, 'multiplex': hermes_gateway_multiplex,
  'telegram': hermes_telegram_enabled, 'profiles': hermes_profiles | map(attribute='name') | list,
  'tool_search': ns.ts,
- 'tokens_distinct': ([hermes_telegram_bot_token] + hermes_profiles | map(attribute='telegram_bot_token') | list) | select | unique | list | length == 4,
- 'tavily_distinct': ([hermes_default_profile.env.TAVILY_API_KEY] + hermes_profiles | map(attribute='env') | map(attribute='TAVILY_API_KEY') | list) | select | unique | list | length == 4,
+ 'tokens_distinct': ([hermes_telegram_bot_token] + hermes_profiles | map(attribute='telegram_bot_token') | list) | select | unique | list | length == (hermes_profiles | length + 1),
+ 'tavily_distinct': ([hermes_default_profile.env.TAVILY_API_KEY] + hermes_profiles | map(attribute='env') | map(attribute='TAVILY_API_KEY') | list) | select | unique | list | length == (hermes_profiles | length + 1),
  'same_as_declared': hermes_profiles | map(attribute='config') | map('dict2items') | map('rejectattr', 'key', 'eq', 'tools.tool_search.enabled') | map('items2dict') | list
-   == [hermes_profile_cafe_ia.config, hermes_profile_tech_watch.config, hermes_profile_job_search.config],
+   == [hermes_profile_cafe_ia.config, hermes_profile_job_search.config],
  'nora_same_as_declared': (hermes_default_profile.config | dict2items | rejectattr('key', 'eq', 'tools.tool_search.enabled') | items2dict)
    == hermes_default_nora.config,
  'soul_predecessor': hermes_default_profile.soul_predecessor_sha256,
@@ -676,15 +681,15 @@ def effective(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str, A
 
 
 def test_effective_hermes_31(effective: dict[str, dict[str, Any]]) -> None:
-    """v0.22.5, multiplexed, Telegram on, four profiles with tool_search off, distinct secrets."""
+    """v0.22.5, multiplexed, Telegram on, cafe-ia and job-search (M7) with tool_search off, distinct secrets."""
     e = effective["hermes-31"]
     assert e["image"] == "nousresearch/hermes-agent:v0.22.5"
     assert e["multiplex"] is True and e["telegram"] is True
     assert e["profiles"] == NAMES
-    assert e["tool_search"] == ["off"] * 4
+    assert e["tool_search"] == ["off"] * (len(NAMES) + 1)
     assert e["tokens_distinct"] and e["tavily_distinct"]
     assert e["allowlist"] == ALLOWLIST
-    assert e["soul_predecessor"] == V0225_STOCK_SOUL_SHA
+    assert e["soul_predecessor"] == [V0225_STOCK_SOUL_SHA, PRE_M7_NORA_SOUL_SHA]
 
 
 def test_effective_hermes_31_differs_from_the_declarations_by_the_overlay_only(effective: dict[str, dict[str, Any]]) -> None:
@@ -707,21 +712,22 @@ def _docker(*argv: str, stdin: str | None = None, timeout: int = 120) -> subproc
     return subprocess.run(["docker", *argv], input=stdin, capture_output=True, text=True, timeout=timeout, check=False)
 
 
-def _dx(*argv: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+# `container` lets other labs (test_m7_kafeine.py) reuse these helpers on their own throwaway container.
+def _dx(*argv: str, env: dict[str, str] | None = None, container: str = GW) -> subprocess.CompletedProcess[str]:
     flags = [x for k, v in (env or {}).items() for x in ("-e", f"{k}={v}")]
-    return _docker("exec", "-u", str(os.getuid()), *flags, GW, *argv)
+    return _docker("exec", "-u", str(os.getuid()), *flags, container, *argv)
 
 
-def _checks(*args: str, env: dict[str, str] | None = None) -> tuple[int, str]:
-    r = _dx("python3", "-c", (ROLE / "files/hermes_checks.py").read_text(), *args, env=env)
+def _checks(*args: str, env: dict[str, str] | None = None, container: str = GW) -> tuple[int, str]:
+    r = _dx("python3", "-c", (ROLE / "files/hermes_checks.py").read_text(), *args, env=env, container=container)
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
-def _listening() -> list[tuple[str, int]]:
+def _listening(container: str = GW) -> list[tuple[str, int]]:
     """(address, port) of TCP listeners in the shared network namespace, from /proc/net/tcp{,6}."""
     found = []
     for table in ("/proc/net/tcp", "/proc/net/tcp6"):
-        for line in _dx("cat", table).stdout.splitlines()[1:]:
+        for line in _dx("cat", table, container=container).stdout.splitlines()[1:]:
             fields = line.split()
             if fields[3] != "0A":
                 continue
@@ -739,10 +745,10 @@ def _wait(predicate: Any, timeout: int = 120) -> bool:
     return False
 
 
-def _gateway_up() -> bool:
-    return _dx("/command/s6-svstat", "/run/service/gateway-default").stdout.startswith("up") and any(
-        p == DEFAULTS["hermes_gateway_port"] for _a, p in _listening()
-    )
+def _gateway_up(container: str = GW) -> bool:
+    return _dx("/command/s6-svstat", "/run/service/gateway-default", container=container).stdout.startswith(
+        "up"
+    ) and any(p == DEFAULTS["hermes_gateway_port"] for _a, p in _listening(container))
 
 
 SCOPE_PROBE = r'''
@@ -752,7 +758,7 @@ from pathlib import Path
 from agent.secret_scope import build_profile_secret_scope, set_secret_scope, reset_secret_scope, set_multiplex_context, reset_multiplex_context
 from gateway.platforms._shared import platform_gate_env
 out = {}
-for name in ("default", "cafe-ia", "tech-watch", "job-search"):
+for name in ("default", "cafe-ia", "job-search"):
     home = "/opt/data" if name == "default" else f"/opt/data/profiles/{name}"
     scope = build_profile_secret_scope(Path(home))
     t1 = set_multiplex_context(True); t2 = set_secret_scope(scope, profile_home=home)
@@ -777,7 +783,7 @@ ss.set_multiplex_active(True)
 runner = GatewayRunner.__new__(GatewayRunner)
 runner.adapters, runner._profile_adapters, runner.config = {}, {}, None
 out = {}
-for name in ("default", "cafe-ia", "tech-watch", "job-search"):
+for name in ("default", "cafe-ia", "job-search"):
     home = "/opt/data" if name == "default" else f"/opt/data/profiles/{name}"
     res = {}
     for uid in (sys.argv[1], "999", "123456"):
@@ -797,7 +803,7 @@ logging.disable(logging.CRITICAL)
 from hermes_constants import set_hermes_home_override, reset_hermes_home_override
 from tools.write_approval import write_approval_enabled
 out = {}
-for name in ("default", "cafe-ia", "tech-watch", "job-search"):
+for name in ("default", "cafe-ia", "job-search"):
     token = set_hermes_home_override("/opt/data" if name == "default" else f"/opt/data/profiles/{name}")
     try:
         out[name] = [write_approval_enabled("memory"), write_approval_enabled("skills")]
@@ -952,7 +958,7 @@ def lab(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
                 return []
             return sorted(k for k in state.get("platforms", {}) if "telegram" in k)
 
-        _wait(lambda: len(entries()) == 4, 240)
+        _wait(lambda: len(entries()) == len(NAMES) + 1, 240)
         facts["phase2_telegram_entries"] = entries()
         facts["telegram_checks"] = {
             key: _checks("telegram", "/opt/data/gateway_state.json", "gateway-default", key)
@@ -965,7 +971,7 @@ def lab(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
         facts["after_restart_ok"] = _wait(
             lambda: _checks("multiplex", "/opt/data/gateway_state.json", expected)[0] == 0, 120
         )
-        facts["boot_after_restart"] = (data / "logs/container-boot.log").read_text().splitlines()[-4:]
+        facts["boot_after_restart"] = (data / "logs/container-boot.log").read_text().splitlines()[-(len(NAMES) + 1):]
 
         dash = _docker("run", "-d", "--name", DASH, "--network", f"container:{GW}", "-v", f"{data}:/opt/data",
                        "-v", f"{managed}:/etc/hermes:ro", "-e", f"PUID={os.getuid()}", "-e", f"PGID={os.getgid()}",
@@ -995,8 +1001,8 @@ def test_lab_fresh_container_starts_the_root_gateway(lab: dict[str, Any]) -> Non
 
 
 def test_lab_fresh_default_soul_is_the_declared_predecessor(lab: dict[str, Any]) -> None:
-    """default_soul.yml will find exactly the predecessor declared for hermes-31, and replace it once."""
-    assert lab["seeded_soul_sha"] == HOST_31["hermes_default_soul_predecessor_sha256"]
+    """default_soul.yml will find the image seed among the predecessors declared for hermes-31, and replace it once."""
+    assert lab["seeded_soul_sha"] == HOST_31["hermes_default_soul_predecessor_sha256"][0] == V0225_STOCK_SOUL_SHA
 
 
 def test_lab_profile_create_writes_the_stock_soul_the_role_seeds_over(lab: dict[str, Any]) -> None:
@@ -1005,7 +1011,7 @@ def test_lab_profile_create_writes_the_stock_soul_the_role_seeds_over(lab: dict[
 
 
 def test_lab_every_declared_key_applies_and_reads_back(lab: dict[str, Any]) -> None:
-    """All four declarations (overlay included) are accepted by v0.22.5 and read back equal."""
+    """Every declaration (overlay included) is accepted by v0.22.5 and read back equal."""
     assert set(lab["set"].values()) == {0}, {k: v for k, v in lab["set"].items() if v}
     for name, cfg in effective_configs().items():
         for key, value in cfg.items():
@@ -1041,7 +1047,7 @@ def test_lab_api_key_comes_from_managed_only(lab: dict[str, Any], name: str) -> 
     assert lab["api_key"][name][0] == 0, lab["api_key"][name]
 
 
-def test_lab_one_multiplexed_gateway_serves_the_four_profiles(lab: dict[str, Any]) -> None:
+def test_lab_one_multiplexed_gateway_serves_every_profile(lab: dict[str, Any]) -> None:
     """Root slot up, named slots down, served_profiles exact, one gateway process."""
     assert lab["api_after_restart"] and lab["multiplex_ok"], lab["multiplex"]
     assert lab["gateway_processes"] == 1, lab["ps"]
@@ -1093,7 +1099,6 @@ def test_lab_write_approval_is_per_profile(lab: dict[str, Any]) -> None:
     assert lab["approval"] == {
         "default": [True, True],
         "cafe-ia": [False, True],
-        "tech-watch": [False, True],
         "job-search": [False, True],
     }
 
@@ -1107,14 +1112,14 @@ def test_lab_each_bot_is_reported_under_its_own_profile_key(lab: dict[str, Any])
 
 
 def test_lab_container_restart_keeps_one_gateway(lab: dict[str, Any]) -> None:
-    """Boot reconcile: root started, named slots registered down, the four still served."""
+    """Boot reconcile: root started, named slots registered down, every profile still served."""
     assert lab["after_restart_ok"]
     assert "profile=default prior_state=running action=started" in lab["boot_after_restart"][0]
     assert all("action=registered" in line for line in lab["boot_after_restart"][1:])
 
 
 def test_lab_dashboard_runs_beside_the_multiplexer(lab: dict[str, Any]) -> None:
-    """Separate container: skips the reconcile, logs in with the managed credentials, lists the four profiles."""
+    """Separate container: skips the reconcile, logs in with the managed credentials, lists every profile."""
     assert "reconcile: skipping (dashboard container" in lab["dashboard_log"]
     d = lab["dashboard"]
     assert d["profiles_anonymous"] == 401 and d["login_bad"] == 401

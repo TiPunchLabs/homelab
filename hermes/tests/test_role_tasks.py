@@ -258,17 +258,16 @@ def test_t14_bytecode_is_not_deployed(run_tasks: RunTasks, tmp_path: Path, data_
     assert recap(second)["changed"] == 0
 
 
-def test_t14_real_tech_watch_payload_has_no_cache(run_tasks: RunTasks, data_dir: Path) -> None:
-    """T14: the shipped tech-watch content deploys its scripts but no bytecode."""
-    dest = data_dir / "profiles" / "tech-watch"
+@pytest.mark.parametrize("name", sorted(p.name for p in (ROLE / "files" / "profiles").iterdir()))
+def test_t14_real_shipped_profiles_deploy_only_their_seeded_soul(run_tasks: RunTasks, data_dir: Path, name: str) -> None:
+    """T14 (M7): the shipped profiles carry a SOUL.md only (seeded, never copied); Néo's scripts are gone."""
+    dest = data_dir / "profiles" / name
     dest.mkdir(parents=True)
-    src = ROLE / "files" / "profiles" / "tech-watch"
+    src = ROLE / "files" / "profiles" / name
     result = run_tasks("profile_content.yml", {"hermes_content_src": str(src), "hermes_content_dest": str(dest)})
     assert result.returncode == 0, result.stdout
-    deployed = {str(p.relative_to(dest)) for p in dest.rglob("*") if p.is_file()}
-    assert "scripts/tech_watch_collect.py" in deployed
-    assert "SOUL.md" not in deployed
-    assert not any("__pycache__" in p or p.endswith((".pyc", ".pyo")) for p in deployed)
+    assert [p for p in dest.rglob("*") if p.is_file()] == []
+    assert name != "tech-watch"
 
 
 def test_t17_host_tasks_leave_agent_data_alone(run_tasks: RunTasks, tmp_path: Path, data_dir: Path) -> None:

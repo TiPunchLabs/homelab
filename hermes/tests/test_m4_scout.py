@@ -46,7 +46,7 @@ from test_m2_cafe_ia import (
     snapshot,
     validate,
 )
-from test_m3_tech_watch import FAKE_DOCKER_M3, IMAGE
+from test_m2_cafe_ia import FAKE_DOCKER_M3, IMAGE
 
 sys.path.insert(0, str(ROLE / "filter_plugins"))
 
@@ -132,13 +132,26 @@ def scout(group_vars: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
+def m43_ports(group_vars: dict[str, Any]) -> dict[str, int]:
+    """Reserved ports as M4.3 found them on hermes-30: tech-watch (8643) was still declared."""
+    return group_vars["hermes_profile_reserved_ports"] | {"tech-watch": 8643}
+
+
+@pytest.fixture(scope="module")
 def deployed(group_vars: dict[str, Any]) -> list[dict[str, Any]]:
-    """cafe-ia and tech-watch as deployed, fake secrets in place of the vault references."""
+    """cafe-ia and tech-watch as deployed at M4.3, fake secrets in place of the vault references.
+
+    M7 retired Néo's declaration. Its frozen stand-in is Kaféine's declaration (the very matrix Néo shared, D5 and
+    M3.3.1) under Néo's id, port and bot name: the M4.3 scenarios on hermes-30 stay reproducible as history.
+    """
     cafe = group_vars["hermes_profile_cafe_ia"] | {
         "telegram_bot_token": FAKE_TOKEN_2,
         "env": {"TAVILY_API_KEY": FAKE_TAVILY},
     }
-    neo = group_vars["hermes_profile_tech_watch"] | {
+    neo = group_vars["hermes_profile_cafe_ia"] | {
+        "name": "tech-watch",
+        "description": "Néo — veille technique (M3, retire en M7).",
+        "api_server_port": 8643,
         "telegram_bot_token": FAKE_TOKEN_3,
         "telegram_bot_username": "neo_FAKE00_bot",
         "env": {"TAVILY_API_KEY": "tvly-x"},
@@ -172,11 +185,10 @@ def test_s01_identity_and_port(group_vars: dict[str, Any], scout: dict[str, Any]
     assert scout["api_server_port"] == group_vars["hermes_profile_reserved_ports"]["job-search"] == 8645
 
 
-def test_s01_activated_after_tech_watch(group_vars: dict[str, Any]) -> None:
-    """M4.3: job-search is appended once, after cafe-ia and tech-watch; no daily-life yet."""
+def test_s01_active_after_cafe_ia(group_vars: dict[str, Any]) -> None:
+    """M4.3 appended job-search after cafe-ia and tech-watch; since M7 (Néo retired) it follows cafe-ia; no daily-life."""
     assert group_vars["hermes_profiles"] == [
         "{{ hermes_profile_cafe_ia }}",
-        "{{ hermes_profile_tech_watch }}",
         "{{ hermes_profile_job_search }}",
     ]
 
@@ -211,11 +223,11 @@ def test_s02_getme_applies_once_the_bot_name_is_set(
 
 
 def test_s03_dedicated_vault_references(group_vars: dict[str, Any], scout: dict[str, Any]) -> None:
-    """Token, Tavily key and context: Scout's own vault keys, none shared with default, Kaféine or Néo."""
+    """Token, Tavily key and context: Scout's own vault keys, none shared with default or Kaféine (Néo retired in M7)."""
     assert scout["telegram_bot_token"] == "{{ vault_hermes_job_search_telegram_bot_token }}"
     assert scout["env"] == {"TAVILY_API_KEY": "{{ vault_hermes_job_search_tavily_api_key }}"}
     assert "vault_hermes_job_search_environment_hint" in scout["config"]["agent.environment_hint"]
-    others = [group_vars["hermes_profile_cafe_ia"], group_vars["hermes_profile_tech_watch"]]
+    others = [group_vars["hermes_profile_cafe_ia"]]
     for other in others:
         assert scout["telegram_bot_token"] != other["telegram_bot_token"]
         assert scout["env"]["TAVILY_API_KEY"] != other["env"]["TAVILY_API_KEY"]
@@ -233,12 +245,17 @@ def test_s03_tavily_backend_no_mcp_no_cron(scout: dict[str, Any]) -> None:
 
 
 def test_s03_no_telegram_conflict_with_the_deployed_bots(
-    run_tasks: RunTasks, group_vars: dict[str, Any], scout: dict[str, Any], deployed: list[dict[str, Any]]
+    run_tasks: RunTasks,
+    group_vars: dict[str, Any],
+    scout: dict[str, Any],
+    deployed: list[dict[str, Any]],
+    m43_ports: dict[str, int],
 ) -> None:
-    """Four gateways together: Scout can reuse neither default's, Kaféine's nor Néo's token."""
-    assert validate(run_tasks, group_vars, [*deployed, resolved(scout)]).returncode == 0
+    """Four gateways together (M4.3): Scout can reuse neither default's, Kaféine's nor Néo's token."""
+    ports = {"hermes_profile_reserved_ports": m43_ports}
+    assert validate(run_tasks, group_vars, [*deployed, resolved(scout)], **ports).returncode == 0
     for token in (FAKE_TOKEN, FAKE_TOKEN_2, FAKE_TOKEN_3):
-        assert_fails_quietly(validate(run_tasks, group_vars, [*deployed, resolved(scout, token=token)]))
+        assert_fails_quietly(validate(run_tasks, group_vars, [*deployed, resolved(scout, token=token)], **ports))
 
 
 def test_s03_empty_tavily_key_is_refused(
@@ -266,10 +283,10 @@ def test_s03_config_values_converge(scout: dict[str, Any], key: str) -> None:
 
 
 def test_s04_soul_names_scout_and_is_its_own() -> None:
-    """A dedicated SOUL.md, distinct from Kaféine's and Néo's, in French."""
+    """A dedicated SOUL.md, distinct from Kaféine's (and from Néo's, retired in M7), in French."""
     soul = SOUL.read_text()
     assert soul.startswith("Tu es **Scout**")
-    for other in ("cafe-ia", "tech-watch"):
+    for other in ("cafe-ia",):
         assert soul != (ROLE / f"files/profiles/{other}/SOUL.md").read_text()
     assert "Réponds en **français**" in soul
 
@@ -499,8 +516,8 @@ def test_s05_tasks_reading_the_profile_mask_per_key() -> None:
 # --- Securite : outils ----------------------------------------------------------
 
 
-def test_s06_tool_matrix_is_kafeines_and_neos(scout: dict[str, Any], group_vars: dict[str, Any]) -> None:
-    """Same least-privilege matrix as Kaféine and Néo (D5, M3.3.1), on the four platforms."""
+def test_s06_tool_matrix_is_kafeines(scout: dict[str, Any], group_vars: dict[str, Any]) -> None:
+    """Same least-privilege matrix as Kaféine (and Néo, D5, M3.3.1, until M7), on the four platforms."""
     cfg = scout["config"]
     allowed = set(cfg["platform_toolsets.telegram"]) - {"no_mcp"}
     denied = set(cfg["agent.disabled_toolsets"])
@@ -511,7 +528,7 @@ def test_s06_tool_matrix_is_kafeines_and_neos(scout: dict[str, Any], group_vars:
     assert "browser" not in denied and "browser" not in cfg["platform_toolsets.telegram"]
     for platform in PLATFORMS:
         assert cfg[f"platform_toolsets.{platform}"] == cfg["platform_toolsets.telegram"]
-    for other in ("hermes_profile_cafe_ia", "hermes_profile_tech_watch"):
+    for other in ("hermes_profile_cafe_ia",):
         assert cfg["agent.disabled_toolsets"] == group_vars[other]["config"]["agent.disabled_toolsets"]
         assert cfg["platform_toolsets.telegram"] == group_vars[other]["config"]["platform_toolsets.telegram"]
     assert cfg["skills.write_approval"] is True
@@ -851,7 +868,8 @@ def m4_vars(group_vars: dict[str, Any], host: dict[str, Any], candidate: dict[st
         "hermes_telegram_enabled": True,
         "hermes_telegram_bot_token": FAKE_TOKEN,
         "hermes_telegram_allowed_users": "1111111111",
-        "hermes_profile_reserved_ports": group_vars["hermes_profile_reserved_ports"],
+        # As M4.3 found them: tech-watch (8643) still declared on hermes-30.
+        "hermes_profile_reserved_ports": group_vars["hermes_profile_reserved_ports"] | {"tech-watch": 8643},
         "hermes_pf_meminfo_path": str(host["meminfo"]),
     }
 

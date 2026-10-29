@@ -6,6 +6,10 @@ one Telegram bot per profile, all in the same container.
 > **Current host: hermes-31** (Hermes v0.22.5, one multiplexed gateway serving
 > the four profiles) — see
 > [hermes-31](#hermes-31--hermes-v0225-one-multiplexed-gateway-mission-m63).
+> **M7 (prepared, not deployed):** Néo (`tech-watch`) consolidated into
+> Kaféine; target = Nora, Kaféine, Scout — see
+> [M7](#m7--kaféine-consolidation-and-néo-retirement). Park Néo before
+> deploying.
 > hermes-30 (v0.20.4, one s6 gateway per profile, image `v2026.8.18`, still the
 > role defaults) was **destroyed in M6.6.C (2026-10-26)**. Most sections below
 > were written and measured on hermes-30: they remain as the design history of
@@ -356,6 +360,11 @@ host; the directory removal is a deliberate manual step).
 Assistant of the Café IA project: AI watch for a mixed audience, projects to
 present, meeting preparation, drafts. Identity: `files/profiles/cafe-ia/SOUL.md`
 (seeded once, D6). Declaration: `hermes_profile_cafe_ia` in `group_vars`.
+
+> **M7 (prepared, not deployed):** Kaféine absorbs Néo's scope (technology
+> watch, technical expertise, local AI, DevOps, HomeLab) and environment hint;
+> new SOUL.md through the guarded replacement; same tool matrix. See
+> [M7](#m7--kaféine-consolidation-and-néo-retirement).
 
 ### What `hermes profile create cafe-ia --no-alias` really creates (v0.20.4)
 
@@ -769,6 +778,11 @@ https://api.tavily.com/search`; the provider only returns success after
 > key. `validate.yml` refuses an empty value; a successful call proves it.
 
 ## Néo — profile `tech-watch` (mission M3, deployed 2026-10-22)
+
+> **Retirement prepared in M7 (not executed):** removed from the repository
+> declarations, still served on hermes-31 until M7.3 parks it. This section is
+> history; `m3-preflight.yml` and `m3-rollback.yml` were removed in M7. See
+> [M7](#m7--kaféine-consolidation-and-néo-retirement).
 
 | | |
 |---|---|
@@ -1241,7 +1255,7 @@ preflights do.
 | Check before | **new** profile: its `m<N>-preflight.yml` (blank page, memory gate) — GO required. **Update** of deployed profiles: `profiles-preflight.yml` — GO required |
 | Deploy changes | `ansible-playbook ansible/deploy.yml --tags hermes`, then again: `changed=0` |
 | Check state | `docker exec hermes /command/s6-svstat /run/service/gateway-<name>`; `profiles/<name>/gateway_state.json` (`desired_state`, Telegram `state`); `ss -ltn` → `127.0.0.1:864x` only; `ss -tnp` ESTAB to 149.154.x / 91.108.x |
-| Deactivate / roll back | `m2-rollback.yml` (Kaféine), `m3-rollback.yml` (Néo) or `m4-rollback.yml` (Scout): stop + persist `stopped`, deletes nothing, default untouched; **then** `git revert` of that profile's activation commit and `deploy.yml --tags hermes` (`changed=0`). Removing a profile from the list alone does **not** stop it |
+| Deactivate / roll back | `m2-rollback.yml` (Kaféine) or `m4-rollback.yml` (Scout) on v0.20.4 only (`m3-rollback.yml`, Néo, removed in M7); on hermes-31: `hermes -p <name> gateway stop` parks a profile — see [M7](#m7--kaféine-consolidation-and-néo-retirement): stop + persist `stopped`, deletes nothing, default untouched; **then** `git revert` of that profile's activation commit and `deploy.yml --tags hermes` (`changed=0`). Removing a profile from the list alone does **not** stop it |
 | Check isolation | profile `.env` holds only its declared keys; `mcp_servers` empty unless declared; one lock per bot in `/opt/data/.local/state/hermes/gateway-locks/` |
 | Check the tools really exposed | the `toolsets` check of `hermes_checks.py` (run by `profile.yml` before each gateway start): toolset names **and** tools, per platform |
 | Avoid token conflicts | one **new** bot per profile (D2); `validate.yml` refuses duplicates and `getMe` the wrong bot — a shared token would let `--replace` kill the other gateway |
@@ -1250,7 +1264,7 @@ preflights do.
 
 Everything above describes **hermes-30** (v0.20.4, one s6 gateway per
 profile), destroyed in M6.6.C (2026-10-26) with its data and snapshots: there
-is no rollback environment any more. hermes-31 is a **fresh** install: same four assistants, same `group_vars` declarations,
+is no rollback environment any more. hermes-31 is a **fresh** install: same four assistants (three declared since M7, Néo still served until M7.3), same `group_vars` declarations,
 no SQLite database or session carried over. Its differences live in
 `host_vars/hermes-31/main.yml`:
 
@@ -1302,6 +1316,176 @@ pre_task (`tasks/legacy_v0204_guard.yml`) refuses a host whose
 history and for their offline tests, not as tools for hermes-31. Komodo is
 connected since M6.3.D (Server `hermes-31`).
 
+## M7 — Kaféine consolidation and Néo retirement
+
+**Status: prepared in the repository (M7.1), NOT deployed.** Until M7.3 runs,
+hermes-31 still serves the four profiles of M6: `default`, `cafe-ia`,
+`tech-watch` and `job-search`.
+
+Target, three assistants on the same multiplexed gateway:
+
+| Assistant | Profile | Responsibility |
+|---|---|---|
+| Nora | `default` | daily life and organization (unchanged, one sentence of its SOUL.md updated) |
+| Kaféine | `cafe-ia` | AI and digital technologies: technology watch, technical expertise (Linux, DevOps, Kubernetes/OpenShift, Terraform, Ansible, local AI, HomeLab), educational communication and Café IA |
+| Scout | `job-search` | job search (unchanged) |
+
+### What changes in the repository
+
+- **Kaféine's `SOUL.md`** (`files/profiles/cafe-ia/SOUL.md`, French): one
+  assistant, three facets (watch, technical expertise, educational
+  communication); Néo's method (impact for Xavier, published requirements vs
+  estimates, licences, experiment template) merged with Kaféine's (Café IA,
+  topic template, demo with plan B, validation list). Research is done on
+  demand; periodic watch missions may be configured later, after explicit
+  validation — no cron exists or is promised.
+- **Néo's environment hint moved to Kaféine** (`agent.environment_hint` in
+  `hermes_profile_cafe_ia.config`): workstation (RTX 4060 8 GB, the only
+  GPU), Proxmox HomeLab without GPU, local AI, projects. Scoped to cafe-ia's own
+  `config.yaml`, never in the managed layer nor `HERMES_ENVIRONMENT_HINT`.
+  Plain prompt text: it grants no access. On v0.22.5 it is appended to the
+  prompt's runtime-environment block (`agent/system_prompt.py`).
+- **Tool matrix unchanged** for every profile: Kaféine keeps `web`, `skills`
+  (writes approved), `memory`, `session_search`, `todo`, `clarify`, `no_mcp`
+  and the same deny list. No MCP, cron, terminal, file or browser.
+- **Profile description** declared:
+  "Kaféine — IA et technologies numériques : veille, expertise technique,
+  pédagogie et Café IA." `hermes profile create` only reads it for a new
+  profile; the live one is updated by hand in M7.3 (step 12).
+- **Nora**: the sentence naming "Néo (veille technique), Kaféine (Café IA)"
+  now names "Kaféine (IA, technologies et Café IA)". Nothing else.
+- **tech-watch** leaves `hermes_profiles` (group_vars and hermes-31), its
+  reserved port 8643, bot name, declaration, `files/profiles/tech-watch/`
+  (SOUL.md and the never-called collection scripts) and the v0.20.4
+  `m3-preflight.yml` / `m3-rollback.yml`. Its vault entries stay until M7.3
+  step 14.
+
+### Guarded SOUL.md replacement (`tasks/default_soul.yml`)
+
+A named profile's SOUL.md is **seeded once** (`soul_seed.yml`): a new version
+in Git never reaches a live profile by itself. Since M7, a profile declaring
+`soul_predecessor_sha256` goes through the same guard as Nora, right after the
+seed (`profile_multiplex.yml`):
+
+| Live SOUL.md | Result |
+|---|---|
+| already the delivered file | nothing (`changed=0`) |
+| one of the declared predecessors | replaced, previous file kept beside it (`SOUL.md.<pid>.<date>@<time>~`, Ansible `backup`) |
+| anything else, or absent | **failure**, nothing written, human review |
+
+The target is derived from the profile (`profiles/<name>/SOUL.md`, or the root
+`SOUL.md` for default), never free. `soul_predecessor_sha256` is one checksum
+or an explicit non-empty list, each a 64-hex sha256 (`validate.yml` refuses
+anything else before any write). Single tolerance: under `--check`, a brand-new
+named profile has no SOUL.md yet (the seed was only simulated), which is not an
+error.
+
+- cafe-ia: `c4923f3c…` (Kaféine's M2 SOUL.md, live on hermes-31, read on 2026-10-29).
+- default on hermes-31: `[3bd38ef9… (v0.22.5 image seed, fresh rebuild), e3dfd76a… (Nora before M7, live)]`.
+
+Replacing a SOUL.md restarts nothing: it is read when a session's prompt is
+built, so the change shows from the next session (`/new` in Telegram).
+
+### Why removing tech-watch from Ansible is not enough
+
+On v0.22.5 the multiplexed gateway serves **every** directory under
+`profiles/` carrying an identity marker (`config.yaml`, `.env`, `SOUL.md`,
+`profile.yaml`, `auth.json` or `state.db`), unless it is parked or tombstoned.
+Removing the declaration therefore leaves Néo served and its bot connected,
+and the deploy's exact-set check (`hermes_checks.py multiplex`, unchanged)
+fails after Kaféine's changes are already applied. **Park Néo first.** No
+role task parks or deletes a profile: these are operator steps, below.
+
+Verified offline on the v0.22.5 image (`tests/test_m7_kafeine.py`, lab):
+
+- `hermes -p tech-watch gateway stop` writes `profiles/tech-watch/gateway.parked`
+  and unserves the profile through the control socket: same gateway pid, no
+  restart, `tech-watch:telegram` entry gone, `served_profiles` = default,
+  cafe-ia, job-search. The root `parked_profiles` field stays `{}`: verify with
+  the marker and `served_profiles`, not that field.
+- The park survives `hermes -p default gateway restart` and a container restart.
+- `hermes profile delete tech-watch --yes` removes the directory and the
+  `gateway-tech-watch` s6 slot, writes `profiles/.deleted/tech-watch`, leaves
+  cafe-ia and job-search byte-identical; a directory recreated afterwards stays
+  unlisted and unserved (tombstone). Shared state it may touch: the
+  `agent:tech-watch:*` routing keys, heartbeat and delivery-obligation rows of
+  the root `state.db`, purged through the live gateway
+  (`hermes_cli/profile_identity.py`). In the lab no root file changed (no
+  history to purge); on hermes-31 those rows may exist.
+
+### Runbook M7.3 (production — NOT executed in M7.1)
+
+From `hermes/`, `direnv` loaded. Commands on the VM run as
+`ssh hermes-31 sudo docker exec -u 1000 hermes …`. Each step names its kind:
+**R** read-only, **P** production change (reversible), **I** irreversible.
+Every P and I step needs an explicit written GO; a green pipeline or a merged
+MR is not one.
+
+| # | Kind | Step |
+|---|---|---|
+| 1 | R | Preflight: `docker ps` (hermes Up), `s6-svstat /run/service/gateway-default` up, `hermes_checks.py multiplex` with `default,cafe-ia,job-search,tech-watch` → ok; record the gateway pid and the container `StartedAt` |
+| 2 | R | Checksums: `sha256sum /opt/hermes/data/SOUL.md` = `e3dfd76a…`, `profiles/cafe-ia/SOUL.md` = `c4923f3c…`, `profiles/job-search/SOUL.md` = repo; four Telegram entries connected in the root `gateway_state.json`. Any other value: stop |
+| 3 | R | Néo idle: `active_agents` / `active_work` of the root state; no message to Néo in progress |
+| 4 | **P** | Park Néo: `hermes -p tech-watch gateway stop` (no `-y`: it refuses while work is live) |
+| 5 | R | `ls profiles/tech-watch/gateway.parked`; `served_profiles` = default, cafe-ia, job-search; no `tech-watch:telegram` entry; **same gateway pid**. Otherwise stop: do not deploy |
+| 6 | **P** | `ansible-playbook ansible/deploy.yml --limit hermes-31 --tags hermes` (merged `main`). Expected: Nora's and Kaféine's SOUL.md replaced, `agent.environment_hint` set on cafe-ia, one `hermes -p default gateway restart` (all three bots reconnect), multiplex check green for three |
+| 7 | R | Live SOUL.md = repo for default and cafe-ia; the backup beside each equals the predecessor |
+| 8 | R | `hermes -p cafe-ia config get agent.environment_hint --json` = declaration; Nora's and Scout's hints unchanged |
+| 9 | R | Gateway up, `127.0.0.1:8642` only, three `telegram` / `<profile>:telegram` entries connected (`hermes_checks.py telegram`), container `StartedAt` unchanged |
+| 10 | R | Second run of the same playbook: `changed=0` |
+| 11 | R | Telegram acceptance (below) |
+| 12 | **P** | `hermes profile describe cafe-ia --text "Kaféine — IA et technologies numériques : veille, expertise technique, pédagogie et Café IA."` |
+| 13 | **I** | Separate approval: `hermes profile delete tech-watch --yes`, then `docker restart hermes-dashboard` (it loads profiles at start); check the tombstone and that three profiles stay served |
+| 14 | **I** | Later, separate approval: delete `@neo_r64gnb_bot` in BotFather, revoke Néo's Tavily key, then remove `vault_hermes_tech_watch_telegram_bot_token` and `vault_hermes_tech_watch_tavily_api_key` (dedicated commit) |
+
+Read-only probes for steps 1, 5 and 9 (no secret printed):
+
+```bash
+# Gateway pid, served profiles, one state per platform entry
+ssh hermes-31 "sudo python3 -c 'import json; s = json.load(open(\"/opt/hermes/data/gateway_state.json\")); print(s[\"pid\"], s[\"served_profiles\"], {k: v.get(\"state\") for k, v in s[\"platforms\"].items()})'"
+# s6 view: only gateway-default up
+ssh hermes-31 "sudo docker exec hermes sh -c 'for s in /run/service/gateway-*; do echo \$s \$(/command/s6-svstat \$s); done'"
+# Park marker (step 5) and container start time (unchanged from step 1)
+ssh hermes-31 "sudo ls -l /opt/hermes/data/profiles/tech-watch/gateway.parked; sudo docker inspect -f '{{.State.StartedAt}}' hermes"
+```
+
+Telegram acceptance (step 11):
+
+1. Kaféine, "Qui es-tu ?": Kaféine, three facets, no Néo.
+2. Kaféine, "Puis-je faire tourner un modèle de 14B en local, et où ?": uses
+   the hint (RTX 4060 8 GB on the laptop, no GPU on Proxmox), published vs
+   estimated, sources.
+3. Kaféine, "Quoi de neuf côté Ollama ce mois-ci ?": dated items, Vérifié /
+   À confirmer.
+4. Kaféine, "Prépare un sujet Café IA sur les agents pour un public non
+   technique", then "Réexplique-le pour des développeurs": template, demo with
+   plan B, depth changes.
+5. Kaféine, "Lance `docker ps` sur mon serveur": no terminal, no HomeLab access.
+6. Kaféine: a daily-life request points to Nora, a job request to Scout.
+7. Néo (`@neo_r64gnb_bot`): no answer.
+8. Nora: one ordinary request; asked about the other assistants, names Scout and Kaféine.
+9. Scout: one ordinary request.
+
+### Rollback (before step 13; Néo's history is not needed)
+
+Order matters: restore the SOUL.md backups **before** redeploying a reverted
+inventory — after a revert, Nora's guard would refuse the M7 SOUL.md as unknown.
+
+1. SOUL.md: on the VM, copy each backup back as the agent
+   (`sudo docker exec -u 1000 hermes cp -p /opt/data/SOUL.md.<…>~ /opt/data/SOUL.md`,
+   same for `/opt/data/profiles/cafe-ia/`); effective from the next session.
+2. Kaféine's hint: `hermes -p cafe-ia config unset agent.environment_hint`
+   (the role never unsets a key it stops declaring).
+3. Description (if step 12 ran): `hermes profile describe cafe-ia --text
+   "Kaféine — veille IA, projets à présenter et préparation des rencontres Café IA."`
+4. Néo: `hermes -p tech-watch gateway start` (removes the marker, serves it hot).
+5. Git: revert the M7 merge, then `deploy.yml --limit hermes-31 --tags hermes`
+   (four profiles expected; `changed=0` once steps 1 to 4 are done, apart from
+   one gateway restart if a key moved).
+
+After step 13 Néo can only be recreated blank (revert, then deploy: a new
+profile with its old bot, as long as step 14 has not run).
+
 ## Limits and follow-up (after M4.3)
 
 - **No independent backup of `/opt/hermes/data`** — every profile, memories,
@@ -1339,16 +1523,15 @@ uv run pytest hermes/tests -q
 | `test_role_tasks.py` | runs the **real** `env_keys`, `soul_seed`, `profile_content`, `validate` task files with `ansible-playbook` on a throwaway directory: key preservation, idempotence, duplicates, check mode, no token in output (even `--diff -v`), seed-once, bytecode exclusion, guards |
 | `test_m1_operations.py` | backup/rollback of `data/.env` (absent, present with/without token), post-M1 backup refused, cron restart window, `deploy.yml` timezone pre_task under `--check`, read-only preflight |
 | `test_hermes_checks.py` | managed contract, Telegram verdict (connected / disconnected / unknown / absent / malformed / stale writer / dead pid), type-strict config comparison |
-| `test_inventory.py` | effective `hermes_profiles` names `== ["cafe-ia", "tech-watch", "job-search"]` (needs the vault password, skipped otherwise; prints names only), definitive ids, no destructive task, `no_log` on every token task, task ordering, D1/D5 non-goals |
-| `test_tech_watch_collect.py` | the tech-watch collector |
+| `test_inventory.py` | effective `hermes_profiles` names `== ["cafe-ia", "job-search"]` (M7; tech-watch retired from the declarations) (needs the vault password, skipped otherwise; prints names only), definitive ids, no destructive task, `no_log` on every token task, task ordering, D1/D5 non-goals |
 | `test_m2_cafe_ia.py` | Kaféine, T01-T24: blank creation, SOUL seed and keep, nothing inherited from a lived-in default, no MCP, tokens (distinct, missing, unresolved vault key), allowlist, ports, `API_SERVER_KEY` (verbatim stage2 block: absent / present / key / repeat / concurrent; profile `.env` never touched), caches, idempotence, username, tool lists and verdicts, s6/Telegram/getMe verdicts, **real** rollback and preflight against a fake `docker`/`ss`, loopback verdict, coexistence; memory gate: balloon floor parsing, verdicts on the 2026-10-16 measurements, the real preflight against a fake Proxmox API (GET only, token never printed, missing credentials / unknown VM = NO-GO) |
-| `test_m3_tech_watch.py` | Néo, activated after cafe-ia: identity, bot name declared once behind `mandatory` (getMe not skippable), SOUL.md (five domains, local AI, no Caribbean axis, no cron/file promise), Kaféine's tool matrix, Tavily, convergence, inactive scripts, context facts; **real image, offline** (skipped without it): config applied and converging, SOUL.md + context in the Telegram system prompt, effective toolsets; preflight of the deployed profiles (cafe-ia connected, cron, ESTOP) and of the candidate (shared token, port, existing profile, memory), `profiles-preflight` with no candidate (every profile probed, tech-watch included), rollback targeting tech-watch only |
 | `test_m331_web_tools.py` | M3.3.1, both profiles, **real image, offline**: `web_search` and `web_extract` exposed separately on telegram/api_server/cli/cron, exactly the 9 allowed tools, no `browser_*`, backend `tavily`, the `browser` cause reproduced, deploy check refusing the M3.3 configuration; pure `tool_errors` verdicts |
 | `test_m4_scout.py` | Scout, activated after tech-watch: identity, port, no Charlie, bot name checked by getMe, dedicated vault keys, no shared token, SOUL.md (domains, geography, languages graded from the private context, no sending, limits, no private fact), private context (vault reference, NO-GO when missing, **real profile.yml config tasks at `-vvv`**: set verbatim, never printed, even on failure), tool matrix; **real image, offline**: config converging with a multi-line context, 9 tools per platform, 7 for a real cron run, context in Scout's prompt only, `--continuity` losing the previous answer; cron drafts (schedules, no Kandidat/shell/file, no private fact, read by nothing); m4 preflight (deployed profiles, prerequisites, shared token, blank page, memory gate, getMe on stdin) and rollback (job-search only, data kept, others re-checked) |
 | `test_m5_nora.py` | Nora (default), active through one group_vars reference: declaration, declared predecessor checksum and prerequisites, SOUL.md (identity, limits, no private or job context), tool matrix (four allowlists, session_search and skills denied, Kandidat cut twice, memory approval, old skills, curator), enabled-MCP verdicts, validate.yml (accepts, PREREQUIS, malformed, shared Tavily key), **real default_soul.yml** guard (once, backup, unknown/absent/edited fail, targets, check mode), **real default_profile.yml** against a fake `docker` (`-p default` only, url kept, one targeted restart, second run 0 changed, check mode, other profiles untouched), no global restart, ordering, profiles unchanged since M4.3; **real image, offline**: keys converge, sticky `active_profile` ignored, 5 tools, approval, disabled skills, curator off, s6 slot, Nora prompt |
 | `test_m5_recovery.py` | M5.3.B1 on disposable data with a real WAL SQLite database: snapshot keeps `-wal` commits (a file copy loses them), one committed state, damaged copies flagged, report never touches a file; **real m5_backup.yml** (explicit id, 0700/0600, SHA256SUMS, predecessor checksum, numeric owners and modes in the archive, profiles/live DB/caches excluded, never overwritten, check mode, only inspect/svstat sent to docker); **real m5_rollback.yml** (confirmation, Nora still declared, tampered backup, byte-identical restore with modes, Tavily removed, archive returned, current files saved first, replayable, archive conflict, profiles untouched, check mode, databases only on flag and never while open, sidecars moved together); **real m5_preflight.yml** (GO on the observed state without resolving vault references, 8 NO-GO cases, `active_agents` read as the int Hermes writes: 1-2 NO-GO, any other shape FAIL); static guards (not reachable from deploy.yml, no restart, no deletion, UID drop) |
 | `test_m63_multiplex.py` | M6.3.B, hermes-31: inventory and host_vars (hermes-31 alone, v0.22.5 multiplexed with Telegram on; role defaults still v0.20.4), **real deploy.yml target guard** (6 cases, synthetic locked host), multiplex and `<profile>:telegram` verdicts, `profile_multiplex.yml` sharing `profile.yml`'s tasks, token last, no per-profile gateway action, main.yml order, rendered compose; **real profile_multiplex.yml** against a fake `docker` (phase 1 no token, phase 2 getMe on stdin before the write, idempotence, check mode); effective inventory (vault: hermes-31 alone, four distinct tokens and Tavily keys, hermes-31 = group_vars declarations + overlay only); **real v0.22.5 image, offline**: fresh boot, every key applied, managed contract, 9/5-tool surfaces with tool_search off and the bridge refused without it, API key, one gateway serving four, only `127.0.0.1:8642`, `gateway start` exit 78, no bot without tokens, managed allowlist in every profile scope (hostile profile `.env` included), one entry per bot, container restart, dashboard login and profile list |
 
-| `test_m66_retirement.py` | M6.6.D.1: no active inventory, variable, Caddy route, hermes-31 Terraform argument or CI value names hermes-30 / `.30` / 9030 (comments and docs may); `hermes/terraform` and `host_vars/hermes-30` untracked; the 13 historical playbooks run `legacy_v0204_guard.yml` first (real run: multiplexed refused, standalone passes); `komodo_connect_as` has no default and its real check refuses an empty name |
+| `test_m66_retirement.py` | M6.6.D.1: no active inventory, variable, Caddy route, hermes-31 Terraform argument or CI value names hermes-30 / `.30` / 9030 (comments and docs may); `hermes/terraform` and `host_vars/hermes-30` untracked; the 11 historical playbooks (13 until M7 removed `m3-*`) run `legacy_v0204_guard.yml` first (real run: multiplexed refused, standalone passes); `komodo_connect_as` has no default and its real check refuses an empty name |
+| `test_m7_kafeine.py` | M7: Kaféine's SOUL.md (three facets, watch on demand, no Néo, Nora/Scout boundaries, rigour and limits kept) and environment hint (cafe-ia only, no secret, no shared template); tool matrices, Nora's and Scout's declarations unchanged since `ea733d4`; Nora's SOUL.md differs by one line; tech-watch out of every active declaration, no task deletes or parks a profile, exact-set multiplex check intact, shared templates unchanged; **real default_soul.yml** for cafe-ia (replace once with backup, idempotent, unknown refused, check mode, other profiles untouched, target derived from the profile, malformed lists refused) and Nora's predecessor pair; **real v0.22.5 image, offline**: four served then park (same pid, marker, unserved), exactly three converge, park survives gateway and container restarts, Kaféine's prompt carries its SOUL.md and hint only, a SOUL.md change reaches the next session, `profile delete` removes only Néo and its slot, tombstone blocks rediscovery |
 
 Fake tokens only; nothing reaches a real host.

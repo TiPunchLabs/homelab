@@ -79,11 +79,14 @@ def test_inventory_lists_hermes_31_alone() -> None:
 # --- Historical v0.20.4 playbooks: refused on a multiplexed host ------------------------------
 
 
-def test_thirteen_historical_playbooks_are_kept() -> None:
-    """m1 to m5 preflight/backup/rollback and profiles-preflight stay, for history and their offline tests."""
+def test_eleven_historical_playbooks_are_kept() -> None:
+    """m1, m2, m4, m5 preflight/backup/rollback and profiles-preflight stay, for history and their offline tests.
+
+    M7 removed m3-preflight.yml and m3-rollback.yml: they only installed or stopped Néo (tech-watch), retired.
+    """
     assert [p.name for p in LEGACY_PLAYBOOKS] == [
         "m1-backup.yml", "m1-preflight.yml", "m1-rollback.yml", "m2-preflight.yml", "m2-rollback.yml",
-        "m3-preflight.yml", "m3-rollback.yml", "m4-preflight.yml", "m4-rollback.yml", "m5-backup.yml",
+        "m4-preflight.yml", "m4-rollback.yml", "m5-backup.yml",
         "m5-preflight.yml", "m5-rollback.yml", "profiles-preflight.yml",
     ]
 
