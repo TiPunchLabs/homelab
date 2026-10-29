@@ -55,6 +55,18 @@
     hermes_soul_dest: "{{ hermes_data_dir }}/profiles/{{ hermes_profile.name }}/SOUL.md"
     hermes_soul_stock_sha256: "{{ [hermes_stock_soul.stdout | default('')] | select | list }}"
 
+# Le semis ne touche plus un SOUL.md vivant : une nouvelle version du depot ne
+# passe que par un predecesseur declare (M7 : Kaféine), comme pour default.
+# Aucun redemarrage : SOUL.md est relu a chaque nouvelle session.
+- name: "Replace the SOUL.md once ({{ hermes_profile.name }})"
+  ansible.builtin.include_tasks: default_soul.yml
+  vars:
+    hermes_soul_src: "{{ hermes_profiles_src_dir }}/{{ hermes_profile.name }}/SOUL.md"
+    hermes_soul_dest: "{{ hermes_data_dir }}/profiles/{{ hermes_profile.name }}/SOUL.md"
+    hermes_soul_predecessor_sha256: "{{ hermes_profile.soul_predecessor_sha256 }}"
+    hermes_soul_profile: "{{ hermes_profile.name }}"
+  when: hermes_profile.soul_predecessor_sha256 is defined
+
 - name: "Deploy the owned content of profile {{ hermes_profile.name }}"
   ansible.builtin.include_tasks: profile_content.yml
   vars:

@@ -43,7 +43,15 @@ hermes_default_profile: "{{ hermes_default_nora | combine({'config': hermes_defa
 # /opt/hermes/docker/SOUL.md dans nousresearch/hermes-agent:v0.22.5. Avec
 # l'empreinte de group_vars (SOUL.md de hermes-30), le premier deploiement
 # echouerait (SOUL.md inconnu).
-hermes_default_soul_predecessor_sha256: 3bd38ef92efb90d0fdda1bb73036185d4a4bc11079963cb0e2db71c84281e64e
+#
+# M7 : liste explicite de DEUX predecesseurs, chacun remplace une seule fois
+# par le SOUL.md livre (default_soul.yml) :
+#   - le SOUL.md seme par l'image (reconstruction a neuf de hermes-31) ;
+#   - le SOUL.md de Nora d'avant M7 (en service depuis M6.3, releve sur
+#     hermes-31 le 2026-10-29), qui citait encore Néo.
+hermes_default_soul_predecessor_sha256:
+  - 3bd38ef92efb90d0fdda1bb73036185d4a4bc11079963cb0e2db71c84281e64e
+  - e3dfd76a8e2b24621470d9102cfbfe38999404559ee84de22090d53246ef7318
 
 # Komodo (M6.3.D) : Server "hermes-31", connecte depuis M6.3.D. Obligatoire :
 # le role komodo_periphery n'a pas de nom par defaut. Un Server "hermes-30"

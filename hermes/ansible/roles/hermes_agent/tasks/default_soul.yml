@@ -1,16 +1,20 @@
 ---
 # =============================================================================
-# SOUL.md de default : REMPLACE UNE SEULE FOIS, sous garde d'empreinte.
+# SOUL.md deja en service : REMPLACE UNE SEULE FOIS, sous garde d'empreinte.
+# Ecrit pour default (M5 : Nora), reutilise depuis M7 par les profils nommes
+# qui declarent `soul_predecessor_sha256` (cafe-ia : Kaféine consolidee).
 #
 # Entrees :
 #   hermes_soul_src                : SOUL.md livre (controleur)
-#   hermes_soul_dest               : SOUL.md de default (hote)
-#   hermes_soul_predecessor_sha256 : empreinte du SOUL.md en service, relevee
-#                                    dans la sauvegarde M5 verifiee
+#   hermes_soul_dest               : SOUL.md en service (hote)
+#   hermes_soul_predecessor_sha256 : empreinte(s) remplacable(s) : une valeur
+#                                    ou une liste, toujours explicite
+#   hermes_soul_profile            : profil vise ; absent = default
 #
-# soul_seed.yml refuse toujours default. Ici, trois cas seulement :
+# soul_seed.yml refuse toujours default, et ne seme un profil nomme que si son
+# SOUL.md est absent ou generique. Ici, trois cas seulement :
 #   - deja le SOUL.md livre          -> rien (changed=0) ;
-#   - exactement le predecesseur     -> remplace, copie .bak a cote ;
+#   - l'un des predecesseurs declares -> remplace, copie de sauvegarde a cote ;
 #   - toute autre valeur, ou absent  -> ECHEC, revue humaine.
 #
 # Une fois remplace, le SOUL.md appartient de nouveau a Hermes et a
@@ -24,18 +28,28 @@
 - name: Compute the checksum of the delivered default SOUL.md
   ansible.builtin.set_fact:
     hermes_soul_wanted_sha256: "{{ lookup('ansible.builtin.file', hermes_soul_src, rstrip=false) | hash('sha256') }}"
+    hermes_soul_predecessors: "{{ [hermes_soul_predecessor_sha256] | flatten }}"
 
+# La cible est derivee du profil, jamais libre : default -> SOUL.md racine,
+# profil nomme -> profiles/<nom>/SOUL.md, rien d'autre.
 - name: Refuse any target but the default profile SOUL.md
   ansible.builtin.assert:
     that:
-      - hermes_soul_dest == hermes_data_dir ~ '/SOUL.md'
-      - hermes_soul_predecessor_sha256 is match('^[0-9a-f]{64}$')
-      - hermes_soul_predecessor_sha256 != hermes_soul_wanted_sha256
+      - hermes_soul_profile_name == 'default' or hermes_soul_profile_name is match('^[a-z0-9][a-z0-9_-]*$')
+      - hermes_soul_dest == hermes_soul_allowed_dest
+      - hermes_soul_predecessors | length > 0
+      - hermes_soul_predecessors | select('match', '^[0-9a-f]{64}$') | list | length == hermes_soul_predecessors | length
+      - hermes_soul_wanted_sha256 not in hermes_soul_predecessors
     fail_msg: >-
-      default_soul.yml ne remplace que {{ hermes_data_dir }}/SOUL.md, depuis
-      une empreinte predecesseur de 64 hex differente du SOUL.md livre.
-      Cible : {{ hermes_soul_dest }}.
+      default_soul.yml ne remplace que {{ hermes_soul_allowed_dest }}, depuis
+      une ou plusieurs empreintes predecesseur de 64 hex differentes du
+      SOUL.md livre. Cible : {{ hermes_soul_dest }}.
     quiet: true
+  vars:
+    hermes_soul_profile_name: "{{ hermes_soul_profile | default('default') }}"
+    hermes_soul_allowed_dest: >-
+      {{ hermes_data_dir ~ '/SOUL.md' if hermes_soul_profile_name == 'default'
+         else hermes_data_dir ~ '/profiles/' ~ hermes_soul_profile_name ~ '/SOUL.md' }}
 
 - name: Read the current default SOUL.md
   ansible.builtin.stat:
@@ -43,13 +57,17 @@
     checksum_algorithm: sha256
   register: hermes_default_soul_stat
 
+# Seule tolerance : --check sur un profil nomme neuf, dont soul_seed.yml n'a
+# fait que simuler le semis (fichier absent, rien a remplacer).
 - name: Refuse to replace an unknown default SOUL.md
   ansible.builtin.assert:
     that:
-      - hermes_default_soul_stat.stat.exists
-      - hermes_default_soul_stat.stat.checksum in [hermes_soul_wanted_sha256, hermes_soul_predecessor_sha256]
+      - >-
+        (hermes_default_soul_stat.stat.exists
+         and hermes_default_soul_stat.stat.checksum in [hermes_soul_wanted_sha256] + hermes_soul_predecessors)
+        or (ansible_check_mode and hermes_soul_profile is defined and not hermes_default_soul_stat.stat.exists)
     fail_msg: >-
-      {{ hermes_soul_dest }} n'est ni le SOUL.md livre ni le predecesseur
+      {{ hermes_soul_dest }} n'est ni le SOUL.md livre ni un predecesseur
       declare (sha256 {{ hermes_default_soul_stat.stat.checksum | default('absent') }}).
       Revue humaine requise : rien n'a ete ecrit.
     quiet: true
@@ -62,4 +80,4 @@
     group: "{{ hermes_pgid }}"
     mode: '0644'
     backup: true
-  when: hermes_default_soul_stat.stat.checksum == hermes_soul_predecessor_sha256
+  when: hermes_default_soul_stat.stat.checksum | default('') in hermes_soul_predecessors

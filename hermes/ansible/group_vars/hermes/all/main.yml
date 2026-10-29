@@ -189,17 +189,26 @@ hermes_profile_tech_watch:
       - Projets : HomeLab, FlowForge, expérimentations RAG, applications Python, agents IA, IA locale.
       Ces informations servent à contextualiser la veille ; elles n'ouvrent aucun accès aux machines ni aux projets. Elles peuvent être datées : ne les présente pas comme des mesures actuelles.
 
-# Kaféine — Café IA (veille IA grand public, preparation des rencontres).
-# DEPLOYE le 2026-10-20 (M2), active par le commit e07b385. Ses deux cles
-# vault sont obligatoires : si l'une manque, la declaration ne se resout pas et
-# le playbook echoue avant toute ecriture.
+# Kaféine — IA et technologies numériques : veille, expertise technique,
+# pedagogie et Café IA. DEPLOYE le 2026-10-20 (M2, commit e07b385) ; elargie
+# en M7 (consolidation de Néo) : nouveau SOUL.md et contexte technique de
+# Xavier repris de tech-watch. Ses deux cles vault sont obligatoires : si l'une
+# manque, la declaration ne se resout pas et le playbook echoue avant toute
+# ecriture.
 #
 # Outils (D5) : recherche et lecture web, memoire, skills, rien d'autre. Ni
 # terminal, ni fichiers, ni navigateur, ni cron, ni MCP (donc pas Kandidat).
-# Matrice et justifications : roles/hermes_agent/README.md, section Kaféine.
+# Matrice inchangee par M7. Justifications : roles/hermes_agent/README.md,
+# section Kaféine.
 hermes_profile_cafe_ia:
   name: cafe-ia
-  description: "Kaféine — veille IA, projets à présenter et préparation des rencontres Café IA."
+  # Lue a la creation du profil seulement (`hermes profile create`, garde
+  # `creates:`). Profil existant : `hermes profile describe cafe-ia --text`,
+  # commande manuelle du runbook M7.3.
+  description: "Kaféine — IA et technologies numériques : veille, expertise technique, pédagogie et Café IA."
+  # SOUL.md M2 en service avant M7 (sha256 releve sur hermes-31 le
+  # 2026-10-29) : seul contenu que default_soul.yml remplace, une fois.
+  soul_predecessor_sha256: c4923f3cdcf64490dd583f892adb115be02798f806ff596f8ba5ce918ab58e8a
   # Propose, a confirmer dans BotFather (code aleatoire, pas une securite).
   # Verifie par getMe avant tout demarrage du gateway.
   telegram_bot_username: kafeine_r64gnb_bot
@@ -262,6 +271,20 @@ hermes_profile_cafe_ia:
       - feishu_drive
       - desktop_ui
       - project
+    # Contexte technique de l'utilisateur, repris de Néo en M7. Hermes l'ajoute
+    # au prompt systeme (bloc d'environnement d'execution sur v0.22.5,
+    # agent/system_prompt.py), lu dans le config.yaml DU PROFIL : present des la
+    # premiere conversation, sans toolset file, sans toucher a la memoire. Jamais dans la couche
+    # managed ni dans HERMES_ENVIRONMENT_HINT (tous les profils). Une
+    # modification est reappliquee par `hermes config set` au playbook suivant,
+    # puis la gateway redemarre. Aucun secret, aucune adresse, aucun identifiant.
+    agent.environment_hint: |-
+      Contexte technique de Xavier (stable, déclaratif ; ni temps réel, ni exhaustif) :
+      - Station de travail : Lenovo LOQ 15ARP9, AMD Ryzen 7 7435HS (8 cœurs / 16 threads), 32 Go de RAM DDR5, GPU NVIDIA RTX 4060 Laptop 8 Go de VRAM, Ubuntu 24.04 LTS. Usages : développement, IA locale, agents de code, expérimentation LLM, Docker. C'est la seule machine avec un GPU.
+      - HomeLab : hyperviseur Proxmox VE, 16 Go de RAM physique au total, sans GPU. VM et services : Hermes, un hôte Docker (dockhost), un cluster Kubernetes, des services réseau et DNS. Outils : Proxmox, Docker, Kubernetes, Helm, Ansible, Terraform, GitLab CI, Komodo, GitOps.
+      - IA locale utilisée ou testée : Ollama, Open WebUI, modèles locaux, embeddings, agents de code.
+      - Projets : HomeLab, FlowForge, expérimentations RAG, applications Python, agents IA, IA locale.
+      Ces informations servent à contextualiser tes analyses et ta veille ; elles n'ouvrent aucun accès aux machines ni aux projets. Elles peuvent être datées : ne les présente pas comme des mesures actuelles.
 
 # Scout — recherche d'emploi et accompagnement professionnel. Prepare en M4.2,
 # active en M4.3 (2026-10-24) par son entree dans hermes_profiles.

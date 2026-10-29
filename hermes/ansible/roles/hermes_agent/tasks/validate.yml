@@ -79,6 +79,12 @@
       # cle vault absente (contexte prive, par exemple) echoue ici, avant
       # toute ecriture. Le resultat n'est jamais affiche.
       - hermes_profiles[idx].config | default({}) | to_json is string
+      # Optionnel (M7, cafe-ia) : SOUL.md vivant remplacable une fois par
+      # default_soul.yml. Une empreinte ou une liste non vide, chacune 64 hex.
+      - hermes_profiles[idx].soul_predecessor_sha256 is not defined
+        or (([hermes_profiles[idx].soul_predecessor_sha256] | flatten | length) > 0
+            and ([hermes_profiles[idx].soul_predecessor_sha256] | flatten
+                 | reject('match', '^[0-9a-f]{64}$') | list | length == 0))
       # Une cle masquee mal orthographiee ne masquerait rien, sans bruit.
       - hermes_profiles[idx].config_no_log | default([]) is sequence
       - hermes_profiles[idx].config_no_log | default([]) is not string
@@ -90,7 +96,8 @@
       reserve, pas de telegram_allowed_users (liste blanche globale), aucune
       cle TELEGRAM_* / API_SERVER_* / GATEWAY_ALLOW* dans env,
       telegram_bot_username au format <assistant>_<6 alphanum>_bot,
-      config_no_log limite a des cles de config.
+      config_no_log limite a des cles de config, soul_predecessor_sha256 en
+      64 hex (une valeur ou une liste non vide).
     quiet: true
   loop: "{{ range(hermes_profiles | length) | list }}"
   loop_control:
@@ -164,7 +171,11 @@
       # Rend TOUTES les valeurs : une cle vault ou un prerequis absent echoue
       # ici, avant toute ecriture. Le resultat n'est jamais affiche.
       - hermes_default_profile | to_json is string
-      - hermes_default_profile.soul_predecessor_sha256 | default('') is match('^[0-9a-f]{64}$')
+      # Une empreinte ou une liste explicite (M7, hermes-31 : semis de l'image
+      # et Nora d'avant M7), chacune de 64 hex.
+      - ([hermes_default_profile.soul_predecessor_sha256 | default('')] | flatten | length) > 0
+      - ([hermes_default_profile.soul_predecessor_sha256 | default('')] | flatten
+         | reject('match', '^[0-9a-f]{64}$') | list | length) == 0
       # Le jeton et le port de default restent ceux de main.yml ; l'API
       # vient du managed.
       - hermes_default_profile.env | default({}) | dict2items | map(attribute='key')
@@ -181,7 +192,7 @@
         | difference(hermes_default_profile.config | default({}) | list) | length == 0
     fail_msg: >-
       hermes_default_profile invalide : cles autorisees soul_predecessor_sha256
-      (64 hex), env, config, config_no_log ; aucune cle TELEGRAM_* /
+      (64 hex, ou liste non vide de 64 hex), env, config, config_no_log ; aucune cle TELEGRAM_* /
       API_SERVER_* / GATEWAY_ALLOW* dans env ; de mcp_servers, seule
       <serveur>.enabled ; ni model.* ni providers.* ; prerequis M5.4 poses.
     quiet: true
