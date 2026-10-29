@@ -2,20 +2,21 @@
 # 🧬 hermes-31 — Hermes v0.22.5, gateway multiplexee (M6.3)
 # ============================================================
 # Installation NEUVE : aucune base SQLite ni session reprise de hermes-30
-# (v0.20.4, detruite en M6.6.C). Memes quatre assistants, memes declarations
-# (group_vars) ; seules les differences propres a v0.22 vivent ici.
+# (v0.20.4, detruite en M6.6.C). Memes declarations que group_vars (trois
+# assistants depuis M7 : Nora, Kaféine, Scout) ; seules les differences
+# propres a v0.22 vivent ici.
 
 # Epingle a la main pendant la migration (pas d'annotation Renovate) : toute
 # montee de version repasse par une validation hors ligne sur l'image.
 hermes_image_tag: "v0.22.5"
 
-# Une gateway (gateway-default) sert les quatre profils : profile_multiplex.yml.
+# Une gateway (gateway-default) sert tous les profils (default compris) : profile_multiplex.yml.
 hermes_gateway_multiplex: true
 
 # M6.4 : les quatre bots sur la gateway multiplexee (jetons verifies par getMe
 # en M6.4.A). Un jeton ne doit etre servi que par un seul hote : un second
 # hote avec les memes jetons se volerait le polling (409) avec celui-ci.
-# Couper Telegram : revenir a false et rejouer --tags hermes retire les quatre
+# Couper Telegram : revenir a false et rejouer --tags hermes retire tous les
 # jetons.
 hermes_telegram_enabled: true
 
@@ -30,9 +31,10 @@ hermes_telegram_enabled: true
 hermes_v022_config:
   tools.tool_search.enabled: "off"
 
+# M7 : tech-watch (Néo) retire de la cible, consolide dans cafe-ia. Le parquer
+# AVANT de deployer (runbook M7.3) : la gateway sert tout profil present.
 hermes_profiles:
   - "{{ hermes_profile_cafe_ia | combine({'config': hermes_profile_cafe_ia.config | combine(hermes_v022_config)}) }}"
-  - "{{ hermes_profile_tech_watch | combine({'config': hermes_profile_tech_watch.config | combine(hermes_v022_config)}) }}"
   - "{{ hermes_profile_job_search | combine({'config': hermes_profile_job_search.config | combine(hermes_v022_config)}) }}"
 
 hermes_default_profile: "{{ hermes_default_nora | combine({'config': hermes_default_nora.config | combine(hermes_v022_config)}) }}"
@@ -43,7 +45,15 @@ hermes_default_profile: "{{ hermes_default_nora | combine({'config': hermes_defa
 # /opt/hermes/docker/SOUL.md dans nousresearch/hermes-agent:v0.22.5. Avec
 # l'empreinte de group_vars (SOUL.md de hermes-30), le premier deploiement
 # echouerait (SOUL.md inconnu).
-hermes_default_soul_predecessor_sha256: 3bd38ef92efb90d0fdda1bb73036185d4a4bc11079963cb0e2db71c84281e64e
+#
+# M7 : liste explicite de DEUX predecesseurs, chacun remplace une seule fois
+# par le SOUL.md livre (default_soul.yml) :
+#   - le SOUL.md seme par l'image (reconstruction a neuf de hermes-31) ;
+#   - le SOUL.md de Nora d'avant M7 (en service depuis M6.3, releve sur
+#     hermes-31 le 2026-10-29), qui citait encore Néo.
+hermes_default_soul_predecessor_sha256:
+  - 3bd38ef92efb90d0fdda1bb73036185d4a4bc11079963cb0e2db71c84281e64e
+  - e3dfd76a8e2b24621470d9102cfbfe38999404559ee84de22090d53246ef7318
 
 # Komodo (M6.3.D) : Server "hermes-31", connecte depuis M6.3.D. Obligatoire :
 # le role komodo_periphery n'a pas de nom par defaut. Un Server "hermes-30"

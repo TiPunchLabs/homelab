@@ -32,7 +32,8 @@ sys.path.insert(0, str(ROLE / "files"))
 import hermes_checks as hc
 import hermes_profiles as hp
 
-PROFILES = {"tech-watch": "hermes_profile_tech_watch", "cafe-ia": "hermes_profile_cafe_ia"}
+# Néo (tech-watch) shared the fix until M7 consolidated it into Kaféine; its declaration is gone.
+PROFILES = {"cafe-ia": "hermes_profile_cafe_ia"}
 PLATFORMS = ("telegram", "api_server", "cli", "cron")
 # Every tool of the allowlist (web, skills, memory, session_search, todo, clarify) on v2026.8.18.
 EXPECTED_TOOLS = {
@@ -100,7 +101,7 @@ def group_vars() -> dict[str, Any]:
 
 @pytest.fixture(scope="module")
 def lab(group_vars: dict[str, Any]) -> dict[str, Any]:
-    """Apply both profiles' declared config to a throwaway, offline container of the deployed image."""
+    """Apply the declared config of each profile to a throwaway, offline container of the deployed image."""
     docker = shutil.which("docker")
     if (
         not docker
@@ -149,11 +150,11 @@ def test_w01_browser_is_neither_allowed_nor_denied(group_vars: dict[str, Any], v
     assert cfg["web.backend"] == "tavily"
 
 
-def test_w01_both_profiles_keep_the_same_matrix(group_vars: dict[str, Any]) -> None:
-    """The fix is the same one-line change for Néo and Kaféine: their matrices stay identical."""
-    neo, cafe = (group_vars[v]["config"] for v in PROFILES.values())
-    assert neo["agent.disabled_toolsets"] == cafe["agent.disabled_toolsets"]
-    assert neo["platform_toolsets.telegram"] == cafe["platform_toolsets.telegram"]
+def test_w01_kafeine_and_scout_keep_the_same_matrix(group_vars: dict[str, Any]) -> None:
+    """The fix was the same one-line change for Néo and Kaféine, then Scout: the remaining matrices stay identical."""
+    cafe, scout = (group_vars[v]["config"] for v in ("hermes_profile_cafe_ia", "hermes_profile_job_search"))
+    assert scout["agent.disabled_toolsets"] == cafe["agent.disabled_toolsets"]
+    assert scout["platform_toolsets.telegram"] == cafe["platform_toolsets.telegram"]
 
 
 # --- Pure verdict ----------------------------------------------------------------

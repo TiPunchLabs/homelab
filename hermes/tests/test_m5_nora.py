@@ -24,7 +24,7 @@ import test_m2_cafe_ia as m2
 import yaml
 from conftest import FAKE_TOKEN, FAKE_TOKEN_2, REPO, ROLE, RunTasks, recap
 from test_m2_cafe_ia import FAKE_TAVILY, FAKE_TOKEN_3, GROUP_VARS, HERMES_TOOLSETS, SENSITIVE, TASKS, snapshot
-from test_m3_tech_watch import IMAGE
+from test_m2_cafe_ia import IMAGE
 from test_m4_scout import FAKE_TAVILY_4, FAKE_TOKEN_4, private_fact
 
 sys.path.insert(0, str(ROLE / "files"))
@@ -81,14 +81,13 @@ def resolved(
 
 
 def profiles(group_vars: dict[str, Any]) -> list[dict[str, Any]]:
-    """The three deployed profiles, fake secrets in place of the vault references."""
+    """The declared profiles (Kaféine and Scout since M7), fake secrets in place of the vault references."""
     fakes = {
         "cafe-ia": (FAKE_TOKEN_2, FAKE_TAVILY),
-        "tech-watch": (FAKE_TOKEN_3, "tvly-FAKE-neo"),
         "job-search": (FAKE_TOKEN_4, FAKE_TAVILY_4),
     }
     out = []
-    for key in ("hermes_profile_cafe_ia", "hermes_profile_tech_watch", "hermes_profile_job_search"):
+    for key in ("hermes_profile_cafe_ia", "hermes_profile_job_search"):
         decl = group_vars[key]
         token, tavily = fakes[decl["name"]]
         out.append(
@@ -225,8 +224,8 @@ def test_n03_session_search_and_skills_are_off(group_vars: dict[str, Any], nora:
     for name in ("session_search", "skills"):
         assert name in config(nora)["agent.disabled_toolsets"]
         assert all(name not in config(nora)[f"platform_toolsets.{p}"] for p in PLATFORMS)
-    neo = group_vars["hermes_profile_tech_watch"]["config"]["agent.disabled_toolsets"]
-    assert config(nora)["agent.disabled_toolsets"] == [*neo, "session_search", "skills"]
+    cafe = group_vars["hermes_profile_cafe_ia"]["config"]["agent.disabled_toolsets"]
+    assert config(nora)["agent.disabled_toolsets"] == [*cafe, "session_search", "skills"]
 
 
 def test_n03_kandidat_is_cut_twice(nora: dict[str, Any]) -> None:
@@ -349,11 +348,11 @@ def test_n05_only_mcp_switches_and_no_model_keys(
     assert_fails_quietly(validate(run_tasks, group_vars, decl))
 
 
-@pytest.mark.parametrize("tavily", [FAKE_TAVILY, "tvly-FAKE-neo", FAKE_TAVILY_4])
+@pytest.mark.parametrize("tavily", [FAKE_TAVILY, FAKE_TAVILY_4])
 def test_n05_tavily_key_is_never_shared(
     run_tasks: RunTasks, group_vars: dict[str, Any], nora: dict[str, Any], tavily: str
 ) -> None:
-    """Nora's search key must differ from Kaféine's, Néo's and Scout's; compared without display."""
+    """Nora's search key must differ from Kaféine's and Scout's (Néo's until M7); compared without display."""
     result = validate(run_tasks, group_vars, resolved(nora, tavily=tavily))
     assert_fails_quietly(result)
     assert tavily not in result.stdout + result.stderr
@@ -673,7 +672,7 @@ def test_n08_profile_tasks_are_unchanged_since_m4() -> None:
 
 
 def test_n08_profile_declarations_are_unchanged_since_m4(group_vars: dict[str, Any]) -> None:
-    """Kaféine, Néo and Scout are declared exactly as deployed in M4.3."""
+    """Scout is declared exactly as deployed in M4.3; Kaféine differs by the M7 keys only; Néo retired in M7."""
     git = shutil.which("git")
     old = subprocess.run(
         [git or "git", "show", f"{M4_COMMIT}:hermes/ansible/group_vars/hermes/all/main.yml"],
@@ -685,11 +684,18 @@ def test_n08_profile_declarations_are_unchanged_since_m4(group_vars: dict[str, A
     if old.returncode != 0:
         pytest.skip(f"{M4_COMMIT} not in this clone")
     before = yaml.safe_load(old.stdout)
-    for key in ("hermes_profiles", "hermes_profile_cafe_ia", "hermes_profile_tech_watch", "hermes_profile_job_search"):
-        assert group_vars[key] == before[key], key
-    assert {k: v for k, v in before["hermes_profile_reserved_ports"].items() if k != "daily-life"} == group_vars[
-        "hermes_profile_reserved_ports"
-    ]
+    assert group_vars["hermes_profile_job_search"] == before["hermes_profile_job_search"]
+    assert group_vars["hermes_profiles"] == [p for p in before["hermes_profiles"] if "tech_watch" not in p]
+    m7_keys = {"description", "soul_predecessor_sha256"}
+    cafe, old_cafe = group_vars["hermes_profile_cafe_ia"], before["hermes_profile_cafe_ia"]
+    assert {k: v for k, v in cafe.items() if k not in m7_keys | {"config"}} == {
+        k: v for k, v in old_cafe.items() if k not in m7_keys | {"config"}
+    }
+    assert {k: v for k, v in cafe["config"].items() if k != "agent.environment_hint"} == old_cafe["config"]
+    assert "hermes_profile_tech_watch" not in group_vars
+    assert {k: v for k, v in before["hermes_profile_reserved_ports"].items() if k not in ("daily-life", "tech-watch")} == (
+        group_vars["hermes_profile_reserved_ports"]
+    )
 
 
 # --- Lab: the real image, offline ---------------------------------------------------------

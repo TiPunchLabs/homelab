@@ -303,6 +303,13 @@ ansible-playbook ansible/deploy.yml --limit hermes-31 --tags komodo-periphery
 > **Nora** `default`, **Kaféine** `cafe-ia`, **Néo** `tech-watch` et **Scout**
 > `job-search`. Dashboard : `https://hermes.internal` (Caddy `.70` →
 > `192.168.10.31:9119`).
+> **M7 (prepare, NON deploye)** : Néo est consolide dans Kaféine (cible : Nora,
+> Kaféine, Scout) et retire des declarations du depot, mais reste servi sur
+> hermes-31 jusqu'au runbook M7.3. Retirer un profil des declarations ne
+> l'arrete pas : le **parquer avant de deployer** (`hermes -p tech-watch
+> gateway stop`), sinon le controle multiplex echoue. Suppression
+> (`hermes profile delete`) et revocation des secrets : etapes separees, sur
+> accord explicite — voir la section M7 du README du role.
 > Les playbooks `m<N>-*.yml` et `profiles-preflight.yml` decrivent le modele
 > v0.20.4 (une gateway par profil) : historiques, ils refusent un hote
 > multiplexe. Les restrictions d'outils sont verifiees outil par outil

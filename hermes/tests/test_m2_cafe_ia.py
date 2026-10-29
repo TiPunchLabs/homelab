@@ -213,9 +213,12 @@ def test_t02_cafe_ia_has_its_own_soul() -> None:
 
 
 def test_t02_soul_invents_no_history_and_states_its_limits() -> None:
-    """6.4/7.4: no fake memories or participants; the hard limits are spelled out."""
+    """6.4/7.4: no fake memories or participants; the hard limits are spelled out.
+
+    M7: "Tu démarres sans historique" was true at creation only; memory is now described as built from the exchanges.
+    """
     soul = (CAFE_SRC / "SOUL.md").read_text()
-    assert "Tu démarres sans historique" in soul
+    assert "Ta mémoire se construit au fil des échanges" in soul
     assert not re.search(r"\b(lors de la dernière rencontre|comme d'habitude|tu te souviens)\b", soul, re.IGNORECASE)
     assert not re.search(r"\b\d{9,10}\b", soul)  # no Telegram id
     for limit in ("Publier", "invitation", "automatisation récurrente", "Installer"):
@@ -302,26 +305,31 @@ def test_t07_no_mcp_and_no_kandidat(cafe: dict[str, Any]) -> None:
 # --- T08 / T09 jeton ----------------------------------------------------------
 
 
+def scout(group_vars: dict[str, Any]) -> dict[str, Any]:
+    """Scout's declaration with fake secrets: its own token, a Tavily key and a non-private context."""
+    decl = group_vars["hermes_profile_job_search"]
+    return decl | {
+        "telegram_bot_token": FAKE_TOKEN_3,
+        "env": {"TAVILY_API_KEY": "x"},
+        "config": decl["config"] | {"agent.environment_hint": "Contexte FAKE de Scout."},
+    }
+
+
 def test_t08_cafe_ia_cannot_reuse_another_token(
     run_tasks: RunTasks, group_vars: dict[str, Any], cafe: dict[str, Any]
 ) -> None:
-    """T08: default's token, or the tech-watch one, is refused without being printed."""
+    """T08: default's token, or another profile's (Scout's since M7), is refused without being printed."""
     assert validate(run_tasks, group_vars, [resolved(cafe)]).returncode == 0
     assert_fails_quietly(validate(run_tasks, group_vars, [resolved(cafe, FAKE_TOKEN)]))
-    neo = group_vars["hermes_profile_tech_watch"] | {
-        "telegram_bot_token": FAKE_TOKEN_3,
-        "telegram_bot_username": "neo_FAKE00_bot",
-        "env": {"TAVILY_API_KEY": "x"},
-    }
-    assert_fails_quietly(validate(run_tasks, group_vars, [neo, resolved(cafe, FAKE_TOKEN_3)]))
+    assert_fails_quietly(validate(run_tasks, group_vars, [scout(group_vars), resolved(cafe, FAKE_TOKEN_3)]))
 
 
 def test_t08_token_points_to_its_own_vault_key(cafe: dict[str, Any], group_vars: dict[str, Any]) -> None:
-    """9.3: dedicated vault key, never the default or tech-watch one."""
+    """9.3: dedicated vault key, never the default or Scout one."""
     assert cafe["telegram_bot_token"] == "{{ vault_hermes_cafe_ia_telegram_bot_token }}"
     assert cafe["telegram_bot_token"] not in (
         group_vars["hermes_telegram_bot_token"],
-        group_vars["hermes_profile_tech_watch"]["telegram_bot_token"],
+        group_vars["hermes_profile_job_search"]["telegram_bot_token"],
     )
 
 
@@ -348,7 +356,7 @@ def test_t09_empty_search_key_is_refused(run_tasks: RunTasks, group_vars: dict[s
 
 
 def test_t09_still_active_after_m3(group_vars: dict[str, Any]) -> None:
-    """cafe-ia stays first in hermes_profiles; M3 only appended tech-watch after it."""
+    """cafe-ia stays first in hermes_profiles (M3 appended tech-watch after it; M7 consolidated Néo into cafe-ia)."""
     assert group_vars["hermes_profiles"][0] == "{{ hermes_profile_cafe_ia }}"
 
 
@@ -732,6 +740,24 @@ else:
     sys.exit(f"unexpected: {cmd}")
 '''
 
+# Shared with test_m4_scout.py and test_m5_nora.py; lived in test_m3_tech_watch.py until M7 retired Néo.
+# FAKE_DOCKER_M3: the same fake, where a `python3` check fails with NO-GO when its argv names state["python_fails"].
+FAKE_DOCKER_M3 = FAKE_DOCKER.replace(
+    'elif cmd[:1] == ["python3"]:\n    print("telegram connected (gateway pid 162)")',
+    'elif cmd[:1] == ["python3"]:\n'
+    '    failing = [m for m in state.get("python_fails", []) if any(m in a for a in sys.argv)]\n'
+    "    if failing:\n"
+    '        print("NO-GO: " + failing[0])\n'
+    "        sys.exit(1)\n"
+    '    print("telegram connected (gateway pid 162)")',
+)
+assert FAKE_DOCKER_M3 != FAKE_DOCKER
+
+# The image of the role defaults (v0.20.4, the hermes-30 model) used by the offline labs of M3 to M5.
+IMAGE = "{}:{}".format(
+    *(yaml.safe_load((ROLE / "defaults/main.yml").read_text())[k] for k in ("hermes_image", "hermes_image_tag"))
+)
+
 
 @pytest.fixture
 def fake_host(tmp_path: Path, data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
@@ -919,13 +945,8 @@ def test_t22_no_exposure_added(group_vars: dict[str, Any], cafe: dict[str, Any])
 def test_t23_three_gateways_coexist_in_the_inventory(
     run_tasks: RunTasks, group_vars: dict[str, Any], cafe: dict[str, Any]
 ) -> None:
-    """T23: default + cafe-ia (+ the prepared tech-watch) pass together: names, ports, tokens distinct."""
-    neo = group_vars["hermes_profile_tech_watch"] | {
-        "telegram_bot_token": FAKE_TOKEN_3,
-        "telegram_bot_username": "neo_FAKE00_bot",
-        "env": {"TAVILY_API_KEY": "x"},
-    }
-    result = validate(run_tasks, group_vars, [resolved(cafe), neo])
+    """T23: default + cafe-ia + job-search (the M7 target) pass together: names, ports, tokens distinct."""
+    result = validate(run_tasks, group_vars, [resolved(cafe), scout(group_vars)])
     assert result.returncode == 0, result.stdout
 
 
