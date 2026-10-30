@@ -4,12 +4,12 @@ Deploy Hermes Agent as one Docker Compose stack hosting several **profiles**,
 one Telegram bot per profile, all in the same container.
 
 > **Current host: hermes-31** (Hermes v0.22.5, one multiplexed gateway serving
-> the four profiles) — see
+> three profiles: Nora `default`, Kaféine `cafe-ia`, Scout `job-search`) — see
 > [hermes-31](#hermes-31--hermes-v0225-one-multiplexed-gateway-mission-m63).
-> **M7 (prepared, not deployed):** Néo (`tech-watch`) consolidated into
-> Kaféine; target = Nora, Kaféine, Scout — see
-> [M7](#m7--kaféine-consolidation-and-néo-retirement). Park Néo before
-> deploying.
+> **M7 (deployed 2026-10-29, Néo deleted 2026-10-30):** Néo (`tech-watch`) was
+> consolidated into Kaféine and permanently retired — see
+> [M7](#m7--kaféine-consolidation-and-néo-retirement). Sections about Néo are
+> history.
 > hermes-30 (v0.20.4, one s6 gateway per profile, image `v2026.8.18`, still the
 > role defaults) was **destroyed in M6.6.C (2026-10-26)**. Most sections below
 > were written and measured on hermes-30: they remain as the design history of
@@ -361,9 +361,10 @@ Assistant of the Café IA project: AI watch for a mixed audience, projects to
 present, meeting preparation, drafts. Identity: `files/profiles/cafe-ia/SOUL.md`
 (seeded once, D6). Declaration: `hermes_profile_cafe_ia` in `group_vars`.
 
-> **M7 (prepared, not deployed):** Kaféine absorbs Néo's scope (technology
+> **M7 (deployed 2026-10-29):** Kaféine absorbed Néo's scope (technology
 > watch, technical expertise, local AI, DevOps, HomeLab) and environment hint;
-> new SOUL.md through the guarded replacement; same tool matrix. See
+> new SOUL.md through the guarded replacement; same tool matrix; description
+> updated by hand (step 12). See
 > [M7](#m7--kaféine-consolidation-and-néo-retirement).
 
 ### What `hermes profile create cafe-ia --no-alias` really creates (v0.20.4)
@@ -779,8 +780,9 @@ https://api.tavily.com/search`; the provider only returns success after
 
 ## Néo — profile `tech-watch` (mission M3, deployed 2026-10-22)
 
-> **Retirement prepared in M7 (not executed):** removed from the repository
-> declarations, still served on hermes-31 until M7.3 parks it. This section is
+> **Retired in M7:** parked 2026-10-29, deleted from hermes-31 2026-10-30
+> (`hermes profile delete`, tombstone `profiles/.deleted/tech-watch`); bot and
+> Tavily key revoked by the user, both vault variables removed. This section is
 > history; `m3-preflight.yml` and `m3-rollback.yml` were removed in M7. See
 > [M7](#m7--kaféine-consolidation-and-néo-retirement).
 
@@ -788,8 +790,8 @@ https://api.tavily.com/search`; the provider only returns success after
 |---|---|
 | Name / id | **Néo** / `tech-watch` (`gateway-tech-watch`) |
 | API | `127.0.0.1:8643` (loopback only) |
-| Telegram | `@neo_r64gnb_bot` (`hermes_tech_watch_telegram_bot_username`), token `vault_hermes_tech_watch_telegram_bot_token` |
-| Web | Tavily, dedicated key `vault_hermes_tech_watch_tavily_api_key` (≠ Kaféine's), monthly limit managed on the Tavily side (dashboard) |
+| Telegram | `@neo_r64gnb_bot` (`hermes_tech_watch_telegram_bot_username`), token `vault_hermes_tech_watch_telegram_bot_token` (bot deleted, variable removed in M7.5) |
+| Web | Tavily, dedicated key `vault_hermes_tech_watch_tavily_api_key` (≠ Kaféine's), monthly limit managed on the Tavily side (dashboard) (key revoked, variable removed in M7.5) |
 | Activation | `c49560f` (appended after cafe-ia in `hermes_profiles`) |
 
 **Mission** (`files/profiles/tech-watch/SOUL.md`, in French): technical watch
@@ -977,7 +979,7 @@ head -1 ansible/group_vars/hermes/vault/config.yml   # $ANSIBLE_VAULT;1.1;AES256
 ansible hermes -m ansible.builtin.assert -a '{"quiet": true, "that": [
   "vault_hermes_job_search_telegram_bot_token | length > 0",
   "vault_hermes_job_search_tavily_api_key is match(\"tvly-\")",
-  "vault_hermes_job_search_tavily_api_key not in [vault_hermes_cafe_ia_tavily_api_key, vault_hermes_tech_watch_tavily_api_key]",
+  "vault_hermes_job_search_tavily_api_key != vault_hermes_cafe_ia_tavily_api_key",
   "vault_hermes_job_search_environment_hint | length > 0"]}' 2>/dev/null \
   | grep -oE '^hermes-30 \| (SUCCESS|FAILED)'
 ```
@@ -1318,11 +1320,12 @@ connected since M6.3.D (Server `hermes-31`).
 
 ## M7 — Kaféine consolidation and Néo retirement
 
-**Status: prepared in the repository (M7.1), NOT deployed.** Until M7.3 runs,
-hermes-31 still serves the four profiles of M6: `default`, `cafe-ia`,
-`tech-watch` and `job-search`.
+**Status: deployed and closed.** Repository change MR !78 (`0d6faf5`), Néo
+parked and Kaféine deployed on 2026-10-29, Néo deleted on 2026-10-30, its bot
+and Tavily key revoked and its two vault variables removed afterwards. See
+[M7.3 to M7.5 — as executed](#m73-to-m75--as-executed-2026-10-29-to-2026-10-30).
 
-Target, three assistants on the same multiplexed gateway:
+Production, three assistants on the same multiplexed gateway:
 
 | Assistant | Profile | Responsibility |
 |---|---|---|
@@ -1407,13 +1410,35 @@ Verified offline on the v0.22.5 image (`tests/test_m7_kafeine.py`, lab):
 - `hermes profile delete tech-watch --yes` removes the directory and the
   `gateway-tech-watch` s6 slot, writes `profiles/.deleted/tech-watch`, leaves
   cafe-ia and job-search byte-identical; a directory recreated afterwards stays
-  unlisted and unserved (tombstone). Shared state it may touch: the
-  `agent:tech-watch:*` routing keys, heartbeat and delivery-obligation rows of
-  the root `state.db`, purged through the live gateway
-  (`hermes_cli/profile_identity.py`). In the lab no root file changed (no
-  history to purge); on hermes-31 those rows may exist.
+  unlisted and unserved (tombstone).
 
-### Runbook M7.3 (production — NOT executed in M7.1)
+What `profile delete` does to shared state on v0.22.5 (source read in M7.5.A,
+confirmed on hermes-31 in M7.5.B). The live gateway settles the identity
+through its `purge-profile-identity` control verb
+(`hermes_cli/profile_identity.py`, `hermes_state_gateway.py`
+`purge_profile_state`), without restarting:
+
+- `gateway_routing` rows whose `session_key` starts with `agent:<name>:`, and
+  the same keys in the gateway's in-memory routing index: **deleted**
+  (hermes-31: 3 → 0);
+- `gateway_heartbeats` rows of the profile and the Telegram topic rows:
+  deleted (none existed);
+- `delivery_obligations`: **delivered rows are kept** as history (hermes-31:
+  6 kept). Only non-terminal rows are set to `abandoned` (none existed);
+- `sessions` rows of the shared store: not touched. The profile's own
+  `state.db` goes with its directory.
+
+If the gateway cannot settle the identity, the delete still completes and
+raises `ProfileIdentitySettlementPending`. The retry is
+`hermes profile purge-identity <name>`, run on its own approval.
+
+The dashboard needs **no restart** to stop listing a deleted profile:
+`/api/profiles` enumerates `profiles/` on every request and skips tombstones.
+A restart only releases the open handles it keeps on the deleted profile's
+log files. Likewise the gateway keeps its SQLite handles on a parked profile's
+deleted `state.db` until its next restart (deleted-but-open files, a few MB).
+
+### Runbook M7.3 (production — executed, see below)
 
 From `hermes/`, `direnv` loaded. Commands on the VM run as
 `ssh hermes-31 sudo docker exec -u 1000 hermes …`. Each step names its kind:
@@ -1435,7 +1460,7 @@ MR is not one.
 | 10 | R | Second run of the same playbook: `changed=0` |
 | 11 | R | Telegram acceptance (below) |
 | 12 | **P** | `hermes profile describe cafe-ia --text "Kaféine — IA et technologies numériques : veille, expertise technique, pédagogie et Café IA."` |
-| 13 | **I** | Separate approval: `hermes profile delete tech-watch --yes`, then `docker restart hermes-dashboard` (it loads profiles at start); check the tombstone and that three profiles stay served |
+| 13 | **I** | Separate approval: `hermes profile delete tech-watch --yes`; check the tombstone, the routing purge and that three profiles stay served. No dashboard restart needed (see above) |
 | 14 | **I** | Later, separate approval: delete `@neo_r64gnb_bot` in BotFather, revoke Néo's Tavily key, then remove `vault_hermes_tech_watch_telegram_bot_token` and `vault_hermes_tech_watch_tavily_api_key` (dedicated commit) |
 
 Read-only probes for steps 1, 5 and 9 (no secret printed):
@@ -1466,7 +1491,22 @@ Telegram acceptance (step 11):
 8. Nora: one ordinary request; asked about the other assistants, names Scout and Kaféine.
 9. Scout: one ordinary request.
 
-### Rollback (before step 13; Néo's history is not needed)
+### M7.3 to M7.5 — as executed (2026-10-29 to 2026-10-30)
+
+| Step | When (UTC) | Result |
+|---|---|---|
+| Park Néo (4-5) | 2026-10-29 19:57 | `gateway stop` exit 0, no prompt; same pid 195; three profiles served |
+| Deploy (6-9) | 2026-10-29 20:44-20:48 | `ok=99 changed=4 failed=0`: two SOUL.md (backups `SOUL.md.1097128.2026-10-29@16:45:09~`, `profiles/cafe-ia/SOUL.md.1098004.2026-10-29@16:46:01~`), cafe-ia hint, one gateway restart (pid 195 → 670084, about 50 s, container not restarted) |
+| Idempotence (10) | 2026-10-29 20:50-20:52 | `ok=93 changed=0 failed=0` |
+| Telegram acceptance (11) | 2026-10-29 | accepted by the user |
+| Description (12) | 2026-10-29 23:55 | `profile describe` exit 0, nothing else changed |
+| Delete Néo (13) | 2026-10-30 00:24 | exit 0, tombstone written, s6 slot removed, routing 3 → 0, delivered obligations kept, pid 670084 unchanged, no dashboard restart |
+| Credentials (14) | 2026-10-30 | bot and Tavily key revoked by the user; vault variables removed (this MR) |
+
+### Rollback (historical: valid only before step 13)
+
+Néo has been deleted, so this sequence can no longer bring it back (see the
+last paragraph).
 
 Order matters: restore the SOUL.md backups **before** redeploying a reverted
 inventory — after a revert, Nora's guard would refuse the M7 SOUL.md as unknown.
@@ -1483,8 +1523,10 @@ inventory — after a revert, Nora's guard would refuse the M7 SOUL.md as unknow
    (four profiles expected; `changed=0` once steps 1 to 4 are done, apart from
    one gateway restart if a key moved).
 
-After step 13 Néo can only be recreated blank (revert, then deploy: a new
-profile with its old bot, as long as step 14 has not run).
+After step 13 Néo can only be recreated blank, and since step 14 it would
+also need a new bot and a new Tavily key: re-declare the profile with new vault
+entries, then deploy. Kaféine's own rollback (steps 1 to 3 above) remains
+possible from the backups.
 
 ## Limits and follow-up (after M4.3)
 
