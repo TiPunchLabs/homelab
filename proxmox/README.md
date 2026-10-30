@@ -107,12 +107,8 @@ proxmox/
 └── ansible-token-secret
 ```
 
-Pour utiliser le token Terraform dans les autres sous-projets, configurer dans `.envrc` :
-
-```bash
-export PM_API_TOKEN_ID="$(pass show proxmox/terraform-token-id)"
-export PM_API_TOKEN_SECRET="$(pass show proxmox/terraform-token-secret)"
-```
+Pour utiliser le token Terraform dans les autres sous-projets, ne pas l'exporter dans `.envrc` :
+lancer la commande via `scripts/with-secrets proxmox -- <commande>`.
 
 Voir [Token Workflow](docs/TOKEN_WORKFLOW.md) pour le guide complet.
 

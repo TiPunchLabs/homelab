@@ -9,23 +9,11 @@ if [[ -f uv.lock ]]; then
     uv sync
 fi
 
-# Variables Terraform
-TF_VAR_github_token=$(pass github/terraform-token)
-export TF_VAR_github_token
-export TF_VAR_github_owner="your-github-owner"
-
-# OVH API (ovh-dns/ — token scope /domain/zone/tipunchlabs.fr/*)
-TF_VAR_ovh_application_key=$(pass tipunchlabs/ovh/application_key)
-export TF_VAR_ovh_application_key
-TF_VAR_ovh_application_secret=$(pass tipunchlabs/ovh/application_secret)
-export TF_VAR_ovh_application_secret
-TF_VAR_ovh_consumer_key=$(pass tipunchlabs/ovh/consumer_key)
-export TF_VAR_ovh_consumer_key
-TF_VAR_dynhost_password=$(pass tipunchlabs/ovh/dynhost_password)
-export TF_VAR_dynhost_password
-TF_VAR_portail_current_ip=$(pass tipunchlabs/ovh/portail_public_ip)
-export TF_VAR_portail_current_ip
-
-# Ansible Vault password
-ANSIBLE_VAULT_PASSWORD=$(pass ansible/vault)
-export ANSIBLE_VAULT_PASSWORD
+# Configuration non sensible UNIQUEMENT.
+# Aucun secret ici : les credentials sont injectes a la demande par
+# scripts/with-secrets (lecture de pass, scope limite au process lance).
+export PROXMOX_IP=<proxmox-ip>
+export TF_VAR_pm_api_url=<https://proxmox-ip:8006/api2/json>
+export TF_VAR_github_owner=<github-owner>
+export TF_VAR_gitlab_namespace_path=<gitlab-namespace-path>
+export TF_HTTP_USERNAME=<gitlab-username>
