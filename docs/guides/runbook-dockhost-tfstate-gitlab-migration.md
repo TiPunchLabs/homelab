@@ -186,7 +186,8 @@ for f in terraform.tfstate terraform.tfstate.backup; do
 done
 chmod 400 "$E"/*
 sha256sum -c "$B.sha256" || stop S8
-! grep -rIlE 'glpat-|PRIVATE-TOKEN' "$E" "$W/.terraform" || stop "S8 (credential pattern found)"
+grc=0; grep -rIlE 'glpat-|PRIVATE-TOKEN' "$E" "$W/.terraform" || grc=$?
+[ "$grc" -eq 1 ] || stop "S8 (credential scan: match or error, grep exit $grc)"
 echo "S1-S8 PASSED — evidence in $E"
 )
 ```
@@ -195,8 +196,9 @@ Manual, after the run:
 
 - **S9**: Codex reviews `$E`. The owner marks MR !81 ready and merges it. The `main` pipeline must be green.
 - **S10**: from an up-to-date `main` checkout, run in `$W`
-  `direnv exec "$H" "$T" init -input=false` and then the same S6 plan and check.
-  The result must be identical.
+  `direnv exec "$H" "$T" init -input=false`, then the S6 plan with its output in a
+  new file (`$E/plan-post-merge.log`; `$E/plan.log` is read-only since S8), and
+  run the S6 checker on that file. The result must be identical.
 
 If S3 fails: stop. Run the P4 query to learn whether a remote state was
 created. Do not retry blindly. A stuck lock is released only with
@@ -249,4 +251,4 @@ Rule: delete nothing until the destination is verified. `$B` is never modified.
 
 > **Document created on**: 2026-10-30
 > **Author**: Xavier Gueret, with Claude Code
-> **Version**: 2.1 (v1 was an unversioned scratch draft; v2.1 adds fail-fast gates after the M3.3 Codex review)
+> **Version**: 2.2 (v1 was an unversioned scratch draft; v2.1 adds fail-fast gates after the M3.3 Codex review)
