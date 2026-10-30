@@ -61,7 +61,7 @@ the freeze in P8 is procedural.
 
 | ID | Decision | State |
 |---|---|---|
-| D-TF | Terraform 1.17.0 | Provisionally accepted. 1.17.0 already reads this state (baseline plan). The migration rewrites `terraform_version` to 1.17.0: older binaries (bastion's 1.11.4) can no longer lock or write it. That's acceptable, as bastion is being retired and CI only runs `init -backend=false`. One way: no supported downgrade |
+| D-TF | Terraform 1.17.0 | Provisionally accepted. Evidence: 1.17.0 reads this 1.11.4 state (baseline plan, format 4). The migration writes `terraform_version` 1.17.0 into the remote state. Policy: 1.17.0 (absolute binary below) for migration, verification and rollback; older binaries (bastion's 1.11.4, CI image 1.11) are untested against the migrated state and prohibited for this procedure. CI is unaffected, as it only runs `init -backend=false` |
 | D-TOKEN | Credential for `TF_HTTP_PASSWORD` | **Open**. Classic token: `api` scope; fine-grained: Terraform State **Read, Create, Lock** (+ **Delete** for rollback step R6). User role Maintainer+ on 80082616 |
 | D-ENV | How the token reaches Terraform | **Open**. Recommended: two lines in the untracked `homelab/.envrc` (same pattern as `TF_VAR_*`): `export TF_HTTP_USERNAME=<gitlab-user>` and `TF_HTTP_PASSWORD=$(pass <entry>)` + `export` |
 | D-GO | Execute chapter 5 | **Open** |
@@ -87,7 +87,7 @@ H=~/Workspace/02-infrastructure/homelab
 W=$H/dockhost/terraform
 T=~/.local/share/mise/installs/terraform/1.17.0/terraform
 B=~/.local/share/homelab-tfstate-backup/dockhost/terraform.tfstate.from-bastion-60.2026-10-16
-E=~/.local/share/homelab-tfstate-backup/dockhost/migration-$(date +%F)   # evidence dir
+E=~/.local/share/homelab-tfstate-backup/dockhost/migration-$(date +%Y%m%dT%H%M%S)   # new, unique evidence dir
 ```
 
 | # | Check | Command | Expected |
@@ -113,47 +113,90 @@ Any deviation → stop, do not improvise.
 
 ## 🛠️ Chapter 5: Execution (owner GO required)
 
+Run as one fail-fast subshell in the shell where chapter 4's variables are set.
+Every gate exits non-zero and stops the run. S9 and S10 are manual, after review.
+
 ```bash
-# S1 — evidence directory
-install -d -m 700 "$E"
+(
+set -euo pipefail
+stop() { echo "STOP at $1" >&2; exit 1; }
+
+# S1 — new evidence directory (fails if it already exists)
+mkdir -m 700 "$E" || stop S1
 
 # S2 — place the state (temporary)
+[ ! -e "$W/terraform.tfstate" ] || stop S2
 install -m 600 "$B" "$W/terraform.tfstate"
 
 # S3 — migrate (writes the GitLab state)
-cd "$W" && direnv exec "$H" "$T" init -migrate-state -force-copy -input=false -no-color 2>&1 | tee "$E/init.log"; echo "exit=${PIPESTATUS[0]}"
-#   expect: exit=0 and Successfully configured the backend "http"
+cd "$W"
+direnv exec "$H" "$T" init -migrate-state -force-copy -input=false -no-color > "$E/init.log" 2>&1 || stop S3
+grep -q 'Successfully configured the backend "http"' "$E/init.log" || stop S3
 
-# S4 — backend record has no secret
-python3 -c 'import json;d=json.load(open(".terraform/terraform.tfstate"))["backend"];print(d["type"],d["config"]["address"],"password:",d["config"].get("password"))'
-#   expect: http https://gitlab.com/api/v4/projects/80082616/terraform/state/dockhost password: None
+# S4 — backend record carries no credential (prints presence only, never values)
+python3 - <<'EOF' || stop S4
+import json,sys
+b=json.load(open(".terraform/terraform.tfstate"))["backend"]; c=b["config"]
+ok = b["type"]=="http" and c["address"]=="https://gitlab.com/api/v4/projects/80082616/terraform/state/dockhost"
+leaked=bool(c.get("password"))
+print("backend_ok",ok,"password_field_populated",leaked,"username_field_populated",bool(c.get("username")))
+sys.exit(0 if ok and not leaked else 1)
+EOF
 
-# S5 — pull and compare
-direnv exec "$H" "$T" state pull > "$E/remote.json" && chmod 400 "$E/remote.json"
-python3 - "$B" "$E/remote.json" <<'EOF'
+# S5 — pull the remote and compare with the backup
+direnv exec "$H" "$T" state pull > "$E/remote.json" || stop S5
+chmod 400 "$E/remote.json"
+python3 - "$B" "$E/remote.json" <<'EOF' || stop S5
 import json,sys
 a,b=(json.load(open(p)) for p in sys.argv[1:])
-print("lineage", a["lineage"]==b["lineage"], "resources", a["resources"]==b["resources"],
-      "outputs", a["outputs"]==b["outputs"], "serial", a["serial"], "->", b["serial"],
-      "tf", a["terraform_version"], "->", b["terraform_version"])
+res={"lineage":a["lineage"]==b["lineage"],"resources":a["resources"]==b["resources"],"outputs":a["outputs"]==b["outputs"],"format":b["version"]==4}
+print(res,"serial",a["serial"],"->",b["serial"],"tf",a["terraform_version"],"->",b["terraform_version"])
+sys.exit(0 if all(res.values()) else 1)
 EOF
-#   expect: lineage True resources True outputs True
 
 # S6 — plan from the remote state (takes and releases the GitLab lock). NEVER apply.
-direnv exec "$H" "$T" plan -input=false -no-color -detailed-exitcode 2>&1 | tee "$E/plan.log"; echo "exit=${PIPESTATUS[0]}"
-#   expect: exit 2, 0 to add / 1 to change / 0 to destroy, ipconfig only
+rc=0; direnv exec "$H" "$T" plan -input=false -no-color -detailed-exitcode > "$E/plan.log" 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || stop "S6 (plan exit $rc, expected 2)"
+python3 - "$E/plan.log" <<'EOF' || stop S6
+import re,sys
+t=open(sys.argv[1]).read()
+got=[l.strip() for l in t.splitlines() if re.match(r"\s+[~+-] ",l)]
+exp=['~ update in-place','~ resource "proxmox_virtual_environment_vm" "vm" {','~ initialization {','~ ip_config {','~ ipv4 {',
+     '~ address = "192.168.1.90/24" -> "192.168.10.90/24"','~ gateway = "192.168.1.1" -> "192.168.10.1"',
+     '~ vm_ips = [','~ "192.168.1.90" -> "192.168.10.90",']
+ok="Plan: 0 to add, 1 to change, 0 to destroy." in t and got==exp
+print("plan_matches_baseline",ok); sys.exit(0 if ok else 1)
+EOF
 
-# S7 — GitLab view
-glab api graphql -f query='{ project(fullPath:"tipunchlabs/homelab"){ terraformStates{ count nodes{ name lockedAt latestVersion{ serial } } } } }'
-#   expect: count 1, name dockhost, lockedAt null
+# S7 — GitLab view: one state, unlocked
+glab api graphql -f query='{ project(fullPath:"tipunchlabs/homelab"){ terraformStates{ count nodes{ name lockedAt latestVersion{ serial } } } } }' > "$E/gitlab-states.json" || stop S7
+python3 - "$E/gitlab-states.json" <<'EOF' || stop S7
+import json,sys
+s=json.load(open(sys.argv[1]))["data"]["project"]["terraformStates"]
+ok=s["count"]==1 and s["nodes"][0]["name"]=="dockhost" and s["nodes"][0]["lockedAt"] is None
+print(s, "ok", ok); sys.exit(0 if ok else 1)
+EOF
 
-# S8 — move the temporary local files out of the repo (no deletion)
-for f in "$W"/terraform.tfstate "$W"/terraform.tfstate.backup; do [ -e "$f" ] && mv "$f" "$E/$(basename "$f").local-after-migration" ; done
-chmod 400 "$E"/* ; sha256sum -c "$B.sha256"
-
-# S9 — Codex reviews $E; owner marks MR !81 ready and merges; main pipeline green
-# S10 — after merge, from main: "$T" init -input=false && "$T" plan  → same 0/1/0
+# S8 — move the temporary local files out of the repo (no deletion, no overwrite)
+for f in terraform.tfstate terraform.tfstate.backup; do
+  if [ -e "$W/$f" ]; then
+    [ ! -e "$E/$f.local-after-migration" ] || stop S8
+    mv -n "$W/$f" "$E/$f.local-after-migration"
+  fi
+done
+chmod 400 "$E"/*
+sha256sum -c "$B.sha256" || stop S8
+! grep -rIlE 'glpat-|PRIVATE-TOKEN' "$E" "$W/.terraform" || stop "S8 (credential pattern found)"
+echo "S1-S8 PASSED — evidence in $E"
+)
 ```
+
+Manual, after the run:
+
+- **S9**: Codex reviews `$E`. The owner marks MR !81 ready and merges it. The `main` pipeline must be green.
+- **S10**: from an up-to-date `main` checkout, run in `$W`
+  `direnv exec "$H" "$T" init -input=false` and then the same S6 plan and check.
+  The result must be identical.
 
 If S3 fails: stop. Run the P4 query to learn whether a remote state was
 created. Do not retry blindly. A stuck lock is released only with
@@ -206,4 +249,4 @@ Rule: delete nothing until the destination is verified. `$B` is never modified.
 
 > **Document created on**: 2026-10-30
 > **Author**: Xavier Gueret, with Claude Code
-> **Version**: 2.0 (v1 was an unversioned scratch draft, reviewed by Codex in M3.2B/M4 prep)
+> **Version**: 2.1 (v1 was an unversioned scratch draft; v2.1 adds fail-fast gates after the M3.3 Codex review)
