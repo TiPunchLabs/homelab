@@ -299,17 +299,16 @@ ansible-playbook ansible/deploy.yml --limit hermes-31 --tags komodo-periphery
 > **usage unique** — voir `hermes/ansible/roles/komodo_periphery/README.md`.
 
 > 🧬 **Multiprofils** : **une gateway multiplexee** (`gateway-default`, API
-> `127.0.0.1:8642`) sert quatre profils, un bot Telegram par profil —
-> **Nora** `default`, **Kaféine** `cafe-ia`, **Néo** `tech-watch` et **Scout**
-> `job-search`. Dashboard : `https://hermes.internal` (Caddy `.70` →
-> `192.168.10.31:9119`).
-> **M7 (prepare, NON deploye)** : Néo est consolide dans Kaféine (cible : Nora,
-> Kaféine, Scout) et retire des declarations du depot, mais reste servi sur
-> hermes-31 jusqu'au runbook M7.3. Retirer un profil des declarations ne
-> l'arrete pas : le **parquer avant de deployer** (`hermes -p tech-watch
-> gateway stop`), sinon le controle multiplex echoue. Suppression
-> (`hermes profile delete`) et revocation des secrets : etapes separees, sur
-> accord explicite — voir la section M7 du README du role.
+> `127.0.0.1:8642`) sert trois profils, un bot Telegram par profil —
+> **Nora** `default`, **Kaféine** `cafe-ia` et **Scout** `job-search`.
+> Dashboard : `https://hermes.internal` (Caddy `.70` → `192.168.10.31:9119`).
+> **M7 (deploye 2026-10-29, clos 2026-10-30)** : Néo (`tech-watch`) a ete
+> consolide dans Kaféine, puis parque, supprime (`hermes profile delete`,
+> tombstone `profiles/.deleted/tech-watch`) et ses secrets revoques. Retirer un
+> profil des declarations ne l'arrete pas : le **parquer avant de deployer**
+> (`hermes -p <nom> gateway stop`), sinon le controle multiplex echoue. La
+> suppression garde les `delivery_obligations` livrees et ne demande pas de
+> redemarrer le dashboard — voir la section M7 du README du role.
 > Les playbooks `m<N>-*.yml` et `profiles-preflight.yml` decrivent le modele
 > v0.20.4 (une gateway par profil) : historiques, ils refusent un hote
 > multiplexe. Les restrictions d'outils sont verifiees outil par outil

@@ -77,10 +77,10 @@ hermes_telegram_check_delay: 5
 # Telegram) sous {{ hermes_data_dir }}/profiles/<name>, servie par sa propre
 # gateway s6 (`gateway-<name>`). Schema :
 #
-#   - name: tech-watch                  # [a-z0-9_-], jamais "default"
+#   - name: cafe-ia                     # [a-z0-9_-], jamais "default"
 #     description: "..."                # routage kanban
-#     telegram_bot_token: "{{ vault_hermes_tech_watch_telegram_bot_token }}"
-#     api_server_port: 8643             # = hermes_profile_reserved_ports[name]
+#     telegram_bot_token: "{{ vault_hermes_cafe_ia_telegram_bot_token }}"
+#     api_server_port: 8646             # = hermes_profile_reserved_ports[name]
 #     env: { TAVILY_API_KEY: "..." }    # cles .env propres au profil
 #     config: { cron.mirror_delivery: true }
 #
