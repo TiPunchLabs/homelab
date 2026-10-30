@@ -58,12 +58,24 @@ Each service is its own Ansible role, deployed in this order by `deploy.yml`:
 
 1. Navigate to the `terraform/` directory
 2. Create a `terraform.tfvars` file with your Proxmox credentials
-3. Run:
+3. Export the GitLab credentials of the state backend (see below)
+4. Run:
    ```bash
    terraform init
    terraform plan
    terraform apply
    ```
+
+**Terraform state:** the state lives in GitLab-managed Terraform state
+(project `tipunchlabs/homelab`, state `dockhost`, `http` backend declared in
+`terraform/providers.tf`). It used to be a local file on bastion-60. Never
+`terraform import` VM 9090 into a new state: that creates a second state
+managing the same VM.
+
+```bash
+export TF_HTTP_USERNAME="<gitlab-username>"
+export TF_HTTP_PASSWORD="<token>"   # Developer+ to read, Maintainer to write/lock; api scope or Terraform State Read/Create/Lock
+```
 
 Example `terraform.tfvars`:
 
