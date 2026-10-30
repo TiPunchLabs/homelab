@@ -68,6 +68,24 @@ Pre-existing, not part of the drift, noted for completeness:
 - root `ansible.cfg` points to an `inventory.yml` that does not exist;
 - `kubecluster/terraform` code without VMs on `pve`.
 
+
+### 🔁 Re-audit dockhost-90 (read-only, 2026-10-30, Bastion+ M3.3)
+
+F1–F4 confirmed unchanged on 9090:
+
+- Proxmox `ipconfig0: gw=192.168.1.1,ip=192.168.1.90/24`; `qm cloudinit dump 9090 meta`
+  gives instance-id `4b196b7b…3644`. The guest's `/var/lib/cloud/data/instance-id` has
+  the same value, with a single directory under `/var/lib/cloud/instances/`, and all 28
+  `previous iid` log lines carry that same id: no instance change since first boot.
+- The guard `network: {config: disabled}` is still there (2026-04-28). Hand-edited
+  `50-cloud-init.yaml` = `192.168.10.90/24`, gw `.10.1`, DNS `1.1.1.1 8.8.8.8`.
+- No `ssh_deletekeys` guard; the user-data dump still has `package_upgrade: true`
+  (`ciupgrade` unset).
+- Terraform plan against a copy of the state backup: only `initialization.ip_config.ipv4`
+  changes. Nameservers and search domain already match the HCL.
+- The state is no longer a blocker for open question 5 once it is migrated to GitLab
+  (`../guides/runbook-dockhost-tfstate-gitlab-migration.md`).
+
 ------
 
 ## 🎯 Scope
