@@ -29,7 +29,7 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 |-----------|-------------|-----|-------|
 | [`proxmox/`](proxmox/) | Proxmox hypervisor configuration (SSH hardening, users, tokens, VM templates) | Host | Ansible |
 | [`bastion/`](bastion/) | Bastion VM — GitLab Runner (shell), Terraform, Ansible, pass, direnv | 1 | Terraform + Ansible |
-| [`dockhost/`](dockhost/) | Docker-based services VM (Docker, Portainer, GitLab Runner, security hardening) | 1 | Terraform + Ansible |
+| [`dockhost/`](dockhost/) | Docker-based services VM (Docker, Komodo, PostgreSQL, kandidat, portail-client, Excalidraw, miniboard) | 1 | Terraform + Ansible |
 | [`vpngate/`](vpngate/) | WireGuard VPN Gateway | 1 | Terraform + Ansible |
 | [`hermes/`](hermes/) | Hermes AI agent host (Docker + Hermes Agent stack, DeepSeek inference) | 1 | Terraform + Ansible |
 | [`kubecluster/`](kubecluster/) | Kubernetes cluster (kubeadm, containerd, CNI) | 3 (1 CP + 2 workers) | Terraform + Ansible |
@@ -118,7 +118,7 @@ homelab/
 │   └── terraform-31/               #   VM provisioning (1 VM)
 │
 ├── dockhost/                       # Docker services VM
-│   ├── ansible/                    #   Roles: docker, motd, portainer, security, gitlab_runner
+│   ├── ansible/                    #   Roles: docker, motd, komodo, postgresql, kandidat, portail_client, excalidraw, miniboard
 │   └── terraform/                  #   VM provisioning (1 VM)
 │
 ├── kubecluster/                    # Kubernetes cluster

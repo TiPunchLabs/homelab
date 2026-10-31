@@ -45,11 +45,6 @@ dockhost/
         │   │   └── install_docker_docker_compose_plugin.yml
         │   └── handlers/main.yml
         │
-        ├── portainer_agent/            # [3] Agent Portainer (port 9001)
-        │   ├── tasks/main.yml
-        │   ├── handlers/main.yml
-        │   └── templates/docker-compose.yml.j2
-        │
         ├── postgresql/                 # [4] PostgreSQL 17.4 (port 5432)
         │   ├── defaults/main.yml       #     Variables par defaut (tuning, image)
         │   ├── tasks/main.yml
@@ -115,8 +110,6 @@ Fichiers deployes sur `dockhost-90` (192.168.10.90) :
 ```
 /
 ├── opt/                                    # Fichiers d'installation (docker-compose)
-│   ├── portainer/agent/
-│   │   └── docker-compose.yml
 │   ├── postgresql/
 │   │   ├── docker-compose.yml
 │   │   └── config/
@@ -164,7 +157,6 @@ Pre-tasks
        ▼
 [1] motd                    # Message of the Day
 [2] docker                  # Docker Engine + Compose
-[3] portainer_agent         # Agent Portainer (port 9001)
 [4] postgresql              # PostgreSQL 17.4 (port 5432)
 [5] gitlab_runner           # GitLab Runner (Docker executor)
 ```

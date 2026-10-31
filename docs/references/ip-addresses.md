@@ -16,7 +16,7 @@
 | hermes-31 | 9031 | 192.168.10.31 | Hermes AI agent v0.22.5 (`hermes/terraform-31`). hermes-30 (9030, `.30`) detruite en M6.6.C (2026-10-26) : VMID et IP libres |
 | bastion-60 | 9060 | 192.168.10.60 | Bastion (GitLab Runner shell, Terraform, Ansible) |
 | vpngate-50 | 9050 | 192.168.10.50 | WireGuard VPN Gateway |
-| dockhost-90 | 9090 | 192.168.10.90 | Docker services (Portainer, GitLab Runner) |
+| dockhost-90 | 9090 | 192.168.10.90 | Docker services (Komodo, kandidat, portail-client, Excalidraw, miniboard) |
 | kubecluster-40 | 9040 | 192.168.10.40 | K8s Control Plane |
 | kubecluster-41 | 9041 | 192.168.10.41 | K8s Worker |
 | kubecluster-42 | 9042 | 192.168.10.42 | K8s Worker |
@@ -35,7 +35,7 @@ Hosts not provisioned by this repo but consumed by homelab services.
 | Host | IP | Description |
 |------|-----|-------------|
 | kemax01 | 192.168.10.35 | Standalone host, own SSH key (`~/.ssh/ansible_id`). **Occupe une IP de la plage `.30-.39`** — en tenir compte avant d'y placer une nouvelle VM. |
-| Ollama (workstation) | 192.168.10.217 | LLM backend for Open WebUI. Reached via `ollama.internal` (Pi-hole record), **not** by hard-coded IP — see [Local DNS records](#local-dns-records-internal). May change IP / be offline (laptop). |
+| Ollama (workstation) | 192.168.10.217 | LLM backend for kandidat (configured by IP in the app settings). May change IP / be offline (laptop). |
 
 ### Important ports
 
@@ -46,7 +46,6 @@ Hosts not provisioned by this repo but consumed by homelab services.
 | HTTP | 80 | TCP |
 | HTTPS | 443 | TCP |
 | Proxmox Web | 8006 | TCP/HTTPS |
-| Portainer Agent | 9001 | TCP |
 
 ---
 
@@ -183,16 +182,13 @@ Two kinds of records:
 | `proxmox.internal` | 192.168.10.70 | via Caddy |
 | `kandidat.internal` | 192.168.10.70 | via Caddy |
 | `vpngate.internal` | 192.168.10.70 | via Caddy |
-| `portainer.internal` | 192.168.10.70 | via Caddy |
 | `pihole.internal` | 192.168.10.70 | via Caddy |
-| `openwebui.internal` | 192.168.10.70 | via Caddy |
 | `excalidraw.internal` | 192.168.10.70 | via Caddy |
 | `komodo.internal` | 192.168.10.70 | via Caddy |
 | `miniboard.internal` | 192.168.10.70 | via Caddy |
 | `hermes.internal` | 192.168.10.70 | via Caddy (dashboard Hermes Agent) |
-| `ollama.internal` | 192.168.10.217 | direct (LLM backend, consumed by Open WebUI) |
 
 > 💡 **Note**: Docker containers do **not** inherit `.internal` resolution from the
 > dockhost — its `/etc/resolv.conf` points to `systemd-resolved`, not Pi-hole. A
-> container that must resolve `.internal` (e.g. `open-webui` → `ollama.internal`)
+> container that must resolve `.internal`
 > needs an explicit `dns:` entry pointing to Pi-hole in its compose file.

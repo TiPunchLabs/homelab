@@ -68,9 +68,6 @@ ansible-playbook ansible/deploy.yml --tags motd
 # Docker Engine
 ansible-playbook ansible/deploy.yml --tags docker
 
-# Portainer Agent
-ansible-playbook ansible/deploy.yml --tags portainer-agent
-
 # GitLab Runner
 ansible-playbook ansible/deploy.yml --tags gitlab-runner
 ```
@@ -80,7 +77,6 @@ ansible-playbook ansible/deploy.yml --tags gitlab-runner
 ```bash
 ssh dockhost-90
 docker ps
-docker compose -f /opt/portainer-agent/docker-compose.yml ps
 docker compose -f /opt/gitlab-runner/docker-compose.yml ps
 ```
 

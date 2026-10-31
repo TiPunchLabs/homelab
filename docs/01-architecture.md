@@ -20,7 +20,7 @@ LOCAL NETWORK (192.168.1.0/24)
 │                 │       │  │ dockhost-90 / .90│  │ -40 / .40 [CP]│  │
 │                 │       │  │                  │  │ -41 / .41 [W1]│  │
 │                 │       │  │ Docker           │  │ -42 / .42 [W2]│  │
-│                 │       │  │ Portainer        │  │                │  │
+│                 │       │  │ Komodo           │  │                │  │
 │                 │       │  │ GitLab Runner    │  │ Kubernetes     │  │
 │                 │       │  └──────────────────┘  └────────────────┘  │
 │                 │       │                                              │
@@ -85,7 +85,6 @@ PROXMOX VE (192.168.1.100)
 ├── DOCKHOST (Docker services)
 │   └── dockhost-90 (ID: 9090) ─── 192.168.1.90
 │       ├── Docker Engine
-│       ├── Portainer Agent
 │       └── GitLab Runner (Docker executor)
 │
 └── KUBECLUSTER (Kubernetes kubeadm)
@@ -99,7 +98,7 @@ PROXMOX VE (192.168.1.100)
 | VM | vCPU | RAM | Disk | Usage |
 |----|------|-----|--------|-------|
 | bastion-60 | 2 | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
-| dockhost-90 | 3 | 10 GB | 100 GB | Docker services (Portainer, GitLab Runner) |
+| dockhost-90 | 3 | 10 GB | 100 GB | Docker services (Komodo, kandidat, portail-client, Excalidraw, miniboard) |
 | kubecluster-40 | 2 | 4 GB | 35 GB | K8s Control Plane |
 | kubecluster-41 | 1 | 3.5 GB | 30 GB | K8s Worker |
 | kubecluster-42 | 1 | 3.5 GB | 30 GB | K8s Worker |
@@ -126,9 +125,9 @@ Caddy runs locally and routes traffic to the various backends.
 │   internal)       │    │                         │    │                     │
 ├───────────────────┤    ├─────────────────────────┤    ├─────────────────────┤
 │ syncthing:8384    │    │ proxmox: 192.168.1.100  │    │ traefik:30928       │
-│ portainer:9000    │    │          :8006 (HTTPS)  │    │ prometheus:30928    │
+│                   │    │          :8006 (HTTPS)  │    │ prometheus:30928    │
 │ excalidraw:8082   │    │                         │    │ grafana:30928       │
-│ openwebui:8080    │    │                         │    │ alertmanager:30928  │
+│                   │    │                         │    │ alertmanager:30928  │
 │ n8n:5678          │    │                         │    │                     │
 └───────────────────┘    └─────────────────────────┘    └─────────────────────┘
 ```
@@ -227,11 +226,10 @@ Location: ~/vagrant-k8s-cluster/
 ├── dockhost/                    # Docker services VM
 │   ├── terraform/               # Provisioning (1 VM)
 │   └── ansible/
-│       ├── deploy.yml           # Tags: motd, docker, portainer-agent, gitlab-runner
+│       ├── deploy.yml           # Tags: motd, docker, komodo, postgresql, kandidat, ...
 │       └── roles/
 │           ├── motd/
 │           ├── docker/
-│           ├── portainer_agent/
 │           ├── postgresql/
 │           ├── security_hardening/
 │           └── gitlab_runner/

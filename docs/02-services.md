@@ -12,7 +12,6 @@ PROXMOX VE (192.168.1.100)
 │
 ├── DOCKHOST (dockhost-90 / 192.168.1.90)
 │   ├── Docker Engine
-│   ├── Portainer Agent ──► Managed by Portainer (local machine)
 │   └── GitLab Runner (Docker executor)
 │
 └── KUBECLUSTER (192.168.1.40-42)
@@ -46,28 +45,9 @@ The playbook `dockhost/ansible/deploy.yml` runs the following roles:
 |------|-----|-------------|
 | `motd` | `motd` | Custom Message of the Day |
 | `docker` | `docker` | Docker Engine + Docker Compose installation |
-| `portainer_agent` | `portainer-agent` | Portainer Agent for centralized management |
 | `postgresql` | `postgresql` | PostgreSQL 17.4 (port 5432) |
 | `security_hardening` | `security-hardening` | SSH hardening, UFW, system security |
 | `gitlab_runner` | `gitlab-runner` | GitLab Runner (Docker executor) |
-
-### Portainer Agent
-
-Portainer Agent to manage Docker remotely from the Portainer instance on the local machine.
-
-```
-Portainer (local machine) ──► Portainer Agent (dockhost-90:9001)
-                                    │
-                                    ▼
-                              Docker Engine
-```
-
-**Details**:
-- Image: `portainer/agent:2.33.3` (pinned by SHA256 digest)
-- Exposed port: `9001`
-- Volumes: Docker socket + Docker volumes
-- Network: `vm-docker-90-net` (bridge)
-- Installation: `/opt/portainer-agent/docker-compose.yml`
 
 ### GitLab Runner (Docker executor)
 
@@ -90,7 +70,7 @@ GitLab CI runner for the **tipunchlabs/homelab** project.
 
 Security configuration applied to the VM:
 - SSH: key-based authentication only, root login disabled
-- UFW: deny incoming by default, open ports: SSH (22), Portainer Agent (9001)
+- UFW: deny incoming by default, open ports: SSH (22)
 - Authorized users configured via Ansible Vault
 
 ### Pre-tasks
@@ -271,7 +251,7 @@ All Docker images are pinned by **SHA256 digest** to ensure integrity:
 
 ```yaml
 # Example
-image: portainer/agent:2.33.3@sha256:1da68e0e...
+image: excalidraw/excalidraw:<tag>@sha256:...
 ```
 
 The CI runs a **Trivy** scan (v0.69.3) on all images extracted from Jinja2 templates, with severity `HIGH,CRITICAL`.

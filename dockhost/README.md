@@ -25,11 +25,9 @@ Each service is its own Ansible role, deployed in this order by `deploy.yml`:
 |---------|-----------|-------------|
 | MOTD | `motd` | Custom login banner (ASCII art) |
 | Docker | `docker` | Docker Engine + Compose plugin |
-| Portainer CE | `portainer` | Docker management UI (`portainer/portainer-ce`) |
 | Komodo Periphery | `komodo` | GitOps agent — reconciles the `homelab-gitops` repo into running containers |
-| PostgreSQL | `postgresql` | Shared database, on the `db-net` Docker network |
+| PostgreSQL | `postgresql` | Shared database, on the `db-net` Docker network (now only holds the `open_webui` database, kept after Open WebUI was retired) |
 | kandidat | `kandidat` | App `kandidat` (image from the GitLab registry, on `db-net`) |
-| Open WebUI | `open-webui` | LLM frontend; backend Ollama reached via `ollama.internal`, state in PostgreSQL |
 | Excalidraw | `excalidraw` | Self-hosted virtual whiteboard |
 | miniboard | `miniboard` | Dashboard (image from the GitLab registry) |
 
@@ -120,7 +118,7 @@ override the `TF_VAR_*` injected by the wrapper. Remove any existing one.
    ansible-playbook deploy.yml --tags motd
 
    # Deploy multiple services
-   ansible-playbook deploy.yml --tags "docker,portainer"
+   ansible-playbook deploy.yml --tags "docker,komodo"
    ```
 
 ### 🔑 Available Ansible Tags
@@ -129,11 +127,9 @@ override the `TF_VAR_*` injected by the wrapper. Remove any existing one.
 |-----|--------|
 | `motd` | Custom MOTD with ASCII art banner |
 | `docker` | Install Docker Engine and Compose |
-| `portainer` | Deploy Portainer CE |
 | `komodo` | Deploy Komodo Periphery (GitOps agent) |
 | `postgresql` | Deploy PostgreSQL (`db-net`) |
 | `kandidat` | Deploy the `kandidat` app |
-| `open-webui` | Deploy Open WebUI (note the hyphen, not `open_webui`) |
 | `excalidraw` | Deploy Excalidraw |
 | `miniboard` | Deploy miniboard |
 
@@ -176,11 +172,9 @@ pre-commit install
 │   └── roles/                    # Ansible roles
 │       ├── motd/                 # Custom MOTD banner
 │       ├── docker/               # Docker Engine + Compose
-│       ├── portainer/            # Portainer CE
 │       ├── komodo/               # Komodo Periphery (GitOps agent)
 │       ├── postgresql/           # PostgreSQL (db-net)
 │       ├── kandidat/             # kandidat app
-│       ├── open_webui/           # Open WebUI (LLM frontend)
 │       ├── excalidraw/           # Excalidraw whiteboard
 │       ├── miniboard/            # miniboard dashboard
 │       └── security_hardening/   # Placeholder (empty, not in deploy.yml)

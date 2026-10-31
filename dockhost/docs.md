@@ -57,7 +57,6 @@ Réservé système      → 3 GB   (Sécurité et maintenance)
 
 * **Docker Engine** : Moteur de conteneurisation
 * **Docker Compose** : Orchestration multi-conteneurs
-* **Portainer** (optionnel) : Interface web de gestion
 * **Watchtower** (optionnel) : Mise à jour automatique des images
 
 ### Architecture applicative
@@ -94,7 +93,6 @@ Réservé système      → 3 GB   (Sécurité et maintenance)
 
 | Application               | Type          | Taille estimée |
 | ------------------------- | ------------- | --------------- |
-| Portainer                 | Management    | ~300 MB         |
 | Nginx Proxy Manager       | Reverse Proxy | ~200 MB         |
 | PostgreSQL/MySQL          | Database      | ~2 GB           |
 | API Backend (Node/Python) | Application   | ~500 MB         |
@@ -177,8 +175,7 @@ journalctl --vacuum-time=7d
 1. **Création VM** via Terraform (template Ubuntu cloud-init)
 2. **Installation Docker** via Ansible/cloud-init
 3. **Configuration réseau** statique
-4. **Déploiement Portainer** (optionnel)
-5. **Setup Docker Compose** pour stacks applicatives
+4. **Setup Docker Compose** pour stacks applicatives
 
 ### Workflow de déploiement
 

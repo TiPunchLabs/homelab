@@ -20,7 +20,7 @@ LOCAL WORKSTATION                    PROXMOX VE (192.168.1.100)
 │                  │                │  │ → GitLab Runner (shell)    │  │
 │                  │   3. Configure │  ├────────────────────────────┤  │
 │                  │───────────────►│  │ dockhost-90 (.50)          │  │
-│                  │   (ansible)    │  │ → Docker, Portainer        │  │
+│                  │   (ansible)    │  │ → Docker, Komodo           │  │
 │                  │                │  │ → GitLab Runner (docker)   │  │
 │                  │                │  ├────────────────────────────┤  │
 │                  │                │  │ kubecluster-40/41/42       │  │
@@ -494,7 +494,7 @@ sudo systemctl status gitlab-runner
 
 ## 5. Provision and configure Dockhost
 
-The dockhost VM runs Docker services: Portainer agent, GitLab Runner (Docker executor), and PostgreSQL.
+The dockhost VM runs Docker services: Komodo, PostgreSQL, kandidat, portail-client, Excalidraw and miniboard.
 
 ### 5.1 Provision the VM
 
@@ -524,7 +524,7 @@ cd dockhost
 ansible-vault edit ansible/group_vars/dockhost/vault/main.yml
 ```
 
-Required vault variables depend on the roles deployed (GitLab Runner token, Portainer config, etc.).
+Required vault variables depend on the roles deployed (GitLab registry token, Komodo secrets, etc.).
 
 ### 5.3 Configure dockhost
 
@@ -539,7 +539,6 @@ Roles:
 |------|-----|--------------|
 | **motd** | `motd` | Custom message of the day |
 | **docker** | `docker` | Docker Engine + Docker Compose plugin |
-| **portainer_agent** | `portainer-agent` | Portainer container management agent (port 9001) |
 | **postgresql** | `postgresql` | PostgreSQL database container |
 | **gitlab_runner** | `gitlab-runner` | GitLab Runner with Docker executor |
 
@@ -549,9 +548,8 @@ Roles:
 ssh dockhost-90
 
 docker ps
-# Should show running containers: portainer_agent, gitlab_runner, postgresql
+# Should show running containers: komodo-core, kandidat, postgresql, ...
 
-docker compose -f /opt/portainer-agent/docker-compose.yml ps
 docker compose -f /opt/gitlab-runner/docker-compose.yml ps
 ```
 
@@ -715,7 +713,6 @@ After completing all steps, verify each component:
 
 - [ ] `ssh dockhost-90` connects successfully
 - [ ] `docker ps` shows running containers
-- [ ] Portainer Agent is reachable on port 9001
 - [ ] GitLab Runner container is running
 
 ### Kubecluster
