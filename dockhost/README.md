@@ -47,7 +47,7 @@ Each service is its own Ansible role, deployed in this order by `deploy.yml`:
 
 ## 📋 Prerequisites
 
-- Terraform (>= 1.11.0)
+- Terraform 1.17.0 (pinned for the GitLab-managed state; older binaries are untested against it, see the runbook)
 - Ansible
 - Proxmox account with appropriate permissions
 - A Proxmox VM template (template ID 9001 by default)
@@ -57,21 +57,41 @@ Each service is its own Ansible role, deployed in this order by `deploy.yml`:
 ### 1. VM Provisioning with Terraform
 
 1. Navigate to the `terraform/` directory
-2. Create a `terraform.tfvars` file with your Proxmox credentials
-3. Run:
+2. From an owner terminal (not an agent or Herdr shell), run through
+   `scripts/with-secrets` (see `docs/03-commandes.md`):
    ```bash
-   terraform init
-   terraform plan
-   terraform apply
+   ../../scripts/with-secrets tfstate -- terraform init
+   ../../scripts/with-secrets proxmox,tfstate -- terraform plan
+   # no `terraform apply` while the known network drift is open (see below)
    ```
 
-Example `terraform.tfvars`:
+**Terraform state:** the state lives in GitLab-managed Terraform state
+(project `tipunchlabs/homelab`, state `dockhost`, `http` backend declared in
+`terraform/providers.tf`). It used to be a local file on bastion-60. Never
+`terraform import` VM 9090 into a new state: that creates a second state
+managing the same VM.
 
-```hcl
-pm_api_url           = "https://your-proxmox-server:8006/api2/json"
-pm_api_token_id      = "your-user@pam!token-name"
-pm_api_token_secret  = "your-token-secret"
-```
+Migrated on 2026-10-31 (runbook
+[`docs/guides/runbook-dockhost-tfstate-gitlab-migration.md`](../docs/guides/runbook-dockhost-tfstate-gitlab-migration.md),
+chapter 9). The GitLab state has a new lineage (`4fbe2f5c-…`, accepted by the owner).
+The old backups and bastion-60's copy carry lineage `99061ad6-…`: they are history only.
+Never `state push` them and never use `-force`. Use Terraform 1.17.0 and bpg/proxmox 0.96.0.
+
+> ⛔ **FORBIDDEN: `terraform apply` on the known network drift.** `plan` shows
+> 1 change (`ipconfig0` 192.168.1.90 → 192.168.10.90): it is stale Proxmox
+> cloud-init data, and applying it changes the instance-id and reboots dockhost.
+> See `docs/backlog/cloud-init-guards-and-network-drift.md`.
+
+Backend credentials: `TF_HTTP_USERNAME` is non-sensitive configuration exported
+by `.envrc`; `TF_HTTP_PASSWORD` is injected only by the `tfstate` profile of
+`scripts/with-secrets` (`pass gitlab/terraform-token`). Never export it in a shell
+or pass it with `-backend-config`. The token needs Developer+ to read and
+Maintainer to write/lock, with `api` scope or Terraform State Read/Create/Lock.
+
+No `terraform.tfvars` is needed: `pm_api_url` comes from `.envrc`
+(`TF_VAR_pm_api_url`), `pm_api_token_id` and `pm_api_token_secret` from the
+`proxmox` profile. Never put credentials in a `terraform.tfvars`: its values
+override the `TF_VAR_*` injected by the wrapper. Remove any existing one.
 
 **VM Configuration:**
 
