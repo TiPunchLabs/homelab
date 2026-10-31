@@ -1,6 +1,11 @@
 # 🧳 Runbook — Dockhost Terraform state migration to GitLab-managed state
 
-> **Status**: ⏸️ ready, **NOT EXECUTED**. Every mutating step below needs explicit owner approval.
+> **Status**: ✅ **migration EXECUTED 2026-10-31 02:50Z** (S1–S8, evidence
+> `~/.local/share/homelab-tfstate-backup/dockhost/migration-20261030T224942`). The record is in
+> chapter 9. Still pending: owner merge of MR !81, then S10. Chapter 5 is kept as the historical procedure: **do not run it again**.
+>
+> ⛔ **FORBIDDEN: `terraform apply` on the known network drift** (`ipconfig0` 192.168.1.90 → 192.168.10.90).
+> The plan shows 1 change: it is known drift, not a change to apply (see chapter 8).
 > **Target**: local state of `dockhost/terraform` (VM 9090) → GitLab-managed state,
 > project `tipunchlabs/homelab` (id `80082616`), state name `dockhost`.
 > **Code**: MR !81 (`infra/dockhost-tfstate-gitlab`), adds `backend "http"` to
@@ -18,6 +23,7 @@
 6. Acceptance criteria
 7. Rollback
 8. Out of scope
+9. Execution record (2026-10-31)
 
 ------
 
@@ -85,8 +91,9 @@ session started before MR !82: old processes may still carry inherited credentia
 | D-TF | Terraform 1.17.0 | Accepted (M3.4). The migration writes `terraform_version` 1.17.0 into the remote state. Use 1.17.0 (absolute binary below) for migration, verification and rollback. Older binaries (bastion's 1.11.4, CI image 1.11) are untested against the migrated state and prohibited for this procedure. CI only runs `init -backend=false` and is unaffected |
 | D-TOKEN | Credential for `TF_HTTP_PASSWORD` | Resolved: `pass gitlab/terraform-token` via profile `tfstate` (classic PAT, `api` scope, owner 600944 = Maintainer+). The same entry backs `TF_VAR_gitlab_token` |
 | D-ENV | How the token reaches Terraform | Resolved by MR !82: `TF_HTTP_USERNAME` from the untracked `.envrc`; `TF_HTTP_PASSWORD` only from `scripts/with-secrets tfstate`. Never in `.envrc`, never exported in a shell, never `-backend-config=password=…` (persisted in `.terraform/terraform.tfstate`) |
-| D-ROTATE | Rotate `gitlab/terraform-token` (exposed 2026-10-30) and update the pass entry | **Open, blocking**. Proof: the D-TOKEN check below shows a new `id` (≠ 20891640) and `created_at` after 2026-10-30T22:57Z |
-| D-GO | Execute chapter 5 | **Open**. The D-GO given before the incident is void; a new one is needed after D-ROTATE |
+| D-ROTATE | Rotate `gitlab/terraform-token` (exposed 2026-10-30) and update the pass entry | **CLOSED — Owner attestation, 2026-10-30** (`OWNER_ATTESTED`: new token created and used, old token revoked). Corroborating GitLab metadata, not an independent proof of the pass entry: PAT 20891640 `revoked: true`, last used 2026-10-30T22:54:58Z; PAT 29024653 active, `api`, user 600944, created 2026-10-31T02:27:15Z, last used 2026-10-31T02:59:29Z |
+| D-GO | Execute chapter 5 | Given by the owner after D-ROTATE; chapter 5 executed 2026-10-31 (chapter 9) |
+| D-LINEAGE | Remote lineage differs from the backup | **ACCEPTED by the owner**: `99061ad6-d0cc-00e1-03a4-7f810b79ea1f` → `4fbe2f5c-d50f-c5c8-45ac-541ce2521cb4`. Not to be reopened. Consequences in chapter 9 |
 
 D-TOKEN check, owner terminal, after defining chapter 4's variables (`$H`). It prints metadata only, never the value. The token
 reaches `curl` on stdin (`printf` is a shell builtin), never on a command line:
@@ -272,6 +279,11 @@ Manual, after the run:
   `with-secrets` child). Then the owner marks MR !81 ready and merges it. The `main`
   pipeline must be green.
 - **S10**: switch `$H` to an up-to-date `main` (`git switch main && git pull --ff-only`).
+  In a new owner terminal, do **not** re-run chapter 4's first block as is: its
+  `git switch` targets the migration branch (deleted at merge) and it would create a new `$E`.
+  Define `H`, `W`, `T`, `B` and the three helpers from that block, and point `E` at the
+  existing evidence directory:
+  `E=~/.local/share/homelab-tfstate-backup/dockhost/migration-20261030T224942`; run P0.
   In `$W`, run `tfw tfstate init -input=false`. Then run
   `rc=0; tfw proxmox,tfstate plan -input=false -no-color -detailed-exitcode > "$E/plan-post-merge.log" 2>&1 || rc=$?`
   (a new file: `$E/plan.log` has been read-only since S8), then
@@ -296,6 +308,10 @@ created. Do not retry blindly. A stuck lock is released only with
 | AC6 | No `terraform.tfstate*` left in `$W` | `ls`; S8 `git status` clean |
 | AC7 | Infrastructure untouched: `ipconfig0` still `192.168.1.90/24`, dockhost uptime unchanged, no apply in any log | P11 repeated |
 
+> 💡 **Note**: these are the criteria as designed. AC1 as written (lineage `99061ad6…`,
+> JSON-identical resources) is not met; the owner accepted the exception (D-LINEAGE).
+> Results per criterion are in chapter 9.3.
+
 **Definition of Done**: AC1–AC7 verified; Codex review PASS or
 PASS_WITH_RESERVATIONS on the evidence; MR !81 merged by the owner; `main`
 pipeline green; S10 plan identical; the bastion copy declared obsolete (it
@@ -307,12 +323,14 @@ disappears with VM 9060, after its own approval).
 
 Rule: delete nothing until the destination is verified. `$B` is never modified.
 All commands run in the owner terminal, with chapter 4's helpers, from `$W`.
+Since 2026-10-31 the source of truth is the remote state (lineage `4fbe2f5c…`). Restore
+precautions for the old-lineage files are in chapter 9.4.
 
 1. Keep the freeze.
 2. Snapshot the remote: `tfw tfstate state pull > "$E/remote-latest.json"`, chmod 400, record sha256.
 3. Restore the configuration without the backend block: before merge, `git restore --source=origin/main -- providers.tf` (valid while `origin/main` has no backend); after merge, use a branch that reverts the backend commit `9c82604`.
 4. `tfw tfstate init -migrate-state -force-copy -input=false`. This copies the remote back to a local `terraform.tfstate` and reconfigures `.terraform` for the local backend.
-5. Verify: lineage `99061ad6…`, resources and outputs equal to `remote-latest.json`, and plan = the same 0/1/0. All three conditions are in one chain; go to step 6 only after `R5 PASSED`:
+5. Verify: lineage, resources and outputs equal to `remote-latest.json` (lineage `4fbe2f5c…` since the migration), and plan = the same 0/1/0. All three conditions are in one chain; go to step 6 only after `R5 PASSED`:
 
    ```bash
    rc=0; tfw proxmox plan -input=false -no-color -detailed-exitcode > "$E/plan-rollback.log" 2>&1 || rc=$?
@@ -325,8 +343,9 @@ All commands run in the owner terminal, with chapter 4's helpers, from `$W`.
 
 ## 📚 Chapter 8: Out of scope
 
-- **Cloud-init `ipconfig0` drift** (the 1 change in the plan). Never fix it in
-  this migration and never `apply` dockhost until that work is done. See
+- **Cloud-init `ipconfig0` drift** (the 1 change in the plan). ⛔ **FORBIDDEN:
+  `terraform apply` on this known network drift.** Never fix it in this migration
+  and never `apply` dockhost until that work is done. See
   [`../backlog/cloud-init-guards-and-network-drift.md`](../backlog/cloud-init-guards-and-network-drift.md):
   aligning it changes the NoCloud instance-id, and bpg `reboot_after_update = true`
   reboots dockhost (Komodo, kandidat, postgres).
@@ -335,6 +354,81 @@ All commands run in the owner terminal, with chapter 4's helpers, from `$W`.
 - Renovate !60 (bpg 0.118.0): after the migration, as a separate change.
 - Rotation of the other credentials exposed on 2026-10-30 (owner decision, outside this runbook).
 
+------
+
+## 📊 Chapter 9: Execution record (2026-10-31)
+
+Statuses: `VERIFIED` (checked by command, with evidence), `OWNER_ATTESTED` (owner
+statement, not independently proven), `ACCEPTED_WITH_EVIDENCE_LIMITATION`,
+`NOT_VERIFIED`. Times in UTC. Evidence directory:
+`E=~/.local/share/homelab-tfstate-backup/dockhost/migration-20261030T224942` (0700, files 0400).
+The record was compiled read-only, without credentials (GitLab API through `glab`, ssh), on 2026-10-31.
+
+### 9.1 📝 Steps
+
+| Step | Evidence | Status |
+|---|---|---|
+| S1 | `$E` created 02:50:11Z (directory birth time; its mtime 03:00:13Z is the S8 move) | VERIFIED (`stat`) |
+| S2–S3 | `init.log`: `Successfully configured the backend "http"`, bpg 0.96.0 from the lock file | VERIFIED |
+| S4 | `.terraform/terraform.tfstate`: type `http`, address `…/80082616/terraform/state/dockhost`, `password` and `username` not populated | VERIFIED |
+| S5 | `remote.json` pulled 02:50:17Z. The strict gate `check_same "$B" "$E/remote.json"` **fails** on this evidence (lineage, and `resources` because of `identity_schema_version`). Under chapter 5 the run stops here | VERIFIED (gate result) |
+| S6–S8 | `plan.log` 02:59:31Z, `gitlab-states.json` 02:59:50Z, local files moved into `$E` 03:00:13Z, about 9 min after S5. They were therefore run after the S5 gate, outside the fail-fast subshell. The exact commands were not recorded. The owner accepted the S5 deviation (D-LINEAGE) | VERIFIED (artefacts); sequence OWNER_ATTESTED |
+| S9 | Codex review of `$E` | see the M3.4 closure report |
+| S10 | not executed (after the MR !81 merge) | pending |
+
+### 9.2 🧬 State history and the lineage exception
+
+| Copy | Lineage | TF | Serial | Use |
+|---|---|---|---|---|
+| bastion-60 disk, then `$B` (backup, sha256 `e09104fb…`) | `99061ad6…` | 1.11.4 | 1 | historical, read-only |
+| `$E/terraform.tfstate.backup.local-after-migration` (written by TF 1.17.0 at S3) | `99061ad6…` | 1.17.0 | 1 | historical, read-only |
+| `$E/terraform.tfstate.local-after-migration` | — | — | — | empty (0 bytes) |
+| GitLab state `dockhost` (= `$E/remote.json`) | `4fbe2f5c-d50f-c5c8-45ac-541ce2521cb4` | 1.17.0 | 1 | **source of truth** |
+
+- Resources: the remote differs from `$B` only by `instances[0].identity_schema_version: 0`, which TF 1.17 adds on re-serialization. Every resource attribute is identical, and `outputs` are identical (VERIFIED, structural diff).
+- The remote equals the TF 1.17 local backup in `resources` and `outputs`. Only the lineage differs (VERIFIED). The cause of the new lineage was not established.
+- On 2026-10-31, the live remote (`GET projects/80082616/terraform/state/dockhost`) equals `$E/remote.json` field for field. Its only version is serial 1 (02:50:14Z), so no write since the migration (VERIFIED).
+
+Comparison instructions from now on:
+
+- Reference for any future check: `$E/remote.json`, compared strictly with `check_same "$E/remote.json" <state>`.
+- Comparing with `$B` is valid only modulo lineage and `identity_schema_version`:
+
+```bash
+STATE_JSON=$E/remote.json   # the state file to compare
+python3 - "$B" "$STATE_JSON" <<'EOF'
+import json,sys
+def norm(d):
+    r=json.loads(json.dumps(d["resources"]))
+    for res in r:
+        for i in res["instances"]: i.pop("identity_schema_version",None)
+    return r
+a,b=(json.load(open(p)) for p in sys.argv[1:])
+ok=norm(a)==norm(b) and a["outputs"]==b["outputs"]
+print("equivalent_modulo_lineage",ok); sys.exit(0 if ok else 1)
+EOF
+```
+
+### 9.3 ✅ Acceptance results
+
+| ID | Result | Evidence / limit |
+|---|---|---|
+| AC1 | VERIFIED with the accepted lineage exception | remote exists; resources equivalent (only `identity_schema_version` added); outputs identical; lineage changed (D-LINEAGE, accepted) |
+| AC2 | VERIFIED (log); exit code NOT_VERIFIED | `plan.log`: `Plan: 0 to add, 1 to change, 0 to destroy.`, `check_plan` → `True`. The plan exit code was not kept in the evidence |
+| AC3 | VERIFIED | `gitlab-states.json` 02:59:50Z `lockedAt: null`; still `null` on 2026-10-31 |
+| AC4 | VERIFIED in part; D-ROTATE OWNER_ATTESTED | S4 VERIFIED; pattern scan of `$E` and `.terraform` clean (re-run read-only); the exact-value scan needs credentials and was not re-run (NOT_VERIFIED by the reviewer); D-ROTATE: chapter 3 |
+| AC5 | VERIFIED | `sha256sum -c $B.sha256` OK, mode 0400, mtime 2026-03-12 02:32:38Z (2026-03-11 local time, as in chapter 2) |
+| AC6 | VERIFIED | no `terraform.tfstate*` in `$W`; temporary files moved (not deleted) into `$E`; `git status` clean |
+| AC7 | VERIFIED | `ipconfig0` still `192.168.1.90/24`; dockhost up since 2026-10-30 21:12:54 (= P11 baseline), cloud-init instance-id `4b196b7b…` and guest `192.168.10.90/24` unchanged; last Proxmox task on 9090 = `qmstart` 2026-10-30T21:12:47Z (pve restart, before the migration), last `terraform-prov@pve` task 2026-03-12; remote state never past serial 1; no CI job runs Terraform apply |
+
+### 9.4 🔐 Restore precautions
+
+- Old backups (`$B`, the `.backup.local-after-migration` copy, bastion-60's disk) carry lineage `99061ad6…`. **Never `state push` them onto the remote, and never use `-force`.** They are history, not restore points for the GitLab state.
+- To restore the current state, use the remote itself, or `$E/remote.json` (lineage `4fbe2f5c…`).
+- Restoring from `$B` would create a different state history. That needs a separate owner decision, a fresh plan, and the freeze.
+- bastion-60 (9060) keeps an obsolete copy: never run Terraform for dockhost there. It disappears with 9060, after its own approval.
+- Single-writer freeze stays in force until S10 has passed. Terraform 1.17.0 and bpg 0.96.0 only (Renovate !60 stays unmerged).
+
 > **Document created on**: 2026-10-30
 > **Author**: Xavier Gueret, with Claude Code
-> **Version**: 2.3 (v2.2 at `645aff5`, Codex PASS; v2.3 adapts it to MR !82: owner-only credentialed steps through `scripts/with-secrets`, P0 independence check, D-ROTATE, exact-value leak scan, shared `tfw`/`check_plan` helpers)
+> **Version**: 2.4 (v2.3 at `0a62c25`: MR !82 model; v2.4 records the 2026-10-31 execution, D-ROTATE closed on owner attestation, D-LINEAGE exception, apply prohibition, restore precautions)
