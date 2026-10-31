@@ -154,6 +154,35 @@ security-check:
       echo "OK: No known token patterns found"
 
 # =============================================================================
+# Security — Gitleaks (secrets in the commits a push adds)
+# =============================================================================
+# Scans only the new commits, never the whole history: on a branch, those since
+# its merge-base with main; on main, the pushed range. --redact keeps secret
+# values out of the job log. Full-history audits are run by hand (see
+# docs/04-troubleshooting.md).
+gitleaks:
+  stage: security
+  image:
+    name: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        base="$CI_COMMIT_BEFORE_SHA"
+      else
+        git fetch --quiet origin "$CI_DEFAULT_BRANCH"
+        base=$(git merge-base FETCH_HEAD "$CI_COMMIT_SHA")
+      fi
+      case "$base" in
+        "" | 0000000000000000000000000000000000000000) range="-1 $CI_COMMIT_SHA" ;;
+        *) range="$base..$CI_COMMIT_SHA" ;;
+      esac
+      echo "Scanning commits: $range"
+      gitleaks git --redact --no-banner --verbose --log-opts="$range" .
+
+# =============================================================================
 # Security — Docker image scan
 # =============================================================================
 scan-docker-images:

@@ -192,6 +192,20 @@ uv run ansible-lint proxmox/ansible/ dockhost/ansible/ kubecluster/ansible/
 docker run --rm aquasec/trivy:0.69.3 image <image:tag>
 ```
 
+### Gitleaks blocks a commit or a pipeline
+
+The `gitleaks` pre-commit hook and CI job print the rule, file, line and commit; the value itself is redacted.
+
+- A real secret: remove it from the change (move it to Ansible Vault or `pass`) and rotate it if it was ever pushed.
+- A false positive: rewrite the line so it no longer looks like a secret, or add `# gitleaks:allow` at the end of that line.
+- A finding in already-pushed history: add its fingerprint (printed by Gitleaks) to `.gitleaksignore` with a comment. Never rewrite history for this.
+
+One-off audit of the whole history (no value printed, report kept outside the repo):
+
+```bash
+gitleaks git --redact --no-banner --report-format json --report-path /tmp/gitleaks-history.json .
+```
+
 ### Pre-commit hooks fail
 
 ```bash
