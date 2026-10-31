@@ -226,11 +226,10 @@ Location: ~/vagrant-k8s-cluster/
 ├── dockhost/                    # Docker services VM
 │   ├── terraform/               # Provisioning (1 VM)
 │   └── ansible/
-│       ├── deploy.yml           # Tags: motd, docker, komodo, postgresql, kandidat, ...
+│       ├── deploy.yml           # Tags: motd, docker, komodo, kandidat, ...
 │       └── roles/
 │           ├── motd/
 │           ├── docker/
-│           ├── postgresql/
 │           ├── security_hardening/
 │           └── gitlab_runner/
 │

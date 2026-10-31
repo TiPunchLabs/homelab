@@ -45,15 +45,6 @@ dockhost/
         │   │   └── install_docker_docker_compose_plugin.yml
         │   └── handlers/main.yml
         │
-        ├── postgresql/                 # [4] PostgreSQL 17.4 (port 5432)
-        │   ├── defaults/main.yml       #     Variables par defaut (tuning, image)
-        │   ├── tasks/main.yml
-        │   ├── handlers/main.yml
-        │   └── templates/
-        │       ├── docker-compose.yml.j2
-        │       ├── postgresql.conf.j2  #     Configuration performance
-        │       └── pg_hba.conf.j2      #     Regles d'authentification
-        │
         ├── security_hardening/         # Hardening SSH + UFW
         │   └── tasks/
         │       ├── main.yml
@@ -110,17 +101,11 @@ Fichiers deployes sur `dockhost-90` (192.168.10.90) :
 ```
 /
 ├── opt/                                    # Fichiers d'installation (docker-compose)
-│   ├── postgresql/
-│   │   ├── docker-compose.yml
-│   │   └── config/
-│   │       ├── postgresql.conf
-│   │       └── pg_hba.conf
 │   └── gitlab-runner/
 │       ├── docker-compose.yml
 │       └── config/config.toml
 │
 └── app/data/                               # Donnees persistantes des services
-    └── postgresql/                         # Donnees PostgreSQL (owner: 999:999)
 ```
 
 ---
@@ -131,7 +116,7 @@ Fichiers deployes sur `dockhost-90` (192.168.10.90) :
 
 | Fichier | Contenu |
 |---------|---------|
-| `vault/config.yml` | Credentials user, SSH keys, tokens runners, password PostgreSQL |
+| `vault/config.yml` | Credentials user, SSH keys, tokens runners |
 | `vault/proxmox.yml` | Credentials API Proxmox |
 
 ### Variables partagees (`all/main.yml`)
@@ -141,7 +126,7 @@ Fichiers deployes sur `dockhost-90` (192.168.10.90) :
 | `app_group` | Groupe Unix pour les donnees applicatives |
 | `app_data_path` | Chemin des donnees persistantes (`/app/data`) |
 | `security_*` | Configuration SSH hardening et UFW |
-| `security_open_ports` | Ports ouverts dans UFW (22, 5432, 9001) |
+| `security_open_ports` | Ports ouverts dans UFW (voir `all/main.yml`) |
 
 ---
 
@@ -157,9 +142,8 @@ Pre-tasks
        ▼
 [1] motd                    # Message of the Day
 [2] docker                  # Docker Engine + Compose
-[4] postgresql              # PostgreSQL 17.4 (port 5432)
 [5] gitlab_runner           # GitLab Runner (Docker executor)
 ```
 
 > **Note** : Chaque role peut etre execute independamment via son tag :
-> `ansible-playbook ansible/deploy.yml --tags postgresql`
+> `ansible-playbook ansible/deploy.yml --tags docker`

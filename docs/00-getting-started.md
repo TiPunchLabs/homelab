@@ -494,7 +494,7 @@ sudo systemctl status gitlab-runner
 
 ## 5. Provision and configure Dockhost
 
-The dockhost VM runs Docker services: Komodo, PostgreSQL, kandidat, portail-client, Excalidraw and miniboard.
+The dockhost VM runs Docker services: Komodo, kandidat, portail-client, Excalidraw and miniboard.
 
 ### 5.1 Provision the VM
 
@@ -539,7 +539,6 @@ Roles:
 |------|-----|--------------|
 | **motd** | `motd` | Custom message of the day |
 | **docker** | `docker` | Docker Engine + Docker Compose plugin |
-| **postgresql** | `postgresql` | PostgreSQL database container |
 | **gitlab_runner** | `gitlab-runner` | GitLab Runner with Docker executor |
 
 ### 5.4 Verify dockhost
@@ -548,7 +547,7 @@ Roles:
 ssh dockhost-90
 
 docker ps
-# Should show running containers: komodo-core, kandidat, postgresql, ...
+# Should show running containers: komodo-core, kandidat, kandidat-db, ...
 
 docker compose -f /opt/gitlab-runner/docker-compose.yml ps
 ```
