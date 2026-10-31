@@ -30,11 +30,7 @@ pihole_local_records:
   - ip: 192.168.10.70
     domain: vpngate.internal
   - ip: 192.168.10.70
-    domain: portainer.internal
-  - ip: 192.168.10.70
     domain: pihole.internal
-  - ip: 192.168.10.70
-    domain: openwebui.internal
   - ip: 192.168.10.70
     domain: excalidraw.internal
   - ip: 192.168.10.70
@@ -43,7 +39,3 @@ pihole_local_records:
     domain: miniboard.internal
   - ip: 192.168.10.70
     domain: hermes.internal
-  # Resolution directe vers l'hote Ollama (pas via Caddy) : consomme par
-  # Open WebUI (OLLAMA_BASE_URL) pour decoupler la conf de l'IP physique
-  - ip: 192.168.10.217
-    domain: ollama.internal

@@ -112,11 +112,9 @@ ssh dockhost-90
 
 # View container logs
 docker logs gitlab_runner
-docker logs portainer_agent
 
 # Check compose files
 docker compose -f /opt/gitlab-runner/docker-compose.yml config
-docker compose -f /opt/portainer-agent/docker-compose.yml config
 ```
 
 ### GitLab Runner won't register
@@ -129,18 +127,6 @@ docker logs gitlab_runner
 # 1. Expired or invalid token -> regenerate and update the vault
 # 2. Insufficient scope -> the token must have admin:org
 # 3. Runner already registered with the same name -> delete in GitLab Settings
-```
-
-### Portainer Agent unreachable
-
-```bash
-# Check that the port is open
-ssh dockhost-90 "ss -tlnp | grep 9001"
-
-# Check the firewall
-ssh dockhost-90 "sudo ufw status"
-
-# Port 9001 must be allowed from the Portainer manager IP
 ```
 
 ---

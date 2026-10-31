@@ -37,13 +37,13 @@ Ajouter `tls_internal: true` au(x) backend(s) voulu(s). Exemple pour tout bascul
 
 ```yaml
 caddy_backends:
-  - name: portainer
-    domain: portainer.internal
-    upstream: http://192.168.10.90:9000
+  - name: excalidraw
+    domain: excalidraw.internal
+    upstream: http://192.168.10.90:8082
     tls_internal: true          # <— ajouter cette ligne
-  - name: openwebui
-    domain: openwebui.internal
-    upstream: http://192.168.10.90:8080
+  - name: komodo
+    domain: komodo.internal
+    upstream: http://192.168.10.90:9120
     tls_internal: true          # <— idem sur chaque backend
   # ... etc
 ```

@@ -235,12 +235,12 @@ Dans les faits la decision avait deja derive : `tls_internal: true` etait en pla
 
 > 💡 **Note** : `.internal` est un TLD reserve (RFC 6761 / RFC 8375). **Aucune CA publique n'emettra jamais** pour ces noms — la CA locale de Caddy n'est pas un repli faute de mieux, c'est la seule option techniquement possible. Le cas d'un vrai certificat Let's Encrypt est traite separement, sur un nom public (`portail-client.tipunchlabs.fr`, ACME DNS-01 OVH).
 
-Etat au 2026-08-24 :
+Etat au 2026-10-31 (`portainer` et `openwebui` retires) :
 
 | Mode | Backends |
 |---|---|
 | **HTTPS** (`tls_internal: true`) | `proxmox`, `kandidat`, `portail-client`, `hermes` |
-| **HTTP** (defaut) | `vpngate`, `portainer`, `pihole`, `openwebui`, `excalidraw`, `komodo`, `miniboard` |
+| **HTTP** (defaut) | `vpngate`, `pihole`, `excalidraw`, `komodo`, `miniboard` |
 | **HTTPS public** (`tls_public`, ACME DNS-01 OVH) | `portail-client.tipunchlabs.fr` |
 
 ### Justification

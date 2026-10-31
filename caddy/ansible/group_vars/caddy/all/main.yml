@@ -75,17 +75,9 @@ caddy_backends:
     domain: vpngate.internal
     upstream: http://192.168.10.50:51821
     tls_insecure_skip_verify: false
-  - name: portainer
-    domain: portainer.internal
-    upstream: http://192.168.10.90:9000
-    tls_insecure_skip_verify: false
   - name: pihole
     domain: pihole.internal
     upstream: http://192.168.10.71:80
-    tls_insecure_skip_verify: false
-  - name: openwebui
-    domain: openwebui.internal
-    upstream: http://192.168.10.90:8080
     tls_insecure_skip_verify: false
   - name: excalidraw
     domain: excalidraw.internal
