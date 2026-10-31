@@ -400,7 +400,7 @@ ansible-playbook ansible/deploy.yml --tags pihole
 ### Secrets
 - **Ansible Vault** : Secrets chiffres dans `*/ansible/group_vars/*/vault/` ou `*/ansible/host_vars/*/vault/`
 - **Vault password** : Via `pass show ansible/vault` (script `scripts/ansible-vault-pass.sh`)
-- **Terraform credentials** : Via `TF_VAR_*` depuis `.envrc` + `pass`
+- **Terraform credentials** : Injectes par commande via `scripts/with-secrets <profil> -- <commande>` (lit `pass`). `.envrc` ne contient que de la config non sensible ; **aucun secret n'est exporte dans le shell**. Lancer les commandes avec credentials depuis un terminal proprietaire, pas depuis une session agent
 - **Ne jamais commiter** de fichiers vault non chiffres ou de `.tfvars`
 
 ### Qualite du code
@@ -416,7 +416,7 @@ ansible-playbook ansible/deploy.yml --tags pihole
 
 ### Tooling
 - **uv** : Gestion des dependances Python (pyproject.toml a la racine)
-- **direnv** : Auto-active venv et exporte les variables (.envrc a la racine)
+- **direnv** : Auto-active venv et exporte la config non sensible (.envrc a la racine)
 - **pass** : Password manager pour tous les secrets
 - **GitLab** : Origin principal (`gitlab.com/tipunchlabs/homelab`)
 - **GitHub** : Miroir read-only (`github.com/TiPunchLabs/homelab`), plus de CI

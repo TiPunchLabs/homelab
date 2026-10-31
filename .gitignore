@@ -50,6 +50,7 @@ Thumbs.db
 *credentials*
 *secret*
 !SECURITY.md
+!scripts/with-secrets
 id_rsa*
 !id_rsa*.pub
 id_ed25519*

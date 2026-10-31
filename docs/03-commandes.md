@@ -230,14 +230,33 @@ terraform validate
 
 ### Environment variables
 
-Terraform credentials are exported via `direnv` from `.envrc`:
+`.envrc` (direnv) exports non-sensitive configuration only (`PROXMOX_IP`, `TF_VAR_pm_api_url`,
+`TF_VAR_github_owner`, `TF_VAR_gitlab_namespace_path`, `TF_HTTP_USERNAME`).
+
+Credentials are never exported into the shell. Run credentialed commands through
+`scripts/with-secrets`, from an owner terminal:
 
 ```bash
-# Variables automatically available in the shell
-TF_VAR_pm_api_url      # Proxmox API URL
-TF_VAR_pm_api_token_id  # Token ID
-TF_VAR_pm_api_token_secret  # Token secret
+scripts/with-secrets <profile>[,<profile>...] -- <command> [args...]
+
+# Profiles -> Terraform directories
+#   proxmox   bastion, dockhost, hermes/terraform-31, kubecluster, vpngate
+#   lxc       caddy, pihole (proxmox + LXC root password)
+#   gitlab    gitlab-terraform
+#   github    TF_VAR_github_token (github-terraform has no Terraform source in this checkout)
+#   ovh       ovh-dns-terraform
+#   tfstate   GitLab HTTP state backend, e.g. proxmox,tfstate (reuses gitlab/terraform-token;
+#             needs TF_HTTP_USERNAME from .envrc; backend declared on the dockhost tfstate branch)
+#   vault     ANSIBLE_VAULT_PASSWORD (rarely needed, see below)
+
+cd dockhost/terraform
+../../scripts/with-secrets proxmox -- terraform plan
 ```
+
+Ansible Vault needs no profile: `scripts/ansible-vault-pass.sh` falls back to `pass ansible/vault`.
+Playbooks that read `TF_VAR_pm_api_*` (e.g. hermes `m2-preflight.yml`) run under the `proxmox` profile.
+Use a path to the script that matches your working directory. Keep `$VAR` references inside
+`sh -c '...'` so they expand in the child, not in the calling shell.
 
 ---
 

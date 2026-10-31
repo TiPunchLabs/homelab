@@ -532,7 +532,7 @@ All from `hermes/`, each step on explicit approval.
 | Step | Command | Writes on hermes-30 |
 |---|---|---|
 | B1 | bot + vault keys + `/start` (above) | — |
-| B2 | `ansible-playbook ansible/m2-preflight.yml` (needs `TF_VAR_pm_api_*` from `.envrc`: memory gate), then add `- "{{ hermes_profile_cafe_ia }}"` to `hermes_profiles` (activation commit) | no |
+| B2 | `ansible-playbook ansible/m2-preflight.yml` (needs `TF_VAR_pm_api_*`: run it as `scripts/with-secrets proxmox -- ansible-playbook ...`, memory gate), then add `- "{{ hermes_profile_cafe_ia }}"` to `hermes_profiles` (activation commit) | no |
 | B3 | `ansible-playbook ansible/deploy.yml --tags hermes --check --diff` | no |
 | B4 | `ansible-playbook ansible/deploy.yml --tags hermes` | `profiles/cafe-ia/` only |
 | B5 | automatic checks of B4 (below) | — |
@@ -580,7 +580,7 @@ NO-GO unless `hermes_pf_min_available_mib` (1536) is available **now** and
 **at the balloon floor**. The floor is read from the effective Proxmox
 configuration through its API (`cluster/resources` → `config` →
 `status/current`, GET only, from the controller, `no_log`), with the
-Terraform token of `.envrc` — nothing is copied from the Terraform code, so a
+Terraform token of the `proxmox` profile of `scripts/with-secrets` — nothing is copied from the Terraform code, so a
 code/reality gap shows. Missing credentials, VM not found, unreadable config
 or unknown balloon size: NO-GO. The worst case is an **estimate**, not a
 guarantee: `floor − (balloon size − MemTotal) − used`, where the memory the
@@ -1247,7 +1247,7 @@ changes nothing.
 ## Operating profiles
 
 All from `hermes/`, with `direnv` loaded (the memory gate reads
-`TF_VAR_pm_api_*`). Never inside the cron windows of `default` (Mon/Wed 07:00
+`TF_VAR_pm_api_*`: run those playbooks under `scripts/with-secrets proxmox --`). Never inside the cron windows of `default` (Mon/Wed 07:00
 UTC, Sat 08:00 UTC, ±2 h); `deploy.yml` does **not** check them, only the
 preflights do.
 

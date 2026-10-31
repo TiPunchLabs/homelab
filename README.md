@@ -60,7 +60,7 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 git clone git@gitlab.com:tipunchlabs/homelab.git
 cd homelab
 
-# Allow direnv (creates .venv via uv, loads secrets via pass)
+# Allow direnv (creates .venv via uv, loads non-sensitive config)
 direnv allow
 
 # Install Python dependencies
@@ -87,7 +87,7 @@ ansible-playbook ansible/deploy.yml
 homelab/
 ├── .gitlab-ci.yml                  # GitLab CI pipeline (lint, security, deploy)
 ├── .pre-commit-config.yaml         # Pre-commit hooks (shared)
-├── .envrc                          # direnv: venv, TF_VAR, vault password
+├── .envrc                          # direnv: venv + non-sensitive config (no secrets)
 ├── ansible.cfg                     # Default Ansible config
 ├── pyproject.toml                  # Python dependencies (uv)
 │
@@ -153,12 +153,14 @@ homelab/
 Secrets are managed via [pass](https://www.passwordstore.org/) and [direnv](https://direnv.net/):
 
 ```
-Ansible Vault → GPG Key → pass init → direnv → Env Vars
+Ansible Vault → GPG Key → pass init → scripts/with-secrets → process env (command only)
 ```
 
-- **Terraform credentials**: `pass` entries injected as `TF_VAR_*` via `.envrc`
+- **Terraform credentials**: `pass` entries injected as `TF_VAR_*` per command by `scripts/with-secrets <profile> -- <command>`; `.envrc` holds non-sensitive configuration only
 - **Ansible Vault password**: `pass ansible/vault` (used by `scripts/ansible-vault-pass.sh`)
 - **Sensitive variables**: encrypted with Ansible Vault in `*/ansible/group_vars/*/vault/`
+
+Credentialed commands are run by the owner from an independent terminal. Claude Code permissions (`.claude/settings.local.json`, untracked) deny direct `pass`/`with-secrets` use and ask before Terraform plan/apply/destroy, Ansible and Ansible Vault commands. These command-based rules are defense in depth, not a security boundary: `bash -c`, interpreters or other tools can still reach a credential the process is able to read. The actual protections are that no credential is exported into the shell and that credentials are only decrypted on demand in the owner terminal.
 
 ## CI/CD
 
