@@ -267,7 +267,7 @@ cd ~/homelab
 direnv allow
 ```
 
-> **Note**: At this point, direnv will fail on `pass` lookups for secrets that don't exist yet (Proxmox tokens, GitLab tokens). This is expected. They will be populated during the bootstrap steps.
+> **Note**: `.envrc` exports non-sensitive configuration only (copy `.envrc.example` and fill in the placeholders). Credentials are never exported into the shell: they are read from `pass` per command by `scripts/with-secrets` (see Appendix B). Secrets that don't exist yet in `pass` are only needed when you run a command that uses them.
 
 ---
 
@@ -341,18 +341,12 @@ proxmox/
 └── ansible-token-secret     # <secret value>
 ```
 
-After this step, reload direnv to pick up the new tokens:
+After this step, verify that the wrapper can supply the tokens (prints presence only, never values):
 
 ```bash
 cd ~/homelab
-direnv allow
-```
-
-Verify:
-
-```bash
-echo $TF_VAR_pm_api_token_id
-# Should output: terraform-prov@pve!terraform
+scripts/with-secrets proxmox -- sh -c 'test -n "$TF_VAR_pm_api_token_id" && test -n "$TF_VAR_pm_api_token_secret" && echo present'
+# Should output: present
 ```
 
 ### 3.5 Configure storage (optional)
@@ -484,9 +478,9 @@ terraform version
 ansible --version
 pass show ansible/vault
 
-# Check direnv loads secrets
+# Check the wrapper supplies credentials (presence only)
 cd ~/homelab
-echo $TF_VAR_pm_api_token_id
+scripts/with-secrets proxmox -- sh -c 'test -n "$TF_VAR_pm_api_token_id" && echo present'
 
 # Check SSH to other hosts
 ssh pve hostname       # Should print: proxmox
@@ -691,8 +685,8 @@ lint                    security                deploy
 ### 7.5 GitLab push mirror (optional)
 
 The project can mirror to GitHub automatically. This is managed via Terraform in `gitlab-terraform/` and requires:
-- A GitHub PAT stored in `pass github/gitlab-push-mirror-homelab`
-- The `TF_VAR_github_mirror_token` variable in `.envrc`
+- A GitHub PAT stored in `pass github/gitlab-push-mirror-tipunchlabs`
+- The `TF_VAR_github_mirror_token` variable, supplied by `scripts/with-secrets gitlab`
 
 ---
 
@@ -714,7 +708,7 @@ After completing all steps, verify each component:
 - [ ] `terraform version` outputs >= 1.11.0
 - [ ] `ansible --version` outputs >= 13.2.0
 - [ ] `pass show ansible/vault` returns the vault password
-- [ ] `cd ~/homelab && echo $TF_VAR_pm_api_token_id` returns the token ID
+- [ ] `cd ~/homelab && scripts/with-secrets proxmox -- sh -c 'test -n "$TF_VAR_pm_api_token_id" && echo present'` prints `present`
 - [ ] `sudo systemctl status gitlab-runner` shows active
 
 ### Dockhost
@@ -756,28 +750,38 @@ Complete password store structure:
 │   └── ansible-token-secret    # Ansible token secret
 ├── github/
 │   ├── terraform-token         # GitHub PAT for Terraform provider
-│   └── gitlab-push-mirror-homelab  # GitHub PAT for GitLab mirror
+│   └── gitlab-push-mirror-tipunchlabs  # GitHub PAT for GitLab mirror
 └── gitlab/
     ├── terraform-token         # GitLab PAT for Terraform provider
     └── tipunchlabs-group-id    # GitLab group numeric ID
 ```
 
-### B. Environment variables (.envrc)
+### B. Environment variables and credentials
 
-The `.envrc` file auto-exports these variables via direnv:
+The `.envrc` file exports non-sensitive configuration via direnv:
 
-| Variable | Source | Used by |
-|----------|--------|---------|
+| Variable | Value | Used by |
+|----------|-------|---------|
 | `TF_VAR_pm_api_url` | Hardcoded | Terraform (Proxmox provider) |
-| `TF_VAR_pm_api_token_id` | `pass proxmox/terraform-token-id` | Terraform (Proxmox provider) |
-| `TF_VAR_pm_api_token_secret` | `pass proxmox/terraform-token-secret` | Terraform (Proxmox provider) |
-| `TF_VAR_github_token` | `pass github/terraform-token` | Terraform (GitHub provider) |
 | `TF_VAR_github_owner` | Hardcoded (`TiPunchLabs`) | Terraform (GitHub provider) |
-| `TF_VAR_github_mirror_token` | `pass github/gitlab-push-mirror-homelab` | Terraform (GitLab mirror) |
-| `TF_VAR_gitlab_token` | `pass gitlab/terraform-token` | Terraform (GitLab provider) |
-| `TF_VAR_gitlab_namespace_id` | `pass gitlab/tipunchlabs-group-id` | Terraform (GitLab provider) |
-| `ANSIBLE_VAULT_PASSWORD` | `pass ansible/vault` | Ansible Vault |
+| `TF_VAR_gitlab_namespace_path` | Hardcoded | Terraform (GitLab provider) |
+| `TF_HTTP_USERNAME` | Hardcoded | Terraform (GitLab HTTP state backend) |
 | `PROXMOX_IP` | Hardcoded (`192.168.1.100`) | Scripts |
+
+Credentials stay in `pass` and are injected into a single command by `scripts/with-secrets <profile>[,<profile>...] -- <command>`:
+
+| Profile | Variables | `pass` entries |
+|---------|-----------|----------------|
+| `proxmox` | `TF_VAR_pm_api_token_id`, `TF_VAR_pm_api_token_secret` | `proxmox/terraform-token-id`, `proxmox/terraform-token-secret` |
+| `lxc` | `proxmox` + `TF_VAR_ct_root_password` | `proxmox/lxc-root-password` |
+| `github` | `TF_VAR_github_token` | `github/terraform-token` |
+| `gitlab` | `TF_VAR_gitlab_token`, `TF_VAR_gitlab_namespace_id`, `TF_VAR_github_mirror_token` | `gitlab/terraform-token`, `gitlab/tipunchlabs-group-id`, `github/gitlab-push-mirror-tipunchlabs` |
+| `ovh` | `TF_VAR_ovh_*`, `TF_VAR_dynhost_password`, `TF_VAR_portail_current_ip` | `tipunchlabs/ovh/*` |
+| `tfstate` | `TF_HTTP_PASSWORD` | `gitlab/terraform-token` |
+| `vault` | `ANSIBLE_VAULT_PASSWORD` | `ansible/vault` |
+
+Ansible Vault needs no profile: `scripts/ansible-vault-pass.sh` falls back to `pass show ansible/vault`.
+Run credentialed commands from an owner terminal, not from an agent session.
 
 ### C. IP address quick reference
 
