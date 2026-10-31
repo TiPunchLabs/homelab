@@ -17,16 +17,9 @@ security_open_ports:
   - { port: 22, proto: tcp, comment: "SSH access" }
   - { port: 5432, proto: tcp, comment: "PostgreSQL access" }
   - { port: 8000, proto: tcp, comment: "Kandidat web app" }
-  - { port: 8080, proto: tcp, comment: "Open WebUI" }
   - { port: 8082, proto: tcp, comment: "Excalidraw" }
   - { port: 8090, proto: tcp, comment: "Miniboard" }
   - { port: 9120, proto: tcp, comment: "Komodo Core UI + webhook listener" }
-
-# ============================================================
-# 🐳 Portainer CE - Role portainer
-# ============================================================
-portainer_admin_username: "{{ vault_portainer_admin_username }}"
-portainer_admin_password: "{{ vault_portainer_admin_password }}"
 
 # ============================================================
 # 🦎 Komodo - Role komodo (GitOps docker-compose reconciler)
@@ -37,11 +30,3 @@ komodo_host: "http://komodo.internal"
 #   vault_komodo_admin_password
 #   vault_komodo_webhook_secret
 #   vault_komodo_jwt_secret
-
-# ============================================================
-# 🌐 Open WebUI - Role open_webui
-# ============================================================
-open_webui_ollama_base_url: "http://ollama.internal:11434"
-open_webui_db_password: "{{ vault_open_webui_db_password }}"
-open_webui_database_url: "{{ vault_open_webui_database_url }}"
-open_webui_secret_key: "{{ vault_open_webui_secret_key }}"

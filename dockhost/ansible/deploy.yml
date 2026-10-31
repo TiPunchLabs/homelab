@@ -25,7 +25,6 @@
       tags:
         - postgresql
         - kandidat
-        - open-webui
 
   roles:
     - role: motd
@@ -34,9 +33,6 @@
     - role: docker
       tags:
         - docker
-    - role: portainer
-      tags:
-        - portainer
     - role: komodo
       tags:
         - komodo
@@ -49,9 +45,6 @@
     - role: portail_client
       tags:
         - portail-client
-    - role: open_webui
-      tags:
-        - open-webui
     - role: excalidraw
       tags:
         - excalidraw
