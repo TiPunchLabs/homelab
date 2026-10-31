@@ -778,7 +778,6 @@ Credentials stay in `pass` and are injected into a single command by `scripts/wi
 | `gitlab` | `TF_VAR_gitlab_token`, `TF_VAR_gitlab_namespace_id`, `TF_VAR_github_mirror_token` | `gitlab/terraform-token`, `gitlab/tipunchlabs-group-id`, `github/gitlab-push-mirror-tipunchlabs` |
 | `ovh` | `TF_VAR_ovh_*`, `TF_VAR_dynhost_password`, `TF_VAR_portail_current_ip` | `tipunchlabs/ovh/*` |
 | `tfstate` | `TF_HTTP_PASSWORD` | `gitlab/terraform-token` |
-| `powerdns` | `POWERDNS_VAULT_API_KEY` | `tipunchlabs/powerdns/api-key` |
 | `vault` | `ANSIBLE_VAULT_PASSWORD` | `ansible/vault` |
 
 Ansible Vault needs no profile: `scripts/ansible-vault-pass.sh` falls back to `pass show ansible/vault`.

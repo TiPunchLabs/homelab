@@ -247,7 +247,6 @@ scripts/with-secrets <profile>[,<profile>...] -- <command> [args...]
 #   ovh       ovh-dns-terraform
 #   tfstate   GitLab HTTP state backend, e.g. proxmox,tfstate (reuses gitlab/terraform-token;
 #             needs TF_HTTP_USERNAME from .envrc; backend declared on the dockhost tfstate branch)
-#   powerdns  PowerDNS API key (tipunchlabs/powerdns/api-key)
 #   vault     ANSIBLE_VAULT_PASSWORD (rarely needed, see below)
 
 cd dockhost/terraform
