@@ -57,13 +57,12 @@ Each service is its own Ansible role, deployed in this order by `deploy.yml`:
 ### 1. VM Provisioning with Terraform
 
 1. Navigate to the `terraform/` directory
-2. Create a `terraform.tfvars` file with your Proxmox credentials
-3. Export the GitLab credentials of the state backend (see below)
-4. Run:
+2. From an owner terminal (not an agent or Herdr shell), run through
+   `scripts/with-secrets` (see `docs/03-commandes.md`):
    ```bash
-   terraform init
-   terraform plan
-   terraform apply
+   ../../scripts/with-secrets tfstate -- terraform init
+   ../../scripts/with-secrets proxmox,tfstate -- terraform plan
+   ../../scripts/with-secrets proxmox,tfstate -- terraform apply
    ```
 
 **Terraform state:** the state lives in GitLab-managed Terraform state
@@ -72,18 +71,16 @@ Each service is its own Ansible role, deployed in this order by `deploy.yml`:
 `terraform import` VM 9090 into a new state: that creates a second state
 managing the same VM.
 
-```bash
-export TF_HTTP_USERNAME="<gitlab-username>"
-export TF_HTTP_PASSWORD="<token>"   # Developer+ to read, Maintainer to write/lock; api scope or Terraform State Read/Create/Lock
-```
+Backend credentials: `TF_HTTP_USERNAME` is non-sensitive configuration exported
+by `.envrc`; `TF_HTTP_PASSWORD` is injected only by the `tfstate` profile of
+`scripts/with-secrets` (`pass gitlab/terraform-token`). Never export it in a shell
+or pass it with `-backend-config`. The token needs Developer+ to read and
+Maintainer to write/lock, with `api` scope or Terraform State Read/Create/Lock.
 
-Example `terraform.tfvars`:
-
-```hcl
-pm_api_url           = "https://your-proxmox-server:8006/api2/json"
-pm_api_token_id      = "your-user@pam!token-name"
-pm_api_token_secret  = "your-token-secret"
-```
+No `terraform.tfvars` is needed: `pm_api_url` comes from `.envrc`
+(`TF_VAR_pm_api_url`), `pm_api_token_id` and `pm_api_token_secret` from the
+`proxmox` profile. Never put credentials in a `terraform.tfvars`: its values
+override the `TF_VAR_*` injected by the wrapper. Remove any existing one.
 
 **VM Configuration:**
 

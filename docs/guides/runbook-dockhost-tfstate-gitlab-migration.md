@@ -4,8 +4,9 @@
 > **Target**: local state of `dockhost/terraform` (VM 9090) → GitLab-managed state,
 > project `tipunchlabs/homelab` (id `80082616`), state name `dockhost`.
 > **Code**: MR !81 (`infra/dockhost-tfstate-gitlab`), adds `backend "http"` to
-> `dockhost/terraform/providers.tf`. **Merge only after step 9.**
-> **Contains no secret.** Credentials are environment variables only.
+> `dockhost/terraform/providers.tf`. **Merge only after step S8 and the S9 review.**
+> **Contains no secret.** Credentials reach Terraform only through `scripts/with-secrets`,
+> scoped to one process, from an owner terminal.
 
 ## Table of contents
 
@@ -38,6 +39,24 @@
 One writer at a time: the laptop. Local and HTTP locks cannot coordinate, so
 the freeze in P8 is procedural.
 
+Credential flow (security model of MR !82):
+
+```
+ owner terminal (new window, no Herdr, no agent)
+   └─ direnv exec $H           → .envrc: TF_HTTP_USERNAME, TF_VAR_pm_api_url (non-sensitive)
+        └─ scripts/with-secrets <profiles>   → pass → TF_HTTP_PASSWORD / TF_VAR_pm_api_token_*
+             └─ exec terraform ...           → secrets live in this process only
+```
+
+| Who | Runs | Credentials |
+|---|---|---|
+| Claude Code | P1–P8, P11, read-only GitLab/Proxmox metadata, offline gate tests | none (SSH keys and `glab` auth only; never `pass`, never `with-secrets`) |
+| Owner | P0, P9, P10, D-TOKEN check, chapter 5, S9 merge, S10, chapter 7 | `scripts/with-secrets` profiles `tfstate`, `proxmox`, per command |
+| Codex | review of this runbook and of the evidence directory `$E` (S9) | none, launched from a shell that passed the P0 checks |
+
+Never run a credentialed step from Claude Code, Codex, a Herdr pane or any
+session started before MR !82: old processes may still carry inherited credentials.
+
 ------
 
 ## 📖 Chapter 2: Facts (read-only evidence, 2026-10-30)
@@ -53,7 +72,9 @@ the freeze in P8 is procedural.
 | GitLab | `terraformStates.count = 0`; project public, but state read needs Developer+, write/lock needs Maintainer; only member = owner |
 | Working dir | no `dockhost/terraform/terraform.tfstate*`, no `.terraform/terraform.tfstate` |
 | Tooling | only Terraform 1.17.0 installed (mise `terraform = "latest"`) → use the absolute binary below |
-| Provider | lock file pins `bpg/proxmox` 0.96.0; Renovate MR !60 (→ 0.118.0) open, **must stay unmerged** during the window |
+| Provider | untracked lock file pins `bpg/proxmox` 0.96.0; Renovate MR !60 (→ 0.118.0) open, **must stay unmerged** during the window |
+| Credentials | MR !82: `.envrc` holds config only (`TF_HTTP_USERNAME` included); `scripts/with-secrets` profile `tfstate` loads `TF_HTTP_PASSWORD` from `pass gitlab/terraform-token`, profile `proxmox` loads `TF_VAR_pm_api_token_id/secret` |
+| Token incident | 2026-10-30 22:57Z: the values of `.envrc` secrets, including `gitlab/terraform-token` (PAT id 20891640), were printed into a Claude Code session. Rotation required (D-ROTATE) |
 
 ------
 
@@ -61,67 +82,128 @@ the freeze in P8 is procedural.
 
 | ID | Decision | State |
 |---|---|---|
-| D-TF | Terraform 1.17.0 | Provisionally accepted. Evidence: 1.17.0 reads this 1.11.4 state (baseline plan, format 4). The migration writes `terraform_version` 1.17.0 into the remote state. Policy: 1.17.0 (absolute binary below) for migration, verification and rollback; older binaries (bastion's 1.11.4, CI image 1.11) are untested against the migrated state and prohibited for this procedure. CI is unaffected, as it only runs `init -backend=false` |
-| D-TOKEN | Credential for `TF_HTTP_PASSWORD` | **Open**. Classic token: `api` scope; fine-grained: Terraform State **Read, Create, Lock** (+ **Delete** for rollback step R6). User role Maintainer+ on 80082616 |
-| D-ENV | How the token reaches Terraform | **Open**. Recommended: two lines in the untracked `homelab/.envrc` (same pattern as `TF_VAR_*`): `export TF_HTTP_USERNAME=<gitlab-user>` and `TF_HTTP_PASSWORD=$(pass <entry>)` + `export` |
-| D-GO | Execute chapter 5 | **Open** |
+| D-TF | Terraform 1.17.0 | Accepted (M3.4). The migration writes `terraform_version` 1.17.0 into the remote state. Use 1.17.0 (absolute binary below) for migration, verification and rollback. Older binaries (bastion's 1.11.4, CI image 1.11) are untested against the migrated state and prohibited for this procedure. CI only runs `init -backend=false` and is unaffected |
+| D-TOKEN | Credential for `TF_HTTP_PASSWORD` | Resolved: `pass gitlab/terraform-token` via profile `tfstate` (classic PAT, `api` scope, owner 600944 = Maintainer+). The same entry backs `TF_VAR_gitlab_token` |
+| D-ENV | How the token reaches Terraform | Resolved by MR !82: `TF_HTTP_USERNAME` from the untracked `.envrc`; `TF_HTTP_PASSWORD` only from `scripts/with-secrets tfstate`. Never in `.envrc`, never exported in a shell, never `-backend-config=password=…` (persisted in `.terraform/terraform.tfstate`) |
+| D-ROTATE | Rotate `gitlab/terraform-token` (exposed 2026-10-30) and update the pass entry | **Open, blocking**. Proof: the D-TOKEN check below shows a new `id` (≠ 20891640) and `created_at` after 2026-10-30T22:57Z |
+| D-GO | Execute chapter 5 | **Open**. The D-GO given before the incident is void; a new one is needed after D-ROTATE |
 
-Owner-side token check. It prints metadata only, never the value:
+D-TOKEN check, owner terminal, after defining chapter 4's variables (`$H`). It prints metadata only, never the value. The token
+reaches `curl` on stdin (`printf` is a shell builtin), never on a command line:
 
 ```bash
-# Run in your own shell; prints name/scopes/expiry/user_id only
-pass show <entry> | head -1 | sed 's/^/PRIVATE-TOKEN: /' \
-  | curl -sS -H @- https://gitlab.com/api/v4/personal_access_tokens/self \
-  | python3 -c 'import json,sys;d=json.load(sys.stdin);print({k:d.get(k) for k in ("name","scopes","active","revoked","expires_at","user_id")})'
+direnv exec "$H" "$H/scripts/with-secrets" tfstate -- sh -c \
+  'printf "PRIVATE-TOKEN: %s\n" "$TF_HTTP_PASSWORD" | curl -sS -H @- https://gitlab.com/api/v4/personal_access_tokens/self' \
+  | python3 -c 'import json,sys;d=json.load(sys.stdin);print({k:d.get(k) for k in ("id","name","scopes","active","revoked","created_at","expires_at","user_id")})'
 ```
 
-Expect `active: True`, `revoked: False`, `scopes` containing `api` (classic), an
-expiry after the window, and `user_id` of a Maintainer+ member (owner = 600944).
+Expect `id` ≠ 20891640, `created_at` after 2026-10-30T22:57Z, `active: True`,
+`revoked: False`, `scopes` containing `api`, an expiry after the window, `user_id` 600944.
+Claude can corroborate without the secret: `glab api personal_access_tokens/20891640`
+must show `active: false` or `revoked: true`.
 
 ------
 
 ## 📝 Chapter 4: Preconditions (re-check immediately before chapter 5)
 
+Open a **new terminal window** (not a Herdr pane, not a Claude Code or Codex shell),
+check out the branch, then define the variables and helpers in that shell:
+
 ```bash
+git -C ~/Workspace/02-infrastructure/homelab switch infra/dockhost-tfstate-gitlab
+git -C ~/Workspace/02-infrastructure/homelab pull --ff-only
+
 H=~/Workspace/02-infrastructure/homelab
 W=$H/dockhost/terraform
 T=~/.local/share/mise/installs/terraform/1.17.0/terraform
 B=~/.local/share/homelab-tfstate-backup/dockhost/terraform.tfstate.from-bastion-60.2026-10-16
 E=~/.local/share/homelab-tfstate-backup/dockhost/migration-$(date +%Y%m%dT%H%M%S)   # new, unique evidence dir
+
+# Terraform with .envrc config and secrets scoped to this one process.
+# $1 = with-secrets profiles: "tfstate" (GitLab state) or "proxmox,tfstate" (plan)
+tfw() { local p=$1; shift; direnv exec "$H" "$H/scripts/with-secrets" "$p" -- "$T" "$@"; }
+
+# Exit 0 only if the plan log is the known 0/1/0 ipconfig drift
+check_plan() {
+python3 - "$1" <<'EOF'
+import re,sys
+t=open(sys.argv[1]).read()
+got=[l.strip() for l in t.splitlines() if re.match(r"\s+[~+-] ",l)]
+exp=['~ update in-place','~ resource "proxmox_virtual_environment_vm" "vm" {','~ initialization {','~ ip_config {','~ ipv4 {',
+     '~ address = "192.168.1.90/24" -> "192.168.10.90/24"','~ gateway = "192.168.1.1" -> "192.168.10.1"',
+     '~ vm_ips = [','~ "192.168.1.90" -> "192.168.10.90",']
+ok="Plan: 0 to add, 1 to change, 0 to destroy." in t and got==exp
+print("plan_matches_baseline",ok); sys.exit(0 if ok else 1)
+EOF
+}
+
+# Exit 0 only if state $2 keeps the lineage, resources and outputs of state $1
+check_same() {
+python3 - "$1" "$2" <<'EOF'
+import json,sys
+a,b=(json.load(open(p)) for p in sys.argv[1:])
+res={"lineage":a["lineage"]==b["lineage"],"resources":a["resources"]==b["resources"],"outputs":a["outputs"]==b["outputs"],"format":b["version"]==4}
+print(res,"serial",a["serial"],"->",b["serial"],"tf",a["terraform_version"],"->",b["terraform_version"])
+sys.exit(0 if all(res.values()) else 1)
+EOF
+}
 ```
 
 | # | Check | Command | Expected |
 |---|---|---|---|
+| P0 | Owner terminal independent and clean (names only) | `[ -z "${HERDR_ENV:-}${CLAUDECODE:-}" ] && echo independent`; `compgen -e \| grep -E '^(TF_HTTP_PASSWORD\|ANSIBLE_VAULT_PASSWORD\|GITLAB_TOKEN\|GITHUB_TOKEN\|TF_VAR_.*(token\|secret\|password\|key).*)$' \|\| echo none`; `[ -z "${TF_LOG:-}${TF_LOG_PATH:-}${TF_LOG_CORE:-}${TF_LOG_PROVIDER:-}" ] && echo nolog` | `independent`, `none`, `nolog` |
 | P1 | bastion inactive | `ssh pve 'sudo qm status 9060; sudo qm config 9060 \| grep onboot'` | `stopped`, `onboot: 0` |
-| P2 | Git | `git -C $H status --porcelain`; `git -C $H rev-parse HEAD origin/infra/dockhost-tfstate-gitlab` | empty; equal; branch contains the backend commit |
+| P2 | Git | `git -C $H status --porcelain`; `git -C $H rev-parse HEAD origin/infra/dockhost-tfstate-gitlab`; `test -x $H/scripts/with-secrets` | empty; equal; present (branch contains main with MR !82) |
 | P3 | MRs | `glab api projects/80082616/merge_requests/81` and `/60` | !81 draft, unmerged; !60 unmerged |
 | P4 | No remote state | `glab api graphql -f query='{ project(fullPath:"tipunchlabs/homelab"){ terraformStates{ count } } }'` | `count: 0` |
 | P5 | Backup integrity | `sha256sum -c $B.sha256` | `OK` |
 | P6 | Clean working dir | `ls $W/terraform.tfstate* $W/.terraform/terraform.tfstate` | both absent |
 | P7 | Tooling | `$T version`; `grep -A1 bpg/proxmox $W/.terraform.lock.hcl` | 1.17.0; 0.96.0 |
-| P8 | Freeze | declared by the owner | no other dockhost Terraform run anywhere until step 9 |
-| P9 | Credentials present, never printed | `direnv exec $H sh -c 'test -n "$TF_HTTP_USERNAME" && test -n "$TF_HTTP_PASSWORD" && echo SET'` | `SET` |
-| P10 | Baseline plan | scratch copy of `$B`, `$T plan -lock=false -detailed-exitcode` | exit 2, 0/1/0, ipconfig only |
+| P8 | Freeze | declared by the owner; `pgrep -af terraform` | no other dockhost Terraform run anywhere until S10 |
+| P9 | Credentials reach the child, never printed | `direnv exec $H $H/scripts/with-secrets tfstate -- sh -c 'test -n "$TF_HTTP_USERNAME" && test -n "$TF_HTTP_PASSWORD" && echo SET'` | `SET` (also warms the gpg-agent cache before chapter 5) |
+| P10 | Baseline plan (owner, profile `proxmox`) | block below | block ends without `STOP`: exit 2, `plan_matches_baseline True`, copy byte-identical to the backup (`cmp`) |
 | P11 | Infra snapshot | `ssh pve 'sudo qm config 9090 \| grep ipconfig0'`; `ssh dockhost-90 uptime -s` | `ip=192.168.1.90/24`, uptime recorded |
 
-Any deviation → stop, do not improvise.
+P10, on a scratch copy built from `origin/main` (local backend; valid only while
+!81 is unmerged):
 
-> 💡 **Note**: in Claude Code's shell, `direnv exec` restores a stale PATH. Clear
-> `DIRENV_DIFF DIRENV_DIR DIRENV_FILE DIRENV_WATCHES` and prepend the mise install paths first.
+```bash
+(
+set -euo pipefail
+! git -C "$H" show origin/main:dockhost/terraform/providers.tf | grep 'backend "http"' || { echo "STOP: main has the backend"; exit 1; }
+P=$(mktemp -d); chmod 700 "$P"; echo "scratch $P"
+git -C "$H" archive origin/main dockhost/terraform modules | tar -x -C "$P"
+cp "$W/.terraform.lock.hcl" "$P/dockhost/terraform/"
+install -m 600 "$B" "$P/dockhost/terraform/terraform.tfstate"
+cd "$P/dockhost/terraform"
+direnv exec "$H" "$T" init -input=false -no-color > "$P/init.log" 2>&1
+rc=0; tfw proxmox plan -lock=false -input=false -no-color -detailed-exitcode > "$P/plan.log" 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || { echo "STOP: plan exit $rc, expected 2"; exit 1; }
+check_plan "$P/plan.log" || { echo "STOP: plan differs from baseline"; exit 1; }
+cmp -s "$P/dockhost/terraform/terraform.tfstate" "$B" || { echo "STOP: scratch copy modified"; exit 1; }
+sha256sum "$P/dockhost/terraform/terraform.tfstate" "$B"
+)
+```
+
+Any deviation → stop, do not improvise.
 
 ------
 
 ## 🛠️ Chapter 5: Execution (owner GO required)
 
-Run as one fail-fast subshell in the shell where chapter 4's variables are set.
-Every gate exits non-zero and stops the run. S9 and S10 are manual, after review.
+Run as one fail-fast subshell in the owner terminal where chapter 4's variables
+and helpers are defined. Every gate exits non-zero and stops the run. S9 and S10
+are manual, after review.
 
 ```bash
 (
 set -euo pipefail
 stop() { echo "STOP at $1" >&2; exit 1; }
 
-# S1 — new evidence directory (fails if it already exists)
+# S1 — independent shell, no Terraform logging, no exported credential; new evidence directory
+[ -z "${HERDR_ENV:-}${CLAUDECODE:-}" ] || stop "S1 (agent or Herdr shell)"
+[ -z "${TF_LOG:-}${TF_LOG_PATH:-}${TF_LOG_CORE:-}${TF_LOG_PROVIDER:-}" ] || stop "S1 (TF_LOG set)"
+! compgen -e | grep -xE 'TF_HTTP_PASSWORD|TF_VAR_pm_api_token_secret' || stop "S1 (credential exported)"
 mkdir -m 700 "$E" || stop S1
 
 # S2 — place the state (temporary)
@@ -130,7 +212,7 @@ install -m 600 "$B" "$W/terraform.tfstate"
 
 # S3 — migrate (writes the GitLab state)
 cd "$W"
-direnv exec "$H" "$T" init -migrate-state -force-copy -input=false -no-color > "$E/init.log" 2>&1 || stop S3
+tfw tfstate init -migrate-state -force-copy -input=false -no-color > "$E/init.log" 2>&1 || stop S3
 grep -q 'Successfully configured the backend "http"' "$E/init.log" || stop S3
 
 # S4 — backend record carries no credential (prints presence only, never values)
@@ -144,29 +226,14 @@ sys.exit(0 if ok and not leaked else 1)
 EOF
 
 # S5 — pull the remote and compare with the backup
-direnv exec "$H" "$T" state pull > "$E/remote.json" || stop S5
+tfw tfstate state pull > "$E/remote.json" || stop S5
 chmod 400 "$E/remote.json"
-python3 - "$B" "$E/remote.json" <<'EOF' || stop S5
-import json,sys
-a,b=(json.load(open(p)) for p in sys.argv[1:])
-res={"lineage":a["lineage"]==b["lineage"],"resources":a["resources"]==b["resources"],"outputs":a["outputs"]==b["outputs"],"format":b["version"]==4}
-print(res,"serial",a["serial"],"->",b["serial"],"tf",a["terraform_version"],"->",b["terraform_version"])
-sys.exit(0 if all(res.values()) else 1)
-EOF
+check_same "$B" "$E/remote.json" || stop S5
 
 # S6 — plan from the remote state (takes and releases the GitLab lock). NEVER apply.
-rc=0; direnv exec "$H" "$T" plan -input=false -no-color -detailed-exitcode > "$E/plan.log" 2>&1 || rc=$?
+rc=0; tfw proxmox,tfstate plan -input=false -no-color -detailed-exitcode > "$E/plan.log" 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || stop "S6 (plan exit $rc, expected 2)"
-python3 - "$E/plan.log" <<'EOF' || stop S6
-import re,sys
-t=open(sys.argv[1]).read()
-got=[l.strip() for l in t.splitlines() if re.match(r"\s+[~+-] ",l)]
-exp=['~ update in-place','~ resource "proxmox_virtual_environment_vm" "vm" {','~ initialization {','~ ip_config {','~ ipv4 {',
-     '~ address = "192.168.1.90/24" -> "192.168.10.90/24"','~ gateway = "192.168.1.1" -> "192.168.10.1"',
-     '~ vm_ips = [','~ "192.168.1.90" -> "192.168.10.90",']
-ok="Plan: 0 to add, 1 to change, 0 to destroy." in t and got==exp
-print("plan_matches_baseline",ok); sys.exit(0 if ok else 1)
-EOF
+check_plan "$E/plan.log" || stop S6
 
 # S7 — GitLab view: one state, unlocked
 glab api graphql -f query='{ project(fullPath:"tipunchlabs/homelab"){ terraformStates{ count nodes{ name lockedAt latestVersion{ serial } } } } }' > "$E/gitlab-states.json" || stop S7
@@ -177,7 +244,7 @@ ok=s["count"]==1 and s["nodes"][0]["name"]=="dockhost" and s["nodes"][0]["locked
 print(s, "ok", ok); sys.exit(0 if ok else 1)
 EOF
 
-# S8 — move the temporary local files out of the repo (no deletion, no overwrite)
+# S8 — move the temporary local files out of the repo (no deletion, no overwrite), then scan for leaks
 for f in terraform.tfstate terraform.tfstate.backup; do
   if [ -e "$W/$f" ]; then
     [ ! -e "$E/$f.local-after-migration" ] || stop S8
@@ -186,23 +253,34 @@ for f in terraform.tfstate terraform.tfstate.backup; do
 done
 chmod 400 "$E"/*
 sha256sum -c "$B.sha256" || stop S8
+[ -z "$(git -C "$H" status --porcelain)" ] || stop "S8 (repo not clean)"
 grc=0; grep -rIlE 'glpat-|PRIVATE-TOKEN' "$E" "$W/.terraform" || grc=$?
-[ "$grc" -eq 1 ] || stop "S8 (credential scan: match or error, grep exit $grc)"
+[ "$grc" -eq 1 ] || stop "S8 (credential pattern scan: match or error, grep exit $grc)"
+# exact-value scan: the values reach grep on stdin (printf builtin), never on a command line.
+# The child exits 0 only on grep "no match" (1); a match, a grep error or a with-secrets/pass failure all stop.
+direnv exec "$H" "$H/scripts/with-secrets" proxmox,tfstate -- sh -c \
+  'printf "%s\n" "$TF_HTTP_PASSWORD" "$TF_VAR_pm_api_token_secret" | grep -rIlF -f - "$1" "$2"; [ $? -eq 1 ]' sh "$E" "$W/.terraform" \
+  || stop "S8 (exact-value scan: match, grep error or credential load failure)"
+! compgen -e | grep -xE 'TF_HTTP_PASSWORD|TF_VAR_pm_api_token_secret' || stop "S8 (credential leaked into the shell)"
 echo "S1-S8 PASSED — evidence in $E"
 )
 ```
 
 Manual, after the run:
 
-- **S9**: Codex reviews `$E`. The owner marks MR !81 ready and merges it. The `main` pipeline must be green.
-- **S10**: from an up-to-date `main` checkout, run in `$W`
-  `direnv exec "$H" "$T" init -input=false`, then the S6 plan with its output in a
-  new file (`$E/plan-post-merge.log`; `$E/plan.log` is read-only since S8), and
-  run the S6 checker on that file. The result must be identical.
+- **S9**: Codex reviews `$E` (read-only, from a shell that passes P0; never from a
+  `with-secrets` child). Then the owner marks MR !81 ready and merges it. The `main`
+  pipeline must be green.
+- **S10**: switch `$H` to an up-to-date `main` (`git switch main && git pull --ff-only`).
+  In `$W`, run `tfw tfstate init -input=false`. Then run
+  `rc=0; tfw proxmox,tfstate plan -input=false -no-color -detailed-exitcode > "$E/plan-post-merge.log" 2>&1 || rc=$?`
+  (a new file: `$E/plan.log` has been read-only since S8), then
+  `if [ "$rc" -eq 2 ] && check_plan "$E/plan-post-merge.log"; then echo "S10 PASSED"; else echo "STOP at S10 (plan exit $rc)"; fi`.
+  Only `S10 PASSED` ends the freeze.
 
 If S3 fails: stop. Run the P4 query to learn whether a remote state was
 created. Do not retry blindly. A stuck lock is released only with
-`$T force-unlock <ID>`, and that needs owner approval.
+`tfw tfstate force-unlock <ID>`, and that needs owner approval.
 
 ------
 
@@ -213,9 +291,9 @@ created. Do not retry blindly. A stuck lock is released only with
 | AC1 | Remote `dockhost` exists; lineage `99061ad6…`; resources and outputs JSON-identical to the backup | S5, S7 |
 | AC2 | Plan from the remote = 0/1/0, ipconfig only | S6 |
 | AC3 | No lock held after the run | S7 `lockedAt: null` |
-| AC4 | No secret in the repo, `.terraform/terraform.tfstate` or `$E` | S4; `grep -rIl -E 'glpat-\|PRIVATE-TOKEN' "$E" "$W/.terraform"` → nothing |
+| AC4 | No secret in the repo, `.terraform/terraform.tfstate`, `$E` or the owner shell | S4; S8 pattern scan, exact-value scan and `compgen` check |
 | AC5 | Backup unchanged | S8 `sha256sum -c` OK |
-| AC6 | No `terraform.tfstate*` left in `$W` | `ls` |
+| AC6 | No `terraform.tfstate*` left in `$W` | `ls`; S8 `git status` clean |
 | AC7 | Infrastructure untouched: `ipconfig0` still `192.168.1.90/24`, dockhost uptime unchanged, no apply in any log | P11 repeated |
 
 **Definition of Done**: AC1–AC7 verified; Codex review PASS or
@@ -228,12 +306,19 @@ disappears with VM 9060, after its own approval).
 ## 🔧 Chapter 7: Rollback
 
 Rule: delete nothing until the destination is verified. `$B` is never modified.
+All commands run in the owner terminal, with chapter 4's helpers, from `$W`.
 
 1. Keep the freeze.
-2. Snapshot the remote: `direnv exec "$H" "$T" state pull > "$E/remote-latest.json"`, chmod 400, record sha256.
-3. Restore the configuration without the backend block: before merge, `git restore --source=main -- providers.tf` from `$W`; after merge, use a branch that reverts the backend commit.
-4. `direnv exec "$H" "$T" init -migrate-state -force-copy -input=false`. This copies the remote back to a local `terraform.tfstate` and reconfigures `.terraform` for the local backend.
-5. Verify: lineage `99061ad6…`, resources and outputs equal to `remote-latest.json`, plan = the same 0/1/0.
+2. Snapshot the remote: `tfw tfstate state pull > "$E/remote-latest.json"`, chmod 400, record sha256.
+3. Restore the configuration without the backend block: before merge, `git restore --source=origin/main -- providers.tf` (valid while `origin/main` has no backend); after merge, use a branch that reverts the backend commit `9c82604`.
+4. `tfw tfstate init -migrate-state -force-copy -input=false`. This copies the remote back to a local `terraform.tfstate` and reconfigures `.terraform` for the local backend.
+5. Verify: lineage `99061ad6…`, resources and outputs equal to `remote-latest.json`, and plan = the same 0/1/0. All three conditions are in one chain; go to step 6 only after `R5 PASSED`:
+
+   ```bash
+   rc=0; tfw proxmox plan -input=false -no-color -detailed-exitcode > "$E/plan-rollback.log" 2>&1 || rc=$?
+   if check_same "$E/remote-latest.json" "$W/terraform.tfstate" && [ "$rc" -eq 2 ] && check_plan "$E/plan-rollback.log"
+   then echo "R5 PASSED"; else echo "STOP at R5 (state mismatch, or plan exit $rc / drift)"; false; fi
+   ```
 6. Only then retire the remote: `glab api -X DELETE projects/80082616/terraform/state/dockhost` (Maintainer). If `main` already has the backend block, also merge the revert.
 
 ------
@@ -248,7 +333,8 @@ Rule: delete nothing until the destination is verified. `$B` is never modified.
 - Other Terraform states (laptop-local, not bastion dependencies). bastion's own
   state stays local until the 9060 destroy.
 - Renovate !60 (bpg 0.118.0): after the migration, as a separate change.
+- Rotation of the other credentials exposed on 2026-10-30 (owner decision, outside this runbook).
 
 > **Document created on**: 2026-10-30
 > **Author**: Xavier Gueret, with Claude Code
-> **Version**: 2.2 (v1 was an unversioned scratch draft; v2.1 adds fail-fast gates after the M3.3 Codex review)
+> **Version**: 2.3 (v2.2 at `645aff5`, Codex PASS; v2.3 adapts it to MR !82: owner-only credentialed steps through `scripts/with-secrets`, P0 independence check, D-ROTATE, exact-value leak scan, shared `tfw`/`check_plan` helpers)
