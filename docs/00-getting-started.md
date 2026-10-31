@@ -671,7 +671,8 @@ The CI pipeline (`.gitlab-ci.yml`) runs 3 stages:
 ```
 lint                    security                deploy
 ├── ansible-lint        ├── security-check      └── sync-bastion
-├── terraform-lint      └── scan-docker-images      (main branch only)
+├── terraform-lint      ├── gitleaks                (main branch only)
+│                       └── scan-docker-images
 └── shell-lint
 ```
 
@@ -679,6 +680,7 @@ lint                    security                deploy
 - **terraform-lint**: Format check + validate all Terraform code
 - **shell-lint**: Shellcheck all scripts
 - **security-check**: Verifies vault encryption, no plaintext secrets
+- **gitleaks**: Scans the commits added by the push for secrets (Gitleaks default rules, values redacted in the log). The same check runs locally as a pre-commit hook on staged changes
 - **scan-docker-images**: Trivy scan on Docker images (HIGH/CRITICAL)
 - **sync-bastion**: Pulls latest code on bastion (runs on `main` branch only, on bastion runner)
 
