@@ -1,6 +1,6 @@
 # Getting started
 
-> **Objective**: Deploy a fully functional homelab from a bare Proxmox VE server to a production-ready environment with bastion, Docker services, and Kubernetes cluster.
+> **Objective**: Deploy a fully functional homelab from a bare Proxmox VE server to a production-ready environment with Docker services and a Kubernetes cluster.
 >
 > **Prerequisites**: A physical server with Proxmox VE installed, a local workstation running Linux, and basic knowledge of SSH, Ansible, and Terraform.
 
@@ -15,20 +15,18 @@ LOCAL WORKSTATION                    PROXMOX VE (192.168.1.100)
 │ Terraform        │                │  VM template (cloud-init)        │
 │ Ansible          │                │                                  │
 │                  │   2. Provision │  ┌────────────────────────────┐  │
-│                  │───────────────►│  │ bastion-60  (.60)          │  │
-│                  │   (terraform)  │  │ → ansible, terraform, pass │  │
-│                  │                │  │ → GitLab Runner (shell)    │  │
-│                  │   3. Configure │  ├────────────────────────────┤  │
-│                  │───────────────►│  │ dockhost-90 (.50)          │  │
-│                  │   (ansible)    │  │ → Docker, Komodo           │  │
-│                  │                │  │ → GitLab Runner (docker)   │  │
+│                  │───────────────►│  │ dockhost-90 (.90)          │  │
+│                  │   (terraform)  │  │ → Docker, Komodo           │  │
+│                  │   3. Configure │  │ → GitLab Runner (docker)   │  │
+│                  │───────────────►│  │                            │  │
+│                  │   (ansible)    │  │                            │  │
 │                  │                │  ├────────────────────────────┤  │
 │                  │                │  │ kubecluster-40/41/42       │  │
 │                  │                │  │ → Kubernetes (kubeadm)     │  │
 │                  │                │  └────────────────────────────┘  │
 └──────────────────┘                └──────────────────────────────────┘
 
-Order: Proxmox → Bastion → Dockhost / Kubecluster
+Order: Proxmox → Dockhost / Kubecluster
        (each VM: Terraform provision → Ansible configure)
 ```
 
@@ -39,7 +37,7 @@ Order: Proxmox → Bastion → Dockhost / Kubecluster
 1. [Install Proxmox VE](#1-install-proxmox-ve)
 2. [Prepare the local workstation](#2-prepare-the-local-workstation)
 3. [Bootstrap Proxmox](#3-bootstrap-proxmox)
-4. [Provision and configure Bastion](#4-provision-and-configure-bastion)
+4. [Bastion (retired)](#4-bastion-retired)
 5. [Provision and configure Dockhost](#5-provision-and-configure-dockhost)
 6. [Provision and configure Kubecluster](#6-provision-and-configure-kubecluster)
 7. [Configure GitLab CI/CD](#7-configure-gitlab-cicd)
@@ -205,12 +203,6 @@ Host pve
   HostName 192.168.1.100
   User ansible
   IdentityFile ~/.ssh/proxmox
-  IdentitiesOnly yes
-
-Host bastion-60
-  HostName 192.168.1.60
-  User ansible
-  IdentityFile ~/.ssh/id_vm_proxmox_rsa
   IdentitiesOnly yes
 
 Host dockhost-90
@@ -383,112 +375,9 @@ ansible-playbook ansible/deploy.yml
 
 ---
 
-## 4. Provision and configure Bastion
+## 4. Bastion (retired)
 
-The bastion VM is the control plane — it runs Terraform and Ansible for the other VMs, holds all SSH keys and secrets, and executes the GitLab CI/CD pipeline.
-
-### 4.1 Provision the VM
-
-```bash
-cd bastion/terraform
-terraform init
-terraform plan
-terraform apply
-```
-
-This creates:
-- **bastion-60** (VMID 9090, IP 192.168.1.60)
-- 2 vCPU, 2 GB RAM, 25 GB disk
-- Cloned from template 9001 with cloud-init (ansible user + SSH key)
-
-Wait for the VM to boot and cloud-init to finish (~1-2 minutes), then verify:
-
-```bash
-ssh bastion-60
-# Should connect as ansible@192.168.1.60
-```
-
-### 4.2 Prepare vault secrets
-
-Before running the Ansible playbook, the vault file must contain all required secrets. Edit the encrypted vault:
-
-```bash
-cd bastion
-ansible-vault edit ansible/group_vars/bastion/vault/main.yml
-```
-
-Required vault variables:
-
-```yaml
-# SSH keys (private key content)
-vault_ssh_key_vm_proxmox: |
-  -----BEGIN OPENSSH PRIVATE KEY-----
-  <content of ~/.ssh/id_vm_proxmox_rsa>
-  -----END OPENSSH PRIVATE KEY-----
-
-vault_ssh_key_proxmox: |
-  -----BEGIN OPENSSH PRIVATE KEY-----
-  <content of ~/.ssh/proxmox>
-  -----END OPENSSH PRIVATE KEY-----
-
-# GPG key for pass on bastion
-vault_gpg_private_key: |
-  <output of: gpg --export-secret-keys --armor YOUR_KEY_ID>
-
-vault_gpg_key_id: "YOUR_GPG_KEY_ID"
-
-# Secrets to populate pass on bastion
-vault_pass_ansible_vault: "<output of: pass ansible/vault>"
-vault_pass_proxmox_api_token_id: "<output of: pass proxmox/terraform-token-id>"
-vault_pass_proxmox_api_token_secret: "<output of: pass proxmox/terraform-token-secret>"
-vault_pass_github_terraform_token: "<your GitHub PAT>"
-
-# Security
-vault_security_allow_users:
-  - ansible
-
-# GitLab Runner
-vault_gitlab_runner_token: "<GitLab runner registration token>"
-```
-
-### 4.3 Configure the bastion
-
-```bash
-cd bastion
-ansible-playbook ansible/deploy.yml
-```
-
-This runs 5 roles in order:
-
-| Role | Tag | What it does |
-|------|-----|--------------|
-| **motd** | `motd` | Custom message of the day |
-| **security_hardening** | `security-hardening` | SSH hardening + UFW firewall (port 22 only) |
-| **tooling** | `tooling` | Installs git, uv, Terraform, direnv, pass + GPG, clones homelab repo |
-| **ssh_keys** | `ssh-keys` | Deploys SSH private keys + config for all hosts |
-| **gitlab_runner** | `gitlab-runner` | Installs GitLab Runner (shell executor, systemd service) |
-
-### 4.4 Verify bastion is operational
-
-```bash
-ssh bastion-60
-
-# Check tools
-terraform version
-ansible --version
-pass show ansible/vault
-
-# Check the wrapper supplies credentials (presence only)
-cd ~/homelab
-scripts/with-secrets proxmox -- sh -c 'test -n "$TF_VAR_pm_api_token_id" && echo present'
-
-# Check SSH to other hosts
-ssh pve hostname       # Should print: proxmox
-ssh dockhost-90        # Will fail until dockhost is provisioned (expected)
-
-# Check GitLab Runner
-sudo systemctl status gitlab-runner
-```
+bastion-60 (VMID 9060) was deleted and its code removed from this repository on 2026-11-01. Terraform and Ansible run from the local workstation; credentials are injected per command by `scripts/with-secrets` (see the appendix). The bastion ADRs are kept as history in [`adr/bastion.md`](adr/bastion.md).
 
 ---
 
@@ -498,7 +387,7 @@ The dockhost VM runs Docker services: Komodo, kandidat, portail-client, Excalidr
 
 ### 5.1 Provision the VM
 
-From the local workstation (or from bastion):
+From the local workstation:
 
 ```bash
 cd dockhost/terraform
@@ -652,23 +541,22 @@ In GitLab, go to **Settings > CI/CD > Variables** and add:
 
 ### 7.3 Runner registration
 
-Two runners are used:
+Project runner:
 
 | Runner | Location | Executor | Purpose |
 |--------|----------|----------|---------|
-| **bastion-60** | bastion VM | Shell | Ansible/Terraform execution, bastion sync |
 | **dockhost-90** | dockhost VM | Docker | Lint, security scans (isolated containers) |
 
 Runner tokens are generated in GitLab (**Settings > CI/CD > Runners > New project runner**) and stored in the respective vault files.
 
 ### 7.4 Pipeline overview
 
-The CI pipeline (`.gitlab-ci.yml`) runs 3 stages:
+The CI pipeline (`.gitlab-ci.yml`) runs 2 stages on every push (plus a scheduled `renovate` stage):
 
 ```
-lint                    security                deploy
-├── ansible-lint        ├── security-check      └── sync-bastion
-├── terraform-lint      ├── gitleaks                (main branch only)
+lint                    security
+├── ansible-lint        ├── security-check
+├── terraform-lint      ├── gitleaks
 │                       └── scan-docker-images
 └── shell-lint
 ```
@@ -679,7 +567,6 @@ lint                    security                deploy
 - **security-check**: Verifies vault encryption, no plaintext secrets
 - **gitleaks**: Scans the commits added by the push for secrets (Gitleaks default rules, values redacted in the log). The same check runs locally as a pre-commit hook on staged changes
 - **scan-docker-images**: Trivy scan on Docker images (HIGH/CRITICAL)
-- **sync-bastion**: Pulls latest code on bastion (runs on `main` branch only, on bastion runner)
 
 ### 7.5 GitLab push mirror (optional)
 
@@ -701,15 +588,6 @@ After completing all steps, verify each component:
 - [ ] API tokens exist: `pass proxmox/terraform-token-id`
 - [ ] VM template 9001 visible in Proxmox UI
 
-### Bastion
-
-- [ ] `ssh bastion-60` connects successfully
-- [ ] `terraform version` outputs >= 1.11.0
-- [ ] `ansible --version` outputs >= 13.2.0
-- [ ] `pass show ansible/vault` returns the vault password
-- [ ] `cd ~/homelab && scripts/with-secrets proxmox -- sh -c 'test -n "$TF_VAR_pm_api_token_id" && echo present'` prints `present`
-- [ ] `sudo systemctl status gitlab-runner` shows active
-
 ### Dockhost
 
 - [ ] `ssh dockhost-90` connects successfully
@@ -727,7 +605,6 @@ After completing all steps, verify each component:
 - [ ] Push to `main` triggers the pipeline on GitLab
 - [ ] All lint jobs pass
 - [ ] Security check passes
-- [ ] `sync-bastion` deploys to bastion on `main` branch merges
 
 ---
 
@@ -786,7 +663,6 @@ Run credentialed commands from an owner terminal, not from an agent session.
 | Host | IP | VMID | SSH alias |
 |------|----|------|-----------|
 | Proxmox VE | 192.168.1.100 | — | `pve` |
-| bastion-60 | 192.168.1.60 | 9060 | `bastion-60` |
 | dockhost-90 | 192.168.1.90 | 9090 | `dockhost-90` |
 | kubecluster-40 | 192.168.1.40 | 9040 | `kubecluster-40` |
 | kubecluster-41 | 192.168.1.41 | 9041 | `kubecluster-41` |

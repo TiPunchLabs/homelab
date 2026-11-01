@@ -1,3 +1,0 @@
----
-# Enable/disable default MOTD scripts
-motd_disable_default_motd: true

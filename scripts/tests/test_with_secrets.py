@@ -181,13 +181,6 @@ def test_script_never_enables_tracing() -> None:
     assert not any("set -x" in line or "xtrace" in line for line in code)
 
 
-def test_bastion_envrc_template_holds_no_secret() -> None:
-    """The bastion .envrc template exports configuration only, no pass lookup."""
-    template = (REPO / "bastion/ansible/roles/tooling/templates/envrc.j2").read_text()
-    code = [line for line in template.splitlines() if not line.lstrip().startswith("#")]
-    assert not any("$(pass" in line or "`pass" in line for line in code)
-
-
 @pytest.mark.parametrize("path", ["gitlab-terraform/tfplan", "dockhost/terraform/tfplan.9090", "caddy/terraform/x.tfplan"])
 def test_saved_plans_are_ignored_by_git(path: str) -> None:
     """Saved plans hold sensitive inputs in clear text: git must ignore the usual names."""

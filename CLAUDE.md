@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Monorepo homelab regroupant l'Infrastructure as Code (IaC) pour un environnement Proxmox VE. Sept sous-projets partageant des modules Terraform, des scripts et des conventions communes.
+Monorepo homelab regroupant l'Infrastructure as Code (IaC) pour un environnement Proxmox VE. Six sous-projets partageant des modules Terraform, des scripts et des conventions communes.
 
 ## Architecture globale
 
@@ -26,7 +26,6 @@ homelab/
 ├── proxmox/                  # Configuration hyperviseur Proxmox
 ├── dockhost/                 # VM Docker services
 ├── kubecluster/              # Cluster Kubernetes (3 VMs)
-├── bastion/                  # VM Bastion (Ansible & Terraform executor)
 ├── vpngate/                  # VM VPN Gateway (WireGuard)
 ├── hermes/                   # VM Hermes AI agent
 ├── caddy/                    # LXC Caddy reverse proxy
@@ -145,48 +144,6 @@ ansible-playbook ansible/deploy.yml
 ansible-playbook ansible/deploy.yml --tags cfg_nodes
 ansible-playbook ansible/deploy.yml --tags init_kubeadm
 ansible-playbook ansible/deploy.yml --tags join_workers
-```
-
----
-
-## Sous-projet : bastion/
-
-### Description
-VM bastion centralisant l'execution des playbooks Ansible et commandes Terraform. Pattern **two-stage deployment** : Terraform pour le provisioning VM, Ansible pour l'installation des outils (uv, Terraform, direnv, git) et le deploiement des cles SSH. Les secrets sont injectes via variables d'environnement SSH (`SendEnv`).
-
-### Structure
-```
-bastion/
-├── ansible/
-│   ├── deploy.yml
-│   ├── inventory.yml
-│   ├── group_vars/bastion/
-│   │   ├── all/main.yml
-│   │   └── vault/                 # Fichiers chiffres Ansible Vault
-│   └── roles/
-│       ├── motd/
-│       ├── security_hardening/    # SSH + UFW
-│       ├── tooling/               # Python, uv, Terraform, direnv, git
-│       ├── ssh_keys/              # Deploy SSH keys + config (inclut gitlab.com)
-│       └── gitlab_runner/         # GitLab Runner natif (shell executor, systemd)
-├── terraform/
-│   ├── main.tf, variables.tf, outputs.tf
-└── ansible.cfg
-```
-
-### Specs VM
-- CPU: 2 cores | RAM: 2 GB | Disk: 25 GB SSD
-- Template ID: 9001 | VMID: 9060 | IP: 192.168.1.60
-
-### Commandes cles
-```bash
-cd bastion
-ansible-playbook ansible/deploy.yml
-ansible-playbook ansible/deploy.yml --tags motd
-ansible-playbook ansible/deploy.yml --tags security-hardening
-ansible-playbook ansible/deploy.yml --tags tooling
-ansible-playbook ansible/deploy.yml --tags ssh-keys
-ansible-playbook ansible/deploy.yml --tags gitlab-runner
 ```
 
 ---
@@ -421,6 +378,6 @@ ansible-playbook ansible/deploy.yml --tags pihole
 ### Tests avant commit
 ```bash
 pre-commit run --all-files
-ansible-lint proxmox/ansible/ dockhost/ansible/ kubecluster/ansible/ bastion/ansible/ vpngate/ansible/
+ansible-lint proxmox/ansible/ dockhost/ansible/ kubecluster/ansible/ vpngate/ansible/
 terraform fmt -check -recursive
 ```

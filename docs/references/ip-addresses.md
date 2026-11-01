@@ -14,7 +14,6 @@
 | VM | VMID | IP | Usage |
 |----|------|-----|-------|
 | hermes-31 | 9031 | 192.168.10.31 | Hermes AI agent v0.22.5 (`hermes/terraform-31`). hermes-30 (9030, `.30`) detruite en M6.6.C (2026-10-26) : VMID et IP libres |
-| bastion-60 | 9060 | 192.168.10.60 | Bastion (GitLab Runner shell, Terraform, Ansible) |
 | vpngate-50 | 9050 | 192.168.10.50 | WireGuard VPN Gateway |
 | dockhost-90 | 9090 | 192.168.10.90 | Docker services (Komodo, kandidat, portail-client, Excalidraw, miniboard) |
 | kubecluster-40 | 9040 | 192.168.10.40 | K8s Control Plane |
@@ -124,7 +123,7 @@ Convention: `192.168.10.{vm_ip_start}` where `vm_ip_start` is defined in Terrafo
 .30-.39  : hermes (AI agent host)   -- sauf .35, pris par kemax01 (hors repo)
 .40-.49  : kubecluster (Kubernetes)
 .50-.59  : vpngate (VPN gateway)
-.60-.69  : bastion (control plane)
+.60-.69  : free (formerly bastion-60, deleted)
 .70-.89  : LXC containers (caddy, pihole, ...)
 .90-.99  : dockhost (Docker services)
 ```
@@ -142,7 +141,7 @@ The convention uses the following scheme:
 | 9030-9039 | .30-.39 | hermes (`.35` occupe par kemax01, hors repo) |
 | 9040-9049 | .40-.49 | kubecluster |
 | 9050-9059 | .50-.59 | vpngate |
-| 9060-9069 | .60-.69 | bastion |
+| 9060-9069 | .60-.69 | free (formerly bastion-60, deleted) |
 | 1070-1089 | .70-.89 | LXC containers (caddy, pihole, ...) |
 | 9090-9099 | .90-.99 | dockhost |
 
@@ -156,7 +155,6 @@ SSH aliases are configured in `~/.ssh/config`:
 |-------|-----|------|-----|
 | `pve` | 192.168.10.100 | ansible | `~/.ssh/proxmox` |
 | `hermes-31` | 192.168.10.31 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
-| `bastion-60` | 192.168.10.60 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `dockhost-90` | 192.168.10.90 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `kubecluster-40` | 192.168.10.40 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
 | `kubecluster-41` | 192.168.10.41 | ansible | `~/.ssh/id_vm_proxmox_rsa` |
