@@ -8,6 +8,9 @@ resource "gitlab_project" "project" {
   issues_access_level = "enabled"
   wiki_access_level   = "enabled"
 
+  # A red pipeline (e.g. Renovate !59) must not be mergeable.
+  only_allow_merge_if_pipeline_succeeds = true
+
   topics = ["homelab", "proxmox", "terraform", "ansible", "docker", "kubernetes", "infrastructure-as-code"]
 }
 
