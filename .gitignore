@@ -18,6 +18,9 @@ pyvenv.cfg
 *.tfvars
 !*.tfvars.example
 *.tfplan
+# Saved plans hold every input variable in clear text, sensitive ones included.
+tfplan
+tfplan.*
 .terraform.lock.hcl
 
 # ===== Ansible =====
@@ -51,6 +54,7 @@ Thumbs.db
 *secret*
 !SECURITY.md
 !scripts/with-secrets
+!scripts/tests/test_with_secrets.py
 id_rsa*
 !id_rsa*.pub
 id_ed25519*

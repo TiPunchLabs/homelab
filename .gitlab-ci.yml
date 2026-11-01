@@ -73,7 +73,7 @@ shell-lint:
   stage: lint
   image: koalaman/shellcheck-alpine:v0.11.0
   script:
-    - shellcheck scripts/*.sh
+    - shellcheck scripts/*.sh scripts/with-secrets
 
 # =============================================================================
 # Security — Vault encryption check
