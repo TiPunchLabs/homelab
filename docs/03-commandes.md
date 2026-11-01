@@ -251,6 +251,10 @@ cd dockhost/terraform
 
 Ansible Vault needs no profile: `scripts/ansible-vault-pass.sh` falls back to `pass ansible/vault`.
 Playbooks that read `TF_VAR_pm_api_*` (e.g. hermes `m2-preflight.yml`) run under the `proxmox` profile.
+Errors name the profile or the pass entry (missing, unreadable, empty), never a value; `tfstate`
+refuses to start without `TF_HTTP_USERNAME`. Tests with a fake `pass`: `uv run pytest scripts/tests -q`.
+Save plans only as `tfplan`, `tfplan.*` or `*.tfplan` (gitignored): a saved plan holds every input
+variable, sensitive ones included, in clear text.
 Use a path to the script that matches your working directory. Keep `$VAR` references inside
 `sh -c '...'` so they expand in the child, not in the calling shell.
 
