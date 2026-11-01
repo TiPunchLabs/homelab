@@ -56,11 +56,15 @@ terraform-lint:
   script:
     - terraform fmt -check -recursive
     - mkdir -p ~/.ssh && echo "fake-key-for-ci-validation" > ~/.ssh/id_vm_proxmox_rsa.pub
-    - cd $CI_PROJECT_DIR/dockhost/terraform && terraform init -backend=false && terraform validate
-    - cd $CI_PROJECT_DIR/kubecluster/terraform && terraform init -backend=false && terraform validate
-    - cd $CI_PROJECT_DIR/bastion/terraform && terraform init -backend=false && terraform validate
-    - cd $CI_PROJECT_DIR/vpngate/terraform && terraform init -backend=false && terraform validate
-    - cd $CI_PROJECT_DIR/hermes/terraform-31 && terraform init -backend=false && terraform validate
+    # Every tracked root, so a provider MR (Renovate) fails here on a schema
+    # break instead of at plan time. No backend, no credentials.
+    - |
+      for root in dockhost/terraform kubecluster/terraform bastion/terraform \
+        vpngate/terraform hermes/terraform-31 caddy/terraform pihole/terraform \
+        gitlab-terraform ovh-dns-terraform; do
+        echo "=== terraform validate: $root"
+        (cd "$CI_PROJECT_DIR/$root" && terraform init -backend=false -input=false && terraform validate) || exit 1
+      done
 
 # =============================================================================
 # Lint — Shell
