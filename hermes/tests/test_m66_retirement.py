@@ -66,8 +66,9 @@ def test_hermes_30_root_and_host_vars_are_gone_from_git() -> None:
         cwd=REPO, capture_output=True, text=True, check=True,
     ).stdout.split()
     assert tracked == []
-    assert "hermes/terraform &&" not in (REPO / ".gitlab-ci.yml").read_text()
-    assert "hermes/terraform-31 &&" in (REPO / ".gitlab-ci.yml").read_text()
+    ci = (REPO / ".gitlab-ci.yml").read_text()
+    assert not re.search(r"hermes/terraform(?![-\w])", ci)
+    assert re.search(r"hermes/terraform-31\b", ci)
 
 
 def test_inventory_lists_hermes_31_alone() -> None:
