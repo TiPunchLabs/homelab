@@ -26,8 +26,7 @@ Each service is its own Ansible role, deployed in this order by `deploy.yml`:
 | MOTD | `motd` | Custom login banner (ASCII art) |
 | Docker | `docker` | Docker Engine + Compose plugin |
 | Komodo Periphery | `komodo` | GitOps agent — reconciles the `homelab-gitops` repo into running containers |
-| PostgreSQL | `postgresql` | Shared database, on the `db-net` Docker network (now only holds the `open_webui` database, kept after Open WebUI was retired) |
-| kandidat | `kandidat` | App `kandidat` (image from the GitLab registry, on `db-net`) |
+| kandidat | `kandidat` | Host prep for the `kandidat` Komodo Stack (data dir); app and its dedicated `kandidat-db` come from `homelab-gitops` |
 | Excalidraw | `excalidraw` | Self-hosted virtual whiteboard |
 | miniboard | `miniboard` | Dashboard (image from the GitLab registry) |
 
@@ -128,8 +127,7 @@ override the `TF_VAR_*` injected by the wrapper. Remove any existing one.
 | `motd` | Custom MOTD with ASCII art banner |
 | `docker` | Install Docker Engine and Compose |
 | `komodo` | Deploy Komodo Periphery (GitOps agent) |
-| `postgresql` | Deploy PostgreSQL (`db-net`) |
-| `kandidat` | Deploy the `kandidat` app |
+| `kandidat` | Prepare the `kandidat` data dir (Komodo deploys the app) |
 | `excalidraw` | Deploy Excalidraw |
 | `miniboard` | Deploy miniboard |
 
@@ -173,7 +171,6 @@ pre-commit install
 │       ├── motd/                 # Custom MOTD banner
 │       ├── docker/               # Docker Engine + Compose
 │       ├── komodo/               # Komodo Periphery (GitOps agent)
-│       ├── postgresql/           # PostgreSQL (db-net)
 │       ├── kandidat/             # kandidat app
 │       ├── excalidraw/           # Excalidraw whiteboard
 │       ├── miniboard/            # miniboard dashboard

@@ -1,16 +1,10 @@
 ---
 # kandidat is deployed and reconciled by Komodo (GitOps), not by Ansible:
 # Komodo pulls the private image (group registry account) and runs `docker compose up`
-# from homelab-gitops. Ansible's only job here is host prep — create the PostgreSQL
-# user/database and the bind-mount data dir with the ownership the container expects.
+# from homelab-gitops, database (kandidat-db) included. Ansible's only job here is
+# host prep — create the bind-mount data dir with the ownership the container expects.
 kandidat_data_dir: "/app/data/kandidat"
 
 # Must match the image's runtime user (non-root container, default UID/GID 1000).
 kandidat_uid: 1000
 kandidat_gid: 1000
-
-# PostgreSQL (conteneur existant sur dockhost)
-kandidat_db_container: "postgresql"
-kandidat_db_name: "kandidat"
-kandidat_db_user: "kandidat"
-kandidat_db_superuser: "postgres"

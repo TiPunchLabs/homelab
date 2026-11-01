@@ -18,14 +18,6 @@
         group: app_data
         mode: '0770'
 
-    - name: Create shared Docker network for database services
-      community.docker.docker_network:
-        name: db-net
-        state: present
-      tags:
-        - postgresql
-        - kandidat
-
   roles:
     - role: motd
       tags:
@@ -36,9 +28,6 @@
     - role: komodo
       tags:
         - komodo
-    - role: postgresql
-      tags:
-        - postgresql
     - role: kandidat
       tags:
         - kandidat

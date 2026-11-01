@@ -45,7 +45,6 @@ The playbook `dockhost/ansible/deploy.yml` runs the following roles:
 |------|-----|-------------|
 | `motd` | `motd` | Custom Message of the Day |
 | `docker` | `docker` | Docker Engine + Docker Compose installation |
-| `postgresql` | `postgresql` | PostgreSQL 17.4 (port 5432) |
 | `security_hardening` | `security-hardening` | SSH hardening, UFW, system security |
 | `gitlab_runner` | `gitlab-runner` | GitLab Runner (Docker executor) |
 

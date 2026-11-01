@@ -67,7 +67,7 @@ ansible-playbook ansible/deploy.yml --tags "generate_vm_template"
 ## Sous-projet : dockhost/
 
 ### Description
-VM Docker avec services conteneurises (Komodo, PostgreSQL, kandidat, portail-client, Excalidraw, miniboard). Portainer et Open WebUI retires le 2026-10-31 (donnees conservees sur l'hote). Pattern **two-stage deployment** : Terraform pour le provisioning VM, Ansible pour l'installation des services.
+VM Docker avec services conteneurises (Komodo, kandidat, portail-client, Excalidraw, miniboard). Portainer, Open WebUI et le PostgreSQL general retires le 2026-10-31 (donnees supprimees) ; kandidat a sa propre base `kandidat-db` (Stack GitOps). Pattern **two-stage deployment** : Terraform pour le provisioning VM, Ansible pour l'installation des services.
 
 ### Structure
 ```
@@ -82,8 +82,7 @@ dockhost/
 │       ├── docker/
 │       ├── motd/
 │       ├── security_hardening/
-│       ├── postgresql/            # PostgreSQL (Docker, reseau db-net)
-│       └── kandidat/              # App kandidat (Docker, reseau db-net, registry GitLab)
+│       └── kandidat/              # Preparation hote kandidat (repertoire data, deploiement par Komodo)
 ├── terraform/
 │   ├── main.tf, variables.tf, outputs.tf
 └── ansible.cfg
@@ -98,7 +97,6 @@ dockhost/
 cd dockhost
 ansible-playbook ansible/deploy.yml
 ansible-playbook ansible/deploy.yml --tags docker
-ansible-playbook ansible/deploy.yml --tags postgresql
 ansible-playbook ansible/deploy.yml --tags kandidat
 ```
 
