@@ -82,45 +82,6 @@ docker compose -f /opt/gitlab-runner/docker-compose.yml ps
 
 ---
 
-## Bastion
-
-### Provisioning (Terraform)
-
-```bash
-cd bastion/terraform
-terraform init
-terraform plan
-terraform apply
-```
-
-### Configuration (Ansible)
-
-```bash
-cd bastion
-ansible-playbook ansible/deploy.yml
-```
-
-### By tag
-
-```bash
-# MOTD
-ansible-playbook ansible/deploy.yml --tags motd
-
-# Security hardening (SSH + UFW)
-ansible-playbook ansible/deploy.yml --tags security-hardening
-
-# Tooling (uv, Terraform, direnv, pass, git)
-ansible-playbook ansible/deploy.yml --tags tooling
-
-# SSH keys
-ansible-playbook ansible/deploy.yml --tags ssh-keys
-
-# GitLab Runner (shell executor)
-ansible-playbook ansible/deploy.yml --tags gitlab-runner
-```
-
----
-
 ## Kubecluster
 
 ### Provisioning (Terraform)
@@ -236,7 +197,7 @@ Credentials are never exported into the shell. Run credentialed commands through
 scripts/with-secrets <profile>[,<profile>...] -- <command> [args...]
 
 # Profiles -> Terraform directories
-#   proxmox   bastion, dockhost, hermes/terraform-31, kubecluster, vpngate
+#   proxmox   dockhost, hermes/terraform-31, kubecluster, vpngate
 #   lxc       caddy, pihole (proxmox + LXC root password)
 #   gitlab    gitlab-terraform
 #   github    TF_VAR_github_token (github-terraform has no Terraform source in this checkout)
@@ -271,7 +232,7 @@ pre-commit run --all-files
 ### Ansible Lint
 
 ```bash
-uv run ansible-lint proxmox/ansible/ bastion/ansible/ dockhost/ansible/ kubecluster/ansible/
+uv run ansible-lint proxmox/ansible/ dockhost/ansible/ kubecluster/ansible/
 ```
 
 ### Terraform format + validation
@@ -293,7 +254,6 @@ shellcheck -x -S warning scripts/*.sh
 | Target | Command | User |
 |-------|----------|------|
 | Proxmox | `ssh pve` | ansible |
-| Bastion | `ssh bastion-60` | ansible |
 | Dockhost | `ssh dockhost-90` | ansible |
 | K8s Control Plane | `ssh kubecluster-40` | ansible |
 | K8s Worker 1 | `ssh kubecluster-41` | ansible |

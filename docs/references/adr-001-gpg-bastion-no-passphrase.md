@@ -1,5 +1,7 @@
 # 📋 ADR-001 : GPG Key sans passphrase pour le bastion
 
+> ⚠️ **Historique** : bastion-60 (VMID 9060) a ete supprimee et son code retire du depot le 2026-11-01. Document conserve pour l'historique, ne decrit plus l'etat actuel.
+
 > **Status** : Accepted
 > **Date** : 2026-03-06
 > **Decideurs** : Xavier Gueret

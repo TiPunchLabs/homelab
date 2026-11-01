@@ -5,11 +5,6 @@
 ```
 PROXMOX VE (192.168.1.100)
 │
-├── BASTION (bastion-60 / 192.168.1.60)
-│   ├── GitLab Runner (shell executor, systemd)
-│   ├── Terraform + Ansible (operational execution)
-│   └── pass + GPG (secrets management)
-│
 ├── DOCKHOST (dockhost-90 / 192.168.1.90)
 │   ├── Docker Engine
 │   └── GitLab Runner (Docker executor)
@@ -77,57 +72,6 @@ Security configuration applied to the VM:
 Before role execution, the playbook creates:
 - `app_data` group for applications
 - `/app/data/` directory (owner: root, group: app_data, mode: 0770)
-
----
-
-## Bastion (bastion-60)
-
-### Specifications
-
-| Parameter | Value |
-|-----------|--------|
-| VMID | 9060 |
-| IP | 192.168.1.60 |
-| OS | Ubuntu 24.04 (cloud-init) |
-| vCPU | 2 |
-| RAM | 2 GB |
-| Disk | 25 GB SSD |
-| SSH | `ssh bastion-60` (user: ansible) |
-
-### Deployed Ansible roles
-
-The playbook `bastion/ansible/deploy.yml` runs the following roles:
-
-| Role | Tag | Description |
-|------|-----|-------------|
-| `motd` | `motd` | Custom Message of the Day |
-| `security_hardening` | `security-hardening` | SSH + UFW hardening |
-| `tooling` | `tooling` | Python, uv, Terraform, direnv, pass, GPG, git clone homelab |
-| `ssh_keys` | `ssh-keys` | SSH key deployment + config for all hosts |
-| `gitlab_runner` | `gitlab-runner` | Native GitLab Runner (shell executor, systemd) |
-
-### GitLab Runner (shell executor)
-
-Native runner installed directly on the VM (no Docker).
-
-**Details**:
-- Executor: Shell (bash)
-- Service: systemd (`gitlab-runner.service`)
-- User: `ansible`
-- Working directory: `/opt/gitlab-runner`
-- Config: `/opt/gitlab-runner/config.toml`
-
-The runner executes the `sync-bastion` job which synchronizes the `~/homelab` clone on the bastion on each push to `main`.
-
-### Installed tooling
-
-| Tool | Usage |
-|-------|-------|
-| **Terraform** | Infrastructure provisioning |
-| **Ansible** (via uv) | Configuration and deployment |
-| **pass** + GPG | Secrets management (GPG key without passphrase) |
-| **direnv** | Auto-activation of venv and variables |
-| **git** | `~/homelab` clone for operational execution |
 
 ---
 

@@ -28,7 +28,6 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 | Directory | Description | VMs | Stack |
 |-----------|-------------|-----|-------|
 | [`proxmox/`](proxmox/) | Proxmox hypervisor configuration (SSH hardening, users, tokens, VM templates) | Host | Ansible |
-| [`bastion/`](bastion/) | Bastion VM — GitLab Runner (shell), Terraform, Ansible, pass, direnv | 1 | Terraform + Ansible |
 | [`dockhost/`](dockhost/) | Docker-based services VM (Docker, Komodo, kandidat, portail-client, Excalidraw, miniboard) | 1 | Terraform + Ansible |
 | [`vpngate/`](vpngate/) | WireGuard VPN Gateway | 1 | Terraform + Ansible |
 | [`hermes/`](hermes/) | Hermes AI agent host (Docker + Hermes Agent stack, DeepSeek inference) | 1 | Terraform + Ansible |
@@ -105,10 +104,6 @@ homelab/
 │   ├── ansible/                    #   Roles: configure, manage
 │   └── terraform/
 │
-├── bastion/                        # Bastion VM
-│   ├── ansible/                    #   Roles: motd, security, tooling, ssh_keys, gitlab_runner
-│   └── terraform/                  #   VM provisioning (1 VM)
-│
 ├── vpngate/                        # WireGuard VPN Gateway
 │   ├── ansible/                    #   Roles: motd, security_hardening, wireguard
 │   └── terraform/                  #   VM provisioning (1 VM)
@@ -140,7 +135,6 @@ homelab/
 |------|----|----|-----|-----|------|---------|
 | vpngate-50 | 9050 | 192.168.10.50 | 1 core | 512 MB | 22 GB | WireGuard VPN Gateway |
 | hermes-31 | 9031 | 192.168.10.31 | 2 cores | 4096 MB | 32 GB | Hermes AI agent host (v0.22.5) |
-| bastion-60 | 9060 | 192.168.10.60 | 2 cores | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
 | caddy-70 (LXC) | 1070 | 192.168.10.70 | 1 core | 512 MB | 8 GB | Caddy reverse proxy |
 | dns-71 (LXC) | 1071 | 192.168.10.71 | 1 core | 512 MB | 8 GB | Pi-hole DNS |
 | dockhost-90 | 9090 | 192.168.10.90 | 3 cores | 10 GB | 100 GB | Docker services |
@@ -170,7 +164,6 @@ GitLab CI pipeline (`.gitlab-ci.yml`) runs on every push/MR:
 |-------|------|--------|
 | **lint** | ansible-lint, terraform fmt/validate, shellcheck | Shared (Docker) |
 | **security** | Vault encryption check, private key scan, secret detection, token pattern scan, Docker image scan (Trivy) | Shared (Docker) |
-| **deploy** | sync-bastion (main branch only) | Self-hosted bastion (shell) |
 
 GitHub is a **read-only push mirror** — no CI, no runners.
 

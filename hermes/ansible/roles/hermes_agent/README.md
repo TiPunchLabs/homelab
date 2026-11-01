@@ -641,8 +641,9 @@ defaults to `true`), so floor changes went through `qm set` until M4-MEM
 **Deferred, out of M2: A1**, a balloon device on dockhost (floor 6144: guest
 peak 4.16 GiB over 15 days in Komodo), so that its page cache stops weighing
 on the host. Nothing for dockhost is in the M2 code. Its Terraform state
-exists on **bastion-60** (local backend, copy in
-`~/.local/share/homelab-tfstate-backup/dockhost/`); a plan from the laptop,
+then lived on **bastion-60** (local backend, copy in
+`~/.local/share/homelab-tfstate-backup/dockhost/`; migrated to the GitLab
+HTTP backend on 2026-10-31, see `dockhost/README.md`); a plan from the laptop,
 which has no state, wrongly proposes to create VM 9090. No `terraform import`
 is needed, nor wanted (two states for one VM). Enabling the device is not
 hotpluggable: shutdown then start of dockhost.
@@ -671,8 +672,8 @@ Kandidat, Sat 08:00 UTC; ±2 h) and with no CI job running. Commands on `pve`
    (available, PSI, swap) for 24-48 h.
 
 Rollback: A1 `qm set 9090 --balloon 0` then shutdown/start again. Floor of
-hermes-30: `qm set 9030 --balloon 2048` (live). bastion:
-`qm set 9060 --onboot 1 && qm start 9060`, then unpause runner 52153437.
+hermes-30: `qm set 9030 --balloon 2048` (live). bastion: no longer
+possible, bastion-60 (VMID 9060) has since been deleted.
 
 ### Rollback of M2
 

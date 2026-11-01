@@ -8,13 +8,9 @@ LOCAL NETWORK (192.168.1.0/24)
 ┌─────────────────┐       ┌──────────────────────────────────────────────┐
 │ LOCAL WORKSTATION│       │              PROXMOX VE (.100)              │
 │                 │       │                                              │
-│ Caddy proxy     │       │  ┌────────────────────────────────────────┐  │
-│ Docker local    │──SSH──│  │ BASTION (bastion-60 / .60)             │  │
-│ Dev tools       │  TF   │  │ GitLab Runner (shell), TF, Ansible    │  │
-│                 │       │  └──────────────────┬─────────────────────┘  │
-│                 │       │                     │ deploys via TF+Ansible │
-│                 │       │          ┌──────────┴──────────┐            │
-│                 │       │          ▼                     ▼            │
+│ Caddy proxy     │       │                                              │
+│ Docker local    │──SSH──│   TF + Ansible run from the workstation      │
+│ Dev tools       │  TF   │                                              │
 │                 │       │  ┌──────────────────┐  ┌────────────────┐  │
 │                 │       │  │ DOCKHOST         │  │ KUBECLUSTER    │  │
 │                 │       │  │ dockhost-90 / .90│  │ -40 / .40 [CP]│  │
@@ -76,12 +72,6 @@ PROXMOX VE (192.168.1.100)
 │
 ├── Template: ubuntu-2404-cloudinit-template (ID: 9001)
 │
-├── BASTION (Control plane)
-│   └── bastion-60 (ID: 9060) ─── 192.168.1.60
-│       ├── GitLab Runner (shell executor, systemd)
-│       ├── Terraform + Ansible
-│       └── pass + GPG (secrets management)
-│
 ├── DOCKHOST (Docker services)
 │   └── dockhost-90 (ID: 9090) ─── 192.168.1.90
 │       ├── Docker Engine
@@ -97,7 +87,6 @@ PROXMOX VE (192.168.1.100)
 
 | VM | vCPU | RAM | Disk | Usage |
 |----|------|-----|--------|-------|
-| bastion-60 | 2 | 2 GB | 25 GB | Bastion, GitLab Runner (shell) |
 | dockhost-90 | 3 | 10 GB | 100 GB | Docker services (Komodo, kandidat, portail-client, Excalidraw, miniboard) |
 | kubecluster-40 | 2 | 4 GB | 35 GB | K8s Control Plane |
 | kubecluster-41 | 1 | 3.5 GB | 30 GB | K8s Worker |
@@ -231,17 +220,6 @@ Location: ~/vagrant-k8s-cluster/
 │           ├── motd/
 │           ├── docker/
 │           ├── security_hardening/
-│           └── gitlab_runner/
-│
-├── bastion/                     # Bastion VM (control plane)
-│   ├── terraform/               # Provisioning (1 VM)
-│   └── ansible/
-│       ├── deploy.yml           # Tags: motd, security-hardening, tooling, ssh-keys, gitlab-runner
-│       └── roles/
-│           ├── motd/
-│           ├── security_hardening/
-│           ├── tooling/
-│           ├── ssh_keys/
 │           └── gitlab_runner/
 │
 └── kubecluster/                 # Kubernetes cluster (3 VMs)

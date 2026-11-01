@@ -13,7 +13,7 @@ Technical documentation for the homelab project - Infrastructure as Code for Pro
 | Document | Description |
 |----------|-------------|
 | [01-architecture.md](01-architecture.md) | Global architecture, VMs, network, tech stack |
-| [02-services.md](02-services.md) | Deployed services (bastion, dockhost, kubecluster, proxmox) |
+| [02-services.md](02-services.md) | Deployed services (dockhost, kubecluster, proxmox) |
 | [03-commandes.md](03-commandes.md) | Terraform, Ansible, SSH, code quality commands |
 | [04-troubleshooting.md](04-troubleshooting.md) | Common problem resolution |
 
@@ -27,7 +27,7 @@ Technical documentation for the homelab project - Infrastructure as Code for Pro
 
 | Document | Description |
 |----------|-------------|
-| [adr/bastion.md](adr/bastion.md) | Bastion architecture decisions |
+| [adr/bastion.md](adr/bastion.md) | Bastion architecture decisions (historical: bastion retired) |
 | [adr/caddy.md](adr/caddy.md) | Caddy architecture decisions |
 | [adr/pihole.md](adr/pihole.md) | Pi-hole architecture decisions |
 | [adr/proxmox.md](adr/proxmox.md) | Proxmox hypervisor architecture decisions |
@@ -44,10 +44,8 @@ The documentation is aligned with the following code files:
 
 | Data | Source |
 |------|--------|
-| Bastion VM specs | `bastion/terraform/main.tf` |
 | Dockhost VM specs | `dockhost/terraform/main.tf` |
 | Kubecluster VM specs | `kubecluster/terraform/main.tf` |
-| Bastion services | `bastion/ansible/deploy.yml` + roles |
 | Dockhost services | `dockhost/ansible/deploy.yml` + roles |
 | Kubecluster services | `kubecluster/ansible/deploy.yml` + roles |
 | Proxmox config | `proxmox/ansible/deploy.yml` + roles |

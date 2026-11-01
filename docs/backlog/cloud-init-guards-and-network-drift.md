@@ -92,7 +92,7 @@ F1–F4 confirmed unchanged on 9090:
 
 In:
 
-- dockhost-90, vpngate-50, bastion-60;
+- dockhost-90, vpngate-50 (bastion-60 deleted, removed from the repo 2026-11-01);
 - the stale `ipconfig0` values (F1);
 - codifying the cloud-init guards (network, SSH host keys) for VMs already
   provisioned (F2, F3);
@@ -120,14 +120,14 @@ Out:
    hermes), or `manual_cache_clean: true` in the guard?
 4. **Host keys**: populate `known_hosts` and switch `host_key_checking` on, or
    pin fingerprints another way?
-5. **dockhost Terraform state** is on bastion-60: plan it from there, and only
-   while bastion is up.
+5. ~~dockhost Terraform state is on bastion-60~~ — settled: migrated to the
+   GitLab HTTP backend on 2026-10-31 (see `dockhost/README.md`).
 
 ------
 
 ## 🧭 Suggested order
 
-1. Inspect bastion-60 at its next start (F6) — read-only.
+1. ~~Inspect bastion-60 at its next start (F6)~~ — moot: bastion-60 deleted.
 2. Codify the guards (F2, F3) per VM, with tests like `hermes/tests/test_dns_resolver_cloud_init.py`.
 3. Decide F4 per VM; apply with the same `qm set` as `ipconfig0` to change
    the instance-id once.
