@@ -85,6 +85,35 @@
         "major"
       ],
       "enabled": false
+    },
+    {
+      "description": "MongoDB de Komodo isole du groupe docker-images : une mineure (8.2 -> 8.3) comme une majeure change le format de donnees (featureCompatibilityVersion) et se traite par une procedure dediee, jamais dans une MR groupee. Le suivi reste actif.",
+      "matchPackageNames": [
+        "mongo"
+      ],
+      "groupName": "mongo",
+      "labels": [
+        "dependencies",
+        "docker",
+        "data-migration"
+      ]
+    },
+    {
+      "description": "Image Python de la CI limitee a 3.12/3.13 : en 3.15, cffi 2.0.0 n'a pas de wheel et ne se construit pas dans l'image slim (MR !59). A relacher quand les dependances publient des wheels cp315.",
+      "matchManagers": [
+        "gitlabci"
+      ],
+      "matchPackageNames": [
+        "python"
+      ],
+      "allowedVersions": "/^3\\.1[23](\\.\\d+)*-slim$/"
+    },
+    {
+      "description": "Hermes non suivi : le tag des defaults (v2026.8.18, ancien modele v0.20.4) n'est utilise par aucun hote et sert de reference aux tests historiques ; hermes-31 epingle v0.22.5 dans host_vars, monte a la main apres validation hors ligne. Une MR sur les defaults ne changerait rien au deploiement et casserait hermes/tests.",
+      "matchPackageNames": [
+        "nousresearch/hermes-agent"
+      ],
+      "enabled": false
     }
   ],
   "customManagers": [
