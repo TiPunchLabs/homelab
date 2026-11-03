@@ -95,7 +95,9 @@ F1–F4 confirmed unchanged on 9090:
 - F3 and F4 handled by hand before the apply: `99-preserve-ssh-host-keys.cfg`
   (`ssh_deletekeys: false`) on the guest, `qm set 9050 --ciupgrade 0` on
   Proxmox (`package_upgrade` is then omitted from the user-data, PVE 9.1
-  `Cloudinit.pm:162`). The bpg token cannot set `ciupgrade` (root@pam only).
+  `Cloudinit.pm:162`). `ciupgrade` is set by hand, not in the vpngate Terraform
+  code; whether the bpg token could set it is not verified (the provider doc
+  says root@pam only, current qemu-server checks `VM.Config.Cloudinit`).
 - New instance-id at the apply boot; network rendering skipped, host keys,
   netplan and the other critical files unchanged, no boot-time upgrade,
   wg-easy healthy.

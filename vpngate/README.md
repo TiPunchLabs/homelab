@@ -194,7 +194,7 @@ Nothing changes on the server side.
   next `terraform plan` returned `No changes` (rc 0). Cloud-init guards on the
   guest: `99-disable-network-config.cfg` (network) and
   `99-preserve-ssh-host-keys.cfg` (`ssh_deletekeys: false`), both manual, plus
-  `ciupgrade 0` on Proxmox (`qm set`, root only, not modelled by Terraform).
+  `ciupgrade 0` on Proxmox (`qm set` by hand; not set in the Terraform code).
   SSH host keys and netplan were preserved across the new cloud-init instance.
 - Recovery points kept until the owner authorizes their removal: snapshot
   `pre-b5` (Proxmox) and `/root/*b5-pre*` archives on the guest (the WireGuard
