@@ -37,10 +37,11 @@ The project deploys a complete Kubernetes cluster with:
 - Proxmox account with appropriate permissions
 - A Proxmox VM template (template ID 9001 by default)
 
-> ⚠️ **Provider quarantine**: `terraform/providers.tf` stays pinned to `bpg/proxmox`
-> `0.96.0`. The other roots moved to `0.119.0` (MR !60, 2026-11-03) after a plan
-> comparison; kubecluster has not had one. Do not merge a Renovate bump of this root
-> until it has. See the root README, section "Proxmox provider version".
+> 💡 **Provider**: `terraform/providers.tf` pins `bpg/proxmox` `0.119.0`, like the other
+> roots. The quarantine on `0.96.0` was lifted on 2026-11-03 after an empty-state plan
+> comparison of both versions (3 creates each, schema differences only, including the
+> accepted `initialization.upgrade`). The pin change deploys nothing. See the root
+> README, section "Proxmox provider version".
 
 ## Usage
 
