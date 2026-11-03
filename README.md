@@ -52,6 +52,24 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 - [pass](https://www.passwordstore.org/) for secrets management
 - SSH access to Proxmox and VMs
 
+### Proxmox provider version
+
+| Roots | `bpg/proxmox` pin | Since |
+|---|---|---|
+| `vpngate/`, `caddy/`, `pihole/`, `hermes/terraform-31/`, `dockhost/` | `0.119.0` | MR !60, merged 2026-11-03 (`a51927b`), after a plan comparison of 0.96.0 and 0.119.0 on each root |
+| `kubecluster/` | `0.96.0` | quarantined: not compared, keep it on 0.96.0 until it is |
+
+- Lockfiles (`.terraform.lock.hcl`) are not tracked. After a pin change, refresh
+  each already-initialised root once, from its Terraform directory:
+  `terraform init -upgrade -backend=false`; in `dockhost/terraform/`, run it as
+  `../../scripts/with-secrets tfstate -- terraform init -upgrade -backend=false` (init reads
+  the GitLab HTTP state).
+- Renovate will keep proposing `kubecluster/` at the newer version: do not merge that
+  part before kubecluster has had its own 0.96.0 vs new-version plan comparison.
+- The first state write made with 0.119.0 (`apply`, `apply -refresh-only`) stores new
+  schema attributes that 0.96.0 cannot read: going back then needs a state backup, not
+  just the old pin.
+
 ## Quick Start
 
 ```bash

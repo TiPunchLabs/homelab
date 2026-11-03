@@ -4,6 +4,11 @@
 > `~/.local/share/homelab-tfstate-backup/dockhost/migration-20261030T224942`). The record is in
 > chapter 9. Still pending: owner merge of MR !81, then S10. Chapter 5 is kept as the historical procedure: **do not run it again**.
 >
+> **Provider update 2026-11-03**: Renovate MR !60 is merged (`a51927b`); dockhost now pins
+> `bpg/proxmox` `0.119.0`. Every mention of bpg 0.96.0 and "!60 stays unmerged" below
+> describes the migration window of 2026-10-30/31, not the current pin. See the root
+> README, section "Proxmox provider version".
+>
 > ⛔ **FORBIDDEN: `terraform apply` on the known network drift** (`ipconfig0` 192.168.1.90 → 192.168.10.90).
 > The plan shows 1 change: it is known drift, not a change to apply (see chapter 8).
 > **Target**: local state of `dockhost/terraform` (VM 9090) → GitLab-managed state,
@@ -78,7 +83,7 @@ session started before MR !82: old processes may still carry inherited credentia
 | GitLab | `terraformStates.count = 0`; project public, but state read needs Developer+, write/lock needs Maintainer; only member = owner |
 | Working dir | no `dockhost/terraform/terraform.tfstate*`, no `.terraform/terraform.tfstate` |
 | Tooling | only Terraform 1.17.0 installed (mise `terraform = "latest"`) → use the absolute binary below |
-| Provider | untracked lock file pins `bpg/proxmox` 0.96.0; Renovate MR !60 (→ 0.118.0) open, **must stay unmerged** during the window |
+| Provider | untracked lock file pins `bpg/proxmox` 0.96.0; Renovate MR !60 (→ 0.118.0) open, **must stay unmerged** during the window (merged later, 2026-11-03, at 0.119.0) |
 | Credentials | MR !82: `.envrc` holds config only (`TF_HTTP_USERNAME` included); `scripts/with-secrets` profile `tfstate` loads `TF_HTTP_PASSWORD` from `pass gitlab/terraform-token`, profile `proxmox` loads `TF_VAR_pm_api_token_id/secret` |
 | Token incident | 2026-10-30 22:57Z: the values of `.envrc` secrets, including `gitlab/terraform-token` (PAT id 20891640), were printed into a Claude Code session. Rotation required (D-ROTATE) |
 
@@ -427,7 +432,7 @@ EOF
 - To restore the current state, use the remote itself, or `$E/remote.json` (lineage `4fbe2f5c…`).
 - Restoring from `$B` would create a different state history. That needs a separate owner decision, a fresh plan, and the freeze.
 - bastion-60 (9060) keeps an obsolete copy: never run Terraform for dockhost there. It disappears with 9060, after its own approval.
-- Single-writer freeze stays in force until S10 has passed. Terraform 1.17.0 and bpg 0.96.0 only (Renovate !60 stays unmerged).
+- Single-writer freeze stays in force until S10 has passed. Terraform 1.17.0 and bpg 0.96.0 only (Renovate !60 stays unmerged). This provider condition belonged to the migration window: !60 was merged on 2026-11-03 and dockhost now pins bpg 0.119.0.
 
 > **Document created on**: 2026-10-30
 > **Author**: Xavier Gueret, with Claude Code
