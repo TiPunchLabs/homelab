@@ -182,7 +182,7 @@ vpngate/
 
 ### Specs VM
 - CPU: 1 core | RAM: 512 MB | Disk: 22 GB SSD
-- Template ID: 9001 | VMID: 9050 | IP: 192.168.1.50
+- Template ID: 9001 | VMID: 9050 | IP: 192.168.10.50 (Proxmox `ipconfig0` aligne le 2026-11-03, B5)
 
 ### Commandes cles
 ```bash

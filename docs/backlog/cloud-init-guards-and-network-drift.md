@@ -1,6 +1,6 @@
 # 🗂️ HomeLab — Généralisation des protections Cloud-Init et correction des dérives réseau
 
-> **Status**: 📋 backlog — identified 2026-10-16, **not started**, not scheduled.
+> **Status**: 📋 backlog — identified 2026-10-16; **vpngate-50 done 2026-11-03 (B5)**, the rest not scheduled.
 > **Origin**: the hermes-30 DNS drift fix (`fix/hermes-cloudinit-dns-drift`) and
 > the read-only audit of `proxmox/` that followed it.
 > **Explicitly out of scope of that fix**: nothing below may be done as part of it.
@@ -22,14 +22,14 @@
 ```
             Proxmox (cloud-init inputs)     Guest (what actually runs)
  dockhost   ipconfig0 192.168.1.90   ✗ ≠   192.168.10.90   guard: network ✅ (manual)  keys ❌
- vpngate    ipconfig0 192.168.1.50   ✗ ≠   192.168.10.50   guard: network ✅ (manual)  keys ❌
+ vpngate    ipconfig0 192.168.10.50  ✓ =   192.168.10.50   guard: network + keys ✅ (manual)  ciupgrade 0  [B5, 2026-11-03]
  bastion    ipconfig0 192.168.1.60   ✗ ≠   192.168.10.60?  guard: ❓ (VM stopped)
  hermes     ipconfig0 192.168.10.30  ✓ =   192.168.10.30   guard: network + keys (Ansible, pending deploy)
 
  Any cloud-init change on a VM ──► new instance-id ──► next boot:
      network re-render (blocked by the guard, where present)
-     SSH host keys regenerated   (no guard anywhere but hermes)
-     apt dist-upgrade            (package_upgrade: true on every VM but hermes)
+     SSH host keys regenerated   (no guard anywhere but hermes and vpngate)
+     apt dist-upgrade            (package_upgrade: true on every VM but hermes and vpngate)
 ```
 
 The guard is the de facto rule since 2026-04-28, but it lives in a runbook,
@@ -87,6 +87,23 @@ F1–F4 confirmed unchanged on 9090:
 - The state is no longer a blocker for open question 5 once it is migrated to GitLab
   (`../guides/runbook-dockhost-tfstate-gitlab-migration.md`).
 
+### ✅ vpngate-50 reconciled (B5, 2026-11-03)
+
+- F1 closed for 9050: Terraform apply of a gated saved plan (bpg/proxmox
+  0.119.0) changed only `ipconfig0` to `192.168.10.50/24` gw `192.168.10.1`;
+  the following `terraform plan` returned `No changes` (rc 0). State serial 6,
+  lineage unchanged.
+- F3 and F4 handled by hand before the apply: `99-preserve-ssh-host-keys.cfg`
+  (`ssh_deletekeys: false`) on the guest, `qm set 9050 --ciupgrade 0` on
+  Proxmox (`package_upgrade` is then omitted from the user-data, PVE 9.1
+  `Cloudinit.pm:162`). `ciupgrade` is set by hand, not in the vpngate Terraform
+  code; whether the bpg token could set it is not verified (the provider doc
+  says root@pam only, current qemu-server checks `VM.Config.Cloudinit`).
+- New instance-id at the apply boot; network rendering skipped, host keys,
+  netplan and the other critical files unchanged, no boot-time upgrade,
+  wg-easy healthy.
+- Still open for 9050: F2/F3 guards are **manual** (not in a role), F5.
+
 ------
 
 ## 🎯 Scope
@@ -142,7 +159,7 @@ Out:
 
 - every provisioned VM has both guards **from code**, verified by
   `read_conf_with_confd`;
-- `terraform plan` shows `No changes` for 9050, 9060, 9090;
+- `terraform plan` shows `No changes` for 9050 (✅ 2026-11-03) and 9090;
 - a planned reboot after the change shows `network config is disabled by
   system_cfg`, unchanged host key fingerprints and no boot-time `dist-upgrade`;
 - template 9001 untouched.
