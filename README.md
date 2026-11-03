@@ -31,7 +31,7 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 | [`dockhost/`](dockhost/) | Docker-based services VM (Docker, Komodo, kandidat, portail-client, Excalidraw, miniboard) | 1 | Terraform + Ansible |
 | [`vpngate/`](vpngate/) | WireGuard VPN Gateway | 1 | Terraform + Ansible |
 | [`hermes/`](hermes/) | Hermes AI agent host (Docker + Hermes Agent stack, DeepSeek inference) | 1 | Terraform + Ansible |
-| [`kubecluster/`](kubecluster/) | Kubernetes cluster (kubeadm, containerd, CNI) | 3 (1 CP + 2 workers) | Terraform + Ansible |
+| [`kubecluster/`](kubecluster/) | Kubernetes cluster (kubeadm, containerd, CNI). Dormant: code kept, no VMs deployed | 0 (3 declared: 1 CP + 2 workers) | Terraform + Ansible |
 | [`caddy/`](caddy/) | LXC Caddy reverse proxy | 1 LXC | Terraform + Ansible |
 | [`pihole/`](pihole/) | LXC Pi-hole DNS | 1 LXC | Terraform + Ansible |
 
@@ -164,9 +164,12 @@ homelab/
 | caddy-70 (LXC) | 1070 | 192.168.10.70 | 1 core | 512 MB | 8 GB | Caddy reverse proxy |
 | dns-71 (LXC) | 1071 | 192.168.10.71 | 1 core | 512 MB | 8 GB | Pi-hole DNS |
 | dockhost-90 | 9090 | 192.168.10.90 | 3 cores | 10 GB | 100 GB | Docker services |
-| kubecluster-40 | 9040 | 192.168.10.40 | 2 cores | 4 GB | 35 GB | K8s Control Plane |
-| kubecluster-41 | 9041 | 192.168.10.41 | 1 core | 3.5 GB | 30 GB | K8s Worker |
-| kubecluster-42 | 9042 | 192.168.10.42 | 1 core | 3.5 GB | 30 GB | K8s Worker |
+| kubecluster-40 | 9040 | 192.168.10.40 | 2 cores | 4 GB | 35 GB | K8s Control Plane (dormant, not deployed) |
+| kubecluster-41 | 9041 | 192.168.10.41 | 1 core | 3.5 GB | 30 GB | K8s Worker (dormant, not deployed) |
+| kubecluster-42 | 9042 | 192.168.10.42 | 1 core | 3.5 GB | 30 GB | K8s Worker (dormant, not deployed) |
+
+The kubecluster rows are the declared configuration, reserved for a possible
+reactivation; no such VM exists. See [`kubecluster/README.md`](kubecluster/README.md#current-status-dormant).
 
 ## Secrets Management
 

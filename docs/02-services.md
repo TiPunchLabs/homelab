@@ -77,6 +77,10 @@ Before role execution, the playbook creates:
 
 ## Kubecluster (kubecluster-40/41/42)
 
+> ⚠️ **Kubecluster is dormant (2026-11-03)**: no VM and no cluster exist; the code is kept
+> for a possible reactivation. Do not run `terraform apply` without a reactivation decision.
+> See [`kubecluster/README.md`](../kubecluster/README.md#current-status-dormant).
+
 ### Specifications
 
 | Node | Role | VMID | IP | vCPU | RAM | Disk |

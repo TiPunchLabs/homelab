@@ -66,7 +66,8 @@ Pre-existing, not part of the drift, noted for completeness:
   not verified;
 - template 9001 description `test`;
 - root `ansible.cfg` points to an `inventory.yml` that does not exist;
-- `kubecluster/terraform` code without VMs on `pve`.
+- `kubecluster/terraform` code without VMs on `pve`. Update 2026-11-03 (B6): confirmed;
+  kubecluster is dormant, its orphan state was archived and the root has no state.
 
 
 ### 🔁 Re-audit dockhost-90 (read-only, 2026-10-30, Bastion+ M3.3)
@@ -104,7 +105,8 @@ Out:
 - template 9001 and `proxmox/` template build — a fresh clone **must** still
   render its network and generate its own keys at first boot;
 - hermes-30 (covered by its own fix);
-- kubecluster (no VMs).
+- kubecluster (no VMs, dormant). A reactivation must apply these guards and decide
+  `ciupgrade` before the first create.
 
 ------
 

@@ -16,9 +16,9 @@
 | hermes-31 | 9031 | 192.168.10.31 | Hermes AI agent v0.22.5 (`hermes/terraform-31`). hermes-30 (9030, `.30`) detruite en M6.6.C (2026-10-26) : VMID et IP libres |
 | vpngate-50 | 9050 | 192.168.10.50 | WireGuard VPN Gateway |
 | dockhost-90 | 9090 | 192.168.10.90 | Docker services (Komodo, kandidat, portail-client, Excalidraw, miniboard) |
-| kubecluster-40 | 9040 | 192.168.10.40 | K8s Control Plane |
-| kubecluster-41 | 9041 | 192.168.10.41 | K8s Worker |
-| kubecluster-42 | 9042 | 192.168.10.42 | K8s Worker |
+| kubecluster-40 | 9040 | 192.168.10.40 | K8s Control Plane -- reserved, not deployed (kubecluster dormant since 2026-11-03) |
+| kubecluster-41 | 9041 | 192.168.10.41 | K8s Worker -- reserved, not deployed (kubecluster dormant since 2026-11-03) |
+| kubecluster-42 | 9042 | 192.168.10.42 | K8s Worker -- reserved, not deployed (kubecluster dormant since 2026-11-03) |
 
 ### Proxmox LXC Containers
 
