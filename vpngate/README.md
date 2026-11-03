@@ -38,22 +38,16 @@ The project deploys a secure VPN gateway using WireGuard via the wg-easy Docker 
 
 ### 1. VM Provisioning with Terraform
 
-1. Navigate to the `terraform/` directory
-2. Create a `terraform.tfvars` file with your Proxmox credentials
-3. Run:
-   ```bash
-   terraform init
-   terraform plan
-   terraform apply
-   ```
+Credentials are injected per command by `scripts/with-secrets` (reads `pass`);
+no `terraform.tfvars` and no secret in the shell. Run from an owner terminal:
 
-Example `terraform.tfvars`:
-
-```hcl
-pm_api_url           = "https://your-proxmox-server:8006/api2/json"
-pm_api_token_id      = "your-user@pam!token-name"
-pm_api_token_secret  = "your-token-secret"
+```bash
+cd vpngate/terraform
+../../scripts/with-secrets proxmox -- terraform plan
 ```
+
+The local state (`terraform.tfstate`) is the only copy: back it up before any
+apply.
 
 **VM Configuration:**
 
@@ -63,7 +57,7 @@ pm_api_token_secret  = "your-token-secret"
 - Template ID: 9001
 - VM Base ID: 9050
 - IP: 192.168.10.50
-- DNS: 192.168.10.71 (Pi-hole)
+- DNS (VM): 1.1.1.1, 8.8.8.8 (module default); VPN clients use Pi-hole `192.168.10.71`
 
 ### 2. Service Deployment with Ansible
 
@@ -173,6 +167,41 @@ for the full diagram.
 > `DNS = 1.1.1.1, 8.8.8.8` instead of `DNS = 192.168.10.71` (Pi-hole). The
 > tunnel will work, but `.internal` domains won't resolve. Fix by editing
 > the client `wg0.conf` or regenerating the peer.
+
+### Public IP changes (known risk, accepted)
+
+The ISP public IPv4 is dynamic and there is no dynamic DNS. Clients reach the
+server through the public IPv4 written in their `Endpoint`, so **every
+public IP change cuts every client** until its `Endpoint` is updated by hand.
+Nothing changes on the server side.
+
+- Symptom: client shows no recent handshake, `docker exec wg-easy wg show wg0
+  latest-handshakes` shows nothing new for that peer, the server is healthy.
+- Fix: update `Endpoint = <new public IPv4>:51820` in the client config.
+- Seen on 2026-11-03: phone and PC fixed; the two other peers are **not
+  updated yet**.
+- `WG_HOST` (`wg_easy_host` ← `vault_public_endpoint`) still holds the
+  previous public IPv4 **on purpose**. wg-easy v14 writes it as `Endpoint` in
+  every client config and QR code it generates, for new **and** existing peers:
+  a config downloaded or scanned from the UI today carries the old address and
+  must be corrected by hand before use. Changing `WG_HOST` and setting up
+  dynamic DNS were **declined by the owner for now** (2026-11-03).
+
+## Operational state
+
+- 2026-11-03 — **B5 done**: Proxmox `ipconfig0` aligned on `192.168.10.50/24`
+  gw `192.168.10.1` by a guarded Terraform apply (bpg/proxmox 0.119.0); the
+  next `terraform plan` returned `No changes` (rc 0). Cloud-init guards on the
+  guest: `99-disable-network-config.cfg` (network) and
+  `99-preserve-ssh-host-keys.cfg` (`ssh_deletekeys: false`), both manual, plus
+  `ciupgrade 0` on Proxmox (`qm set`, root only, not modelled by Terraform).
+  SSH host keys and netplan were preserved across the new cloud-init instance.
+- Recovery points kept until the owner authorizes their removal: snapshot
+  `pre-b5` (Proxmox) and `/root/*b5-pre*` archives on the guest (the WireGuard
+  archive contains private keys).
+- bpg 0.119 with `reboot_after_update = true` applies a non-hotpluggable
+  change by guest-agent **shutdown then start**, not by the reboot API: a
+  failed apply can leave the VM stopped (`qm start 9050`).
 
 ## Documentation
 

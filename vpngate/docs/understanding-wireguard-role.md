@@ -11,7 +11,7 @@
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    vpngate-50 (VM)                      │
-│                   192.168.1.50                          │
+│                   192.168.10.50                         │
 │                                                         │
 │  ┌───────────────────────────────────────────────────┐  │
 │  │              WireGuard (kernel module)             │  │
@@ -24,11 +24,11 @@
 │  │  (ip_forward=1)                                   │  │
 │  └───────────────────────────────────────────────────┘  │
 │                         │                               │
-│                    eth0 │ 192.168.1.50                  │
+│                    eth0 │ 192.168.10.50                 │
 └─────────────────────────┼───────────────────────────────┘
                           │
            ┌──────────────┼──────────────┐
-           │       LAN 192.168.1.0/24    │
+           │      LAN 192.168.10.0/24    │
            │  (proxmox, dockhost, etc.)  │
            └─────────────────────────────┘
                           │
@@ -286,7 +286,7 @@ PostUp = iptables -A FORWARD -i %i -j ACCEPT;
 ```
 
 - **`FORWARD -i %i -j ACCEPT`**: Allow packets arriving on the WireGuard interface to be forwarded (needed because default `FORWARD` policy is often `DROP`)
-- **`MASQUERADE`**: Rewrite the source IP of VPN packets to the server's LAN IP. This makes VPN traffic appear to originate from vpngate-50 (192.168.1.50), allowing it to reach the LAN and Internet without additional routing
+- **`MASQUERADE`**: Rewrite the source IP of VPN packets to the server's LAN IP. This makes VPN traffic appear to originate from vpngate-50 (192.168.10.50), allowing it to reach the LAN and Internet without additional routing
 
 > **Analogy**: MASQUERADE is like a post office forwarding service — mail (packets) from VPN clients gets a new return address (server's IP) so replies come back to the server, which forwards them back through the tunnel.
 
