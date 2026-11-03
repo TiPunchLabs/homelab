@@ -57,15 +57,23 @@ Monorepo for provisioning and managing a complete homelab infrastructure on **Pr
 | Roots | `bpg/proxmox` pin | Since |
 |---|---|---|
 | `vpngate/`, `caddy/`, `pihole/`, `hermes/terraform-31/`, `dockhost/` | `0.119.0` | MR !60, merged 2026-11-03 (`a51927b`), after a plan comparison of 0.96.0 and 0.119.0 on each root |
-| `kubecluster/` | `0.96.0` | quarantined: not compared, keep it on 0.96.0 until it is |
+| `kubecluster/` | `0.119.0` | B6, 2026-11-03: quarantine lifted after its own empty-state comparison (see below) |
 
 - Lockfiles (`.terraform.lock.hcl`) are not tracked. After a pin change, refresh
   each already-initialised root once, from its Terraform directory:
   `terraform init -upgrade -backend=false`; in `dockhost/terraform/`, run it as
   `../../scripts/with-secrets tfstate -- terraform init -upgrade -backend=false` (init reads
   the GitLab HTTP state).
-- Renovate will keep proposing `kubecluster/` at the newer version: do not merge that
-  part before kubecluster has had its own 0.96.0 vs new-version plan comparison.
+- `kubecluster/` comparison (B6): the root has no state (the orphan state was archived
+  outside the repository) and no VMs. Plans of the same code with an empty state at
+  0.96.0 and at 0.119.0 both gave `3 to add, 0 to change, 0 to destroy`, with the same
+  VM identity and network. The only differences are schema ones: `disk.queues = 0`,
+  `network_device` rendering, and `initialization.upgrade` (new, Optional+Computed,
+  unknown at plan). The last one was analysed and accepted: neither version sends
+  `ciupgrade` on create when the code omits `upgrade`, so a clone keeps the template
+  value (Proxmox default `1`, first-boot package upgrade) with both versions.
+  Nothing was applied and no Kubernetes was deployed: kubecluster stays dormant, the
+  pin change does not create its VMs, and any future create is a separate decision.
 - The first state write made with 0.119.0 (`apply`, `apply -refresh-only`) stores new
   schema attributes that 0.96.0 cannot read: going back then needs a state backup, not
   just the old pin.

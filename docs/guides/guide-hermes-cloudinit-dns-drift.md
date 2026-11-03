@@ -116,7 +116,8 @@ not in a worktree. Stage 3 runs there, on an up-to-date `main`.
 
 > 💡 **Note**: update 2026-11-03. MR !60 was merged at `0.119.0` (`a51927b`) for
 > `hermes/terraform-31/`, `vpngate/`, `caddy/`, `pihole/` and `dockhost/`, after a plan
-> comparison of 0.96.0 and 0.119.0 on each root; `kubecluster/` stays on 0.96.0.
+> comparison of 0.96.0 and 0.119.0 on each root; `kubecluster/` followed later, after its
+> own empty-state comparison (B6, same day).
 > hermes-30 and its `hermes/terraform/` root were destroyed before (M6.6.C). The text
 > below is the 2026-10 analysis, when !60 still targeted `0.117.0`.
 
