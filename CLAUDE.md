@@ -106,13 +106,20 @@ ansible-playbook ansible/deploy.yml --tags kandidat
 ### Description
 Cluster Kubernetes deploye avec kubeadm. Pattern **two-stage deployment** : Terraform pour le provisioning de 3 VMs, Ansible pour l'installation de Kubernetes.
 
-### Topologie cluster
+> 💤 **Dormant (decision R1, B6, 2026-11-03)** : aucune VM ni cluster n'existe sur
+> Proxmox (9040-9042 absents). Le code Terraform et Ansible est conserve pour une
+> eventuelle reactivation ; l'ancien state orphelin est archive hors depot, le root n'a
+> plus de state. **Aucun `terraform apply` sans decision de reactivation** : un plan
+> prevoit 3 creations et `vm_started=false` ne l'empeche pas. Prealables et risques :
+> `kubecluster/README.md`, section "Current status: dormant".
+
+### Topologie cluster (declaree, non deployee)
 
 | Node | Role | CPU | RAM | Disk | VMID | IP |
 |------|------|-----|-----|------|------|-----|
-| kubecluster-40 | Control Plane | 2 cores | 4096 MB | 35 GB | 9040 | 192.168.1.40 |
-| kubecluster-41 | Worker | 1 core | 3584 MB | 30 GB | 9041 | 192.168.1.41 |
-| kubecluster-42 | Worker | 1 core | 3584 MB | 30 GB | 9042 | 192.168.1.42 |
+| kubecluster-40 | Control Plane | 2 cores | 4096 MB | 35 GB | 9040 | 192.168.10.40 |
+| kubecluster-41 | Worker | 1 core | 3584 MB | 30 GB | 9041 | 192.168.10.41 |
+| kubecluster-42 | Worker | 1 core | 3584 MB | 30 GB | 9042 | 192.168.10.42 |
 
 ### Structure
 ```

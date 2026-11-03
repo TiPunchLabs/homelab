@@ -445,6 +445,10 @@ docker compose -f /opt/gitlab-runner/docker-compose.yml ps
 
 ## 6. Provision and configure Kubecluster
 
+> ⚠️ **Kubecluster is dormant (2026-11-03)**: no VM and no cluster exist; the code is kept
+> for a possible reactivation. Do not run `terraform apply` without a reactivation decision.
+> See [`kubecluster/README.md`](../kubecluster/README.md#current-status-dormant).
+
 The Kubernetes cluster consists of 1 control plane node and 2 worker nodes, deployed with kubeadm.
 
 ### 6.1 Provision the VMs
@@ -464,7 +468,7 @@ This creates 3 VMs:
 | kubecluster-41 | 9041 | 192.168.1.41 | Worker (1 vCPU, 3.5 GB RAM, 30 GB) |
 | kubecluster-42 | 9042 | 192.168.1.42 | Worker (1 vCPU, 3.5 GB RAM, 30 GB) |
 
-> **Note**: By default, `vm_started` is `false` for kubecluster. Set `vm_started = true` in `terraform.tfvars` or pass `-var 'vm_started=true'` to start the VMs.
+> **Note**: By default, `vm_started` is `false` for kubecluster. Set `vm_started = true` in `terraform.tfvars` or pass `-var 'vm_started=true'` to start the VMs. This only keeps the VMs stopped: it does not prevent `terraform apply` from creating them.
 
 Verify:
 

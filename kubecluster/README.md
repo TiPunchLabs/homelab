@@ -9,9 +9,43 @@
 
 # KubeCluster - Kubernetes Cluster Automation
 
-![Status](https://img.shields.io/badge/Status-Active-brightgreen)
+![Status](https://img.shields.io/badge/Status-Dormant-lightgrey)
 
 This project automates the deployment of a Kubernetes cluster on Proxmox using Terraform for infrastructure provisioning and Ansible for cluster configuration.
+
+## Current status: dormant
+
+Owner decision R1 (B6, 2026-11-03): the cluster is dormant.
+
+- No Kubernetes VM exists on Proxmox, and no Kubernetes cluster is running. VMIDs
+  9040, 9041 and 9042 were checked absent cluster-wide on 2026-11-03.
+- The Terraform and Ansible code is kept as the definition of a possible future
+  cluster. It is not a description of running infrastructure.
+- The previous local state was an orphan: it described VMs that no longer existed,
+  under old module addresses (`kubebeast_*`), node `pve` and `192.168.1.40-42`. It was
+  archived outside the repository (`~/.local/share/homelab-tfstate-backup/kubecluster/`,
+  owner workstation) and must not be restored or refreshed. `terraform/` has no
+  state file.
+- VMIDs 9040-9042 and `192.168.10.40-42` stay reserved for kubecluster in the
+  addressing plan. Check that they are still free at reactivation time.
+
+> ⚠️ **Warning**: do not run `terraform apply` in `terraform/` without an explicit
+> reactivation decision. On the empty state, a plan shows 3 creates (11 GiB of RAM in
+> total). `vm_started = false` (the default) only leaves the VMs stopped: it does not
+> stop Terraform from creating all three.
+
+Before any reactivation:
+
+1. Check host memory: the 3 VMs need 4096 + 2 x 3584 MiB, and the Proxmox host was
+   close to full in 2026-11.
+2. Check that VMIDs 9040-9042 and IPs `192.168.10.40-42` are free.
+3. Decide the cloud-init `ciupgrade` policy. Template 9001 has no `ciupgrade`, so
+   Proxmox applies its default `1`: an unattended package upgrade at first boot. The
+   module does not set `initialization.upgrade`.
+4. Put the cloud-init guards in place (see
+   [`docs/backlog/cloud-init-guards-and-network-drift.md`](../docs/backlog/cloud-init-guards-and-network-drift.md)).
+5. Review an owner plan (credentials through `scripts/with-secrets proxmox`) showing
+   exactly the expected 3 creates before any apply.
 
 ## Project Architecture
 
@@ -46,30 +80,24 @@ The project deploys a complete Kubernetes cluster with:
 
 ### 1. VM Provisioning with Terraform
 
-1. Navigate to the `terraform/` directory
-2. Create a `terraform.tfvars` file with your Proxmox credentials
-3. Run:
-   ```bash
-   terraform init
-   terraform plan
-   terraform apply
-   ```
+Only after a reactivation decision (see "Current status: dormant"). Credentials are
+injected per command from the owner terminal; `pm_api_url` comes from the root `.envrc`.
 
-Example `terraform.tfvars`:
-
-```hcl
-pm_api_url           = "https://your-proxmox-server:8006/api2/json"
-pm_api_token_id      = "your-user@pam!token-name"
-pm_api_token_secret  = "your-token-secret"
+```bash
+cd kubecluster/terraform
+terraform init
+../../scripts/with-secrets proxmox -- terraform plan -out=kubecluster.tfplan
+# apply only after reviewing the plan, and only with a reactivation decision
+../../scripts/with-secrets proxmox -- terraform apply kubecluster.tfplan
 ```
 
-**VM Configuration:**
+**VM configuration (declared in `terraform/main.tf`, not deployed):**
 
 | Node | Role | CPU | RAM | Disk | VMID | IP |
 |------|------|-----|-----|------|------|-----|
-| kubecluster-40 | Control Plane | 2 cores | 4096 MB | 35 GB | 9040 | 192.168.1.40 |
-| kubecluster-41 | Worker | 1 core | 3584 MB | 30 GB | 9041 | 192.168.1.41 |
-| kubecluster-42 | Worker | 1 core | 3584 MB | 30 GB | 9042 | 192.168.1.42 |
+| kubecluster-40 | Control Plane | 2 cores | 4096 MB | 35 GB | 9040 | 192.168.10.40 |
+| kubecluster-41 | Worker | 1 core | 3584 MB | 30 GB | 9041 | 192.168.10.41 |
+| kubecluster-42 | Worker | 1 core | 3584 MB | 30 GB | 9042 | 192.168.10.42 |
 
 - Template ID: 9001
 - Kubernetes Version: 1.34.0

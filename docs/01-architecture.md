@@ -77,7 +77,7 @@ PROXMOX VE (192.168.1.100)
 │       ├── Docker Engine
 │       └── GitLab Runner (Docker executor)
 │
-└── KUBECLUSTER (Kubernetes kubeadm)
+└── KUBECLUSTER (Kubernetes kubeadm) -- dormant, not deployed
     ├── kubecluster-40 (ID: 9040) ─── 192.168.1.40 [Control Plane]
     ├── kubecluster-41 (ID: 9041) ─── 192.168.1.41 [Worker 1]
     └── kubecluster-42 (ID: 9042) ─── 192.168.1.42 [Worker 2]
