@@ -1,5 +1,15 @@
 ---
+# Restart Core and Periphery only: komodo-mongo is never restarted here.
+# `restart` does not apply config changes anyway; the main docker_compose_v2
+# task recreates any service whose definition changed, mongo included.
+# `dependencies: false` (`--no-deps`) keeps that boundary explicit.
 - name: Restart komodo
   community.docker.docker_compose_v2:
     project_src: "{{ komodo_install_dir }}"
+    env_files:
+      - "{{ komodo_install_dir }}/compose.env"
+    services:
+      - core
+      - periphery
+    dependencies: false
     state: restarted
