@@ -10,5 +10,5 @@ output "project_id" {
 
 output "mirror_id" {
   description = "GitLab push mirror ID"
-  value       = gitlab_project_mirror.github.mirror_id
+  value       = gitlab_project_push_mirror.github.mirror_id
 }
