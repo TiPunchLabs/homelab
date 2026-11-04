@@ -17,11 +17,18 @@ resource "gitlab_project" "project" {
 # =============================================================================
 # Push Mirror - GitLab -> GitHub (read-only)
 # =============================================================================
-resource "gitlab_project_mirror" "github" {
+resource "gitlab_project_push_mirror" "github" {
   project                 = gitlab_project.project.id
   url                     = "https://${var.github_mirror_owner}:${var.github_mirror_token}@github.com/${var.github_mirror_owner}/${var.project_name}.git"
   keep_divergent_refs     = false
   only_protected_branches = true
+}
+
+# Provider 19.0 renamed gitlab_project_mirror to gitlab_project_push_mirror
+# (identical resource). The state is moved on the next apply, no recreation.
+moved {
+  from = gitlab_project_mirror.github
+  to   = gitlab_project_push_mirror.github
 }
 
 # =============================================================================
