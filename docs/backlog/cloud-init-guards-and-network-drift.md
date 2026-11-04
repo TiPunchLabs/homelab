@@ -110,7 +110,7 @@ F1–F4 confirmed unchanged on 9090:
 
 In:
 
-- dockhost-90, vpngate-50 (bastion-60 deleted, removed from the repo 2026-11-01);
+- dockhost-90, vpngate-50 (bastion-60 removed from the repo 2026-11-01, VM destroyed 2026-11-03);
 - the stale `ipconfig0` values (F1);
 - codifying the cloud-init guards (network, SSH host keys) for VMs already
   provisioned (F2, F3);
@@ -146,7 +146,7 @@ Out:
 
 ## 🧭 Suggested order
 
-1. ~~Inspect bastion-60 at its next start (F6)~~ — moot: bastion-60 deleted.
+1. ~~Inspect bastion-60 at its next start (F6)~~ — moot: bastion-60 destroyed on 2026-11-03.
 2. Codify the guards (F2, F3) per VM, with tests like `hermes/tests/test_dns_resolver_cloud_init.py`.
 3. Decide F4 per VM; apply with the same `qm set` as `ipconfig0` to change
    the instance-id once.

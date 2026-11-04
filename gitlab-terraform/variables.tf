@@ -25,7 +25,7 @@ variable "project_name" {
 variable "project_description" {
   description = "Short description displayed on the project page."
   type        = string
-  default     = "Homelab infrastructure as code - Proxmox, Docker (dockhost), Kubernetes (kubecluster), Bastion"
+  default     = "Homelab infrastructure as code - Proxmox, Docker (dockhost), Kubernetes (kubecluster)"
 }
 
 variable "github_mirror_token" {

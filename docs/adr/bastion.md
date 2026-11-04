@@ -1,6 +1,6 @@
 # 🏗️ ADR — Bastion (VM 9060)
 
-> ⚠️ **Historique** : bastion-60 (VMID 9060) a ete supprimee et son code retire du depot le 2026-11-01. Document conserve pour l'historique, ne decrit plus l'etat actuel.
+> ⚠️ **Historique** : le code de bastion-60 a ete retire du depot le 2026-11-01 ; la VM (VMID 9060) a ete detruite le 2026-11-03 et son runner GitLab supprime. Document conserve pour l'historique, ne decrit plus l'etat actuel.
 
 > **Document vivant** — Ce fichier regroupe les Architecture Decision Records (ADR) du sous-projet bastion.
 > Chaque decision est numerotee, datee et immutable une fois acceptee. Pour revenir sur une decision, on en cree une nouvelle qui la remplace.
