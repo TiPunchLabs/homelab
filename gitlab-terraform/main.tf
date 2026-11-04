@@ -35,9 +35,16 @@ moved {
 # Branch Protection - Require CI to pass before merge
 # =============================================================================
 resource "gitlab_branch_protection" "main" {
-  project            = gitlab_project.project.id
-  branch             = "main"
-  push_access_level  = "maintainer"
-  merge_access_level = "maintainer"
-  allow_force_push   = false
+  project          = gitlab_project.project.id
+  branch           = "main"
+  allow_force_push = false
+
+  # Provider 19 treats gitlab.com as EE (/version: enterprise=true) and rejects
+  # push_access_level/merge_access_level there: use the allowed_to_* lists.
+  allowed_to_push = [
+    { access_level = "maintainer" },
+  ]
+  allowed_to_merge = [
+    { access_level = "maintainer" },
+  ]
 }
