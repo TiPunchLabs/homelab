@@ -431,7 +431,7 @@ EOF
 - Old backups (`$B`, the `.backup.local-after-migration` copy, bastion-60's disk) carry lineage `99061ad6…`. **Never `state push` them onto the remote, and never use `-force`.** They are history, not restore points for the GitLab state.
 - To restore the current state, use the remote itself, or `$E/remote.json` (lineage `4fbe2f5c…`).
 - Restoring from `$B` would create a different state history. That needs a separate owner decision, a fresh plan, and the freeze.
-- bastion-60 (9060) keeps an obsolete copy: never run Terraform for dockhost there. It disappears with 9060, after its own approval.
+- bastion-60 (9060) kept an obsolete copy. It is gone: the VM and its disks were destroyed on 2026-11-03.
 - Single-writer freeze stays in force until S10 has passed. Terraform 1.17.0 and bpg 0.96.0 only (Renovate !60 stays unmerged). This provider condition belonged to the migration window: !60 was merged on 2026-11-03 and dockhost now pins bpg 0.119.0.
 
 > **Document created on**: 2026-10-30

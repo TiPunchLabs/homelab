@@ -673,7 +673,7 @@ Kandidat, Sat 08:00 UTC; ±2 h) and with no CI job running. Commands on `pve`
 
 Rollback: A1 `qm set 9090 --balloon 0` then shutdown/start again. Floor of
 hermes-30: `qm set 9030 --balloon 2048` (live). bastion: no longer
-possible, bastion-60 (VMID 9060) has since been deleted.
+possible, bastion-60 (VMID 9060) was destroyed on 2026-11-03.
 
 ### Rollback of M2
 

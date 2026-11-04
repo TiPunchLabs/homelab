@@ -123,7 +123,7 @@ Convention: `192.168.10.{vm_ip_start}` where `vm_ip_start` is defined in Terrafo
 .30-.39  : hermes (AI agent host)   -- sauf .35, pris par kemax01 (hors repo)
 .40-.49  : kubecluster (Kubernetes)
 .50-.59  : vpngate (VPN gateway)
-.60-.69  : free (formerly bastion-60, deleted)
+.60-.69  : free (bastion-60, VMID 9060, destroyed 2026-11-03)
 .70-.89  : LXC containers (caddy, pihole, ...)
 .90-.99  : dockhost (Docker services)
 ```
@@ -141,7 +141,7 @@ The convention uses the following scheme:
 | 9030-9039 | .30-.39 | hermes (`.35` occupe par kemax01, hors repo) |
 | 9040-9049 | .40-.49 | kubecluster |
 | 9050-9059 | .50-.59 | vpngate |
-| 9060-9069 | .60-.69 | free (formerly bastion-60, deleted) |
+| 9060-9069 | .60-.69 | free (bastion-60 destroyed 2026-11-03; before reusing .60, check it does not answer and has no DNS record or DHCP lease) |
 | 1070-1089 | .70-.89 | LXC containers (caddy, pihole, ...) |
 | 9090-9099 | .90-.99 | dockhost |
 

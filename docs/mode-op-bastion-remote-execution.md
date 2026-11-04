@@ -1,6 +1,6 @@
 # 🔧 Mode Operatoire : Execution distante depuis le Bastion
 
-> ⚠️ **Historique** : bastion-60 (VMID 9060) a ete supprimee et son code retire du depot le 2026-11-01. Document conserve pour l'historique, ne decrit plus l'etat actuel.
+> ⚠️ **Historique** : le code de bastion-60 a ete retire du depot le 2026-11-01 ; la VM (VMID 9060) a ete detruite le 2026-11-03. Document conserve pour l'historique, ne decrit plus l'etat actuel.
 
 > **Objectif** : Valider que le bastion-60 peut executer des playbooks Ansible sur les VMs cibles (dockhost-90, kubecluster-*) de maniere autonome et non-interactive.
 >

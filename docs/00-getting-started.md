@@ -377,7 +377,7 @@ ansible-playbook ansible/deploy.yml
 
 ## 4. Bastion (retired)
 
-bastion-60 (VMID 9060) was deleted and its code removed from this repository on 2026-11-01. Terraform and Ansible run from the local workstation; credentials are injected per command by `scripts/with-secrets` (see the appendix). The bastion ADRs are kept as history in [`adr/bastion.md`](adr/bastion.md).
+bastion-60 is retired. Its code was removed from this repository on 2026-11-01 (MR !88). The VM (VMID 9060) and its two volumes (`vm-9060-disk-0`, `vm-9060-cloudinit`) were destroyed on 2026-11-03 with `qm destroy 9060 --purge 1`, and its GitLab runner (52153437) was deleted the same day. There was no backup. The last Terraform state of the old root is kept outside the repo as history, and no root uses it. Terraform and Ansible run from the local workstation; credentials are injected per command by `scripts/with-secrets` (see the appendix). The bastion ADRs are kept as history in [`adr/bastion.md`](adr/bastion.md).
 
 ---
 

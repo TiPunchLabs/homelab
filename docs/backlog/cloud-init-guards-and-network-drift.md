@@ -23,7 +23,7 @@
             Proxmox (cloud-init inputs)     Guest (what actually runs)
  dockhost   ipconfig0 192.168.1.90   ✗ ≠   192.168.10.90   guard: network ✅ (manual)  keys ❌
  vpngate    ipconfig0 192.168.10.50  ✓ =   192.168.10.50   guard: network + keys ✅ (manual)  ciupgrade 0  [B5, 2026-11-03]
- bastion    ipconfig0 192.168.1.60   ✗ ≠   192.168.10.60?  guard: ❓ (VM stopped)
+ bastion    (VM 9060 destroyed on 2026-11-03, row kept as history)
  hermes     ipconfig0 192.168.10.30  ✓ =   192.168.10.30   guard: network + keys (Ansible, pending deploy)
 
  Any cloud-init change on a VM ──► new instance-id ──► next boot:
@@ -41,7 +41,8 @@ not in code. Each VM's safety depends on whether someone remembered it.
 
 The hermes fix is local: one VM, one role, one Proxmox command. Everything
 below touches VMs with running services (Komodo, WireGuard, the GitLab
-runner), different Terraform states (dockhost's lives on bastion-60) and
+runner), different Terraform states (dockhost's lived on bastion-60 at the time; migrated
+to the GitLab backend on 2026-10-31) and
 shared design decisions. Bundling it with the hermes fix would have turned a
 reversible local change into a cross-cutting one.
 
@@ -110,7 +111,7 @@ F1–F4 confirmed unchanged on 9090:
 
 In:
 
-- dockhost-90, vpngate-50 (bastion-60 deleted, removed from the repo 2026-11-01);
+- dockhost-90, vpngate-50 (bastion-60 removed from the repo 2026-11-01, VM destroyed 2026-11-03);
 - the stale `ipconfig0` values (F1);
 - codifying the cloud-init guards (network, SSH host keys) for VMs already
   provisioned (F2, F3);
@@ -146,7 +147,7 @@ Out:
 
 ## 🧭 Suggested order
 
-1. ~~Inspect bastion-60 at its next start (F6)~~ — moot: bastion-60 deleted.
+1. ~~Inspect bastion-60 at its next start (F6)~~ — moot: bastion-60 destroyed on 2026-11-03.
 2. Codify the guards (F2, F3) per VM, with tests like `hermes/tests/test_dns_resolver_cloud_init.py`.
 3. Decide F4 per VM; apply with the same `qm set` as `ipconfig0` to change
    the instance-id once.
