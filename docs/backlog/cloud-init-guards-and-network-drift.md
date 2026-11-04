@@ -23,7 +23,7 @@
             Proxmox (cloud-init inputs)     Guest (what actually runs)
  dockhost   ipconfig0 192.168.1.90   ✗ ≠   192.168.10.90   guard: network ✅ (manual)  keys ❌
  vpngate    ipconfig0 192.168.10.50  ✓ =   192.168.10.50   guard: network + keys ✅ (manual)  ciupgrade 0  [B5, 2026-11-03]
- bastion    ipconfig0 192.168.1.60   ✗ ≠   192.168.10.60?  guard: ❓ (VM stopped)
+ bastion    (VM 9060 destroyed on 2026-11-03, row kept as history)
  hermes     ipconfig0 192.168.10.30  ✓ =   192.168.10.30   guard: network + keys (Ansible, pending deploy)
 
  Any cloud-init change on a VM ──► new instance-id ──► next boot:
@@ -41,7 +41,8 @@ not in code. Each VM's safety depends on whether someone remembered it.
 
 The hermes fix is local: one VM, one role, one Proxmox command. Everything
 below touches VMs with running services (Komodo, WireGuard, the GitLab
-runner), different Terraform states (dockhost's lives on bastion-60) and
+runner), different Terraform states (dockhost's lived on bastion-60 at the time; migrated
+to the GitLab backend on 2026-10-31) and
 shared design decisions. Bundling it with the hermes fix would have turned a
 reversible local change into a cross-cutting one.
 
