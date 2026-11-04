@@ -12,7 +12,7 @@
 # `hermes/ansible/roles/komodo_periphery`. Un Core plus ancien que ses agents
 # est le mauvais sens : l'UI affiche VERSION MISMATCH sur le Server concerne.
 # renovate: datasource=docker depName=ghcr.io/moghtech/komodo-core
-komodo_image_tag: "2.3.2"
+komodo_image_tag: "2.3.4"
 
 # MongoDB — la base qui porte TOUT l'etat de Komodo.
 #
