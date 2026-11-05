@@ -228,8 +228,8 @@ terminal (pass, vault, Terraform credentials).
    Terraform, prompts for the PAT). Commit the encrypted file on a branch.
 5. Variable (once):
    `glab api -X POST projects/80082616/variables -f key=RUNNER_ROUTE -f value=gitlab -f protected=false -f masked=false -f environment_scope='*'`
-6. Runner: `cd dockhost && ansible-playbook ansible/deploy.yml --tags gitlab-runner`
-   (controller still disabled). Check the runner is online
+6. Runner: `cd dockhost && ansible-playbook ansible/deploy.yml --tags gitlab-runner -e runner_quota_enabled=false`
+   (controller still disabled; `group_vars` now enables it by default). Check the runner is online
    (`glab api 'projects/80082616/runners?type=project_type'`) and
    `systemctl is-active homelab-ci-egress homelab-runner`.
 7. Isolation and test job:
@@ -251,8 +251,9 @@ terminal (pass, vault, Terraform credentials).
 10. Simulations: `runner-quota check --simulate-used 340` → would set
     `homelab`; `--simulate-used 336` → `gitlab`.
 11. Real switch: `runner-quota set-mode homelab`, push or Run pipeline → jobs
-    on dockhost; `runner-quota set-mode auto` → `RUNNER_ROUTE=gitlab`, next
-    pipeline on GitLab.com.
+    on dockhost; `runner-quota set-mode auto` → `RUNNER_ROUTE=gitlab` when usage
+    is below the threshold and no latch is active (otherwise it stays on
+    homelab; `set-mode gitlab` forces the return), next pipeline on GitLab.com.
 12. Watch: `systemctl list-timers runner-quota.timer`, `journalctl -u runner-quota`.
 
 ### Deployment status
