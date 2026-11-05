@@ -383,7 +383,7 @@ bastion-60 is retired. Its code was removed from this repository on 2026-11-01 (
 
 ## 5. Provision and configure Dockhost
 
-The dockhost VM runs Docker services: Komodo, kandidat, portail-client, Excalidraw and miniboard.
+The dockhost VM runs Docker services: Komodo, kandidat, portail-client and miniboard.
 
 ### 5.1 Provision the VM
 

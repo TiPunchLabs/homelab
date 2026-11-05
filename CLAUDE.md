@@ -66,7 +66,7 @@ ansible-playbook ansible/deploy.yml --tags "generate_vm_template"
 ## Sous-projet : dockhost/
 
 ### Description
-VM Docker avec services conteneurises (Komodo, kandidat, portail-client, Excalidraw, miniboard). Portainer, Open WebUI et le PostgreSQL general retires le 2026-10-31 (donnees supprimees) ; kandidat a sa propre base `kandidat-db` (Stack GitOps). Pattern **two-stage deployment** : Terraform pour le provisioning VM, Ansible pour l'installation des services.
+VM Docker avec services conteneurises (Komodo, kandidat, portail-client, miniboard). Portainer, Open WebUI et le PostgreSQL general retires le 2026-10-31 (donnees supprimees) ; Excalidraw retire le 2026-11-05 (`/opt/excalidraw` et `/app/data/excalidraw` conserves sur l'hote) ; kandidat a sa propre base `kandidat-db` (Stack GitOps). Pattern **two-stage deployment** : Terraform pour le provisioning VM, Ansible pour l'installation des services.
 
 ### Structure
 ```

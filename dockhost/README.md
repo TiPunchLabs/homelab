@@ -27,7 +27,6 @@ Each service is its own Ansible role, deployed in this order by `deploy.yml`:
 | Docker | `docker` | Docker Engine + Compose plugin |
 | Komodo Periphery | `komodo` | GitOps agent — reconciles the `homelab-gitops` repo into running containers |
 | kandidat | `kandidat` | Host prep for the `kandidat` Komodo Stack (data dir); app and its dedicated `kandidat-db` come from `homelab-gitops` |
-| Excalidraw | `excalidraw` | Self-hosted virtual whiteboard |
 | miniboard | `miniboard` | Dashboard (image from the GitLab registry) |
 
 > ℹ️ The `security_hardening` role exists but is an **empty placeholder** (not wired
@@ -132,7 +131,6 @@ override the `TF_VAR_*` injected by the wrapper. Remove any existing one.
 | `docker` | Install Docker Engine and Compose |
 | `komodo` | Deploy Komodo Periphery (GitOps agent) |
 | `kandidat` | Prepare the `kandidat` data dir (Komodo deploys the app) |
-| `excalidraw` | Deploy Excalidraw |
 | `miniboard` | Deploy miniboard |
 
 ## 🔒 Security
@@ -176,7 +174,6 @@ pre-commit install
 │       ├── docker/               # Docker Engine + Compose
 │       ├── komodo/               # Komodo Periphery (GitOps agent)
 │       ├── kandidat/             # kandidat app
-│       ├── excalidraw/           # Excalidraw whiteboard
 │       ├── miniboard/            # miniboard dashboard
 │       └── security_hardening/   # Placeholder (empty, not in deploy.yml)
 ├── terraform/
