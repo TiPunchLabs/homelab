@@ -1,0 +1,145 @@
+---
+- name: Check runner secrets are provided
+  ansible.builtin.assert:
+    that:
+      - gitlab_runner_token is match('^glrt-')
+    fail_msg: "vault_gitlab_runner_token is missing or is not a runner authentication token (glrt-)"
+    quiet: true
+  no_log: true
+
+# ------------------------------------------------------------------
+# Egress filter, installed before the runner can start any job
+# ------------------------------------------------------------------
+- name: Install CI egress filter script
+  ansible.builtin.template:
+    src: homelab-ci-egress.sh.j2
+    dest: /usr/local/sbin/homelab-ci-egress
+    owner: root
+    group: root
+    mode: "0750"
+  notify: Apply CI egress filter
+
+- name: Install CI egress filter unit
+  ansible.builtin.template:
+    src: homelab-ci-egress.service.j2
+    dest: /etc/systemd/system/homelab-ci-egress.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply CI egress filter
+
+- name: Enable and start CI egress filter
+  ansible.builtin.systemd_service:
+    name: homelab-ci-egress.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply pending egress filter changes before the runner starts
+  ansible.builtin.meta: flush_handlers
+
+- name: Check the egress filter is active
+  ansible.builtin.command: iptables -C DOCKER-USER -s {{ gitlab_runner_jobs_subnet }} -j HOMELAB-CI-EGRESS
+  changed_when: false
+
+# ------------------------------------------------------------------
+# Runner
+# ------------------------------------------------------------------
+- name: Create CI job network
+  community.docker.docker_network:
+    name: "{{ gitlab_runner_jobs_network }}"
+    driver: bridge
+    driver_options:
+      com.docker.network.bridge.name: "{{ gitlab_runner_jobs_bridge }}"
+      # Concurrent jobs must not reach each other (no services are used).
+      com.docker.network.bridge.enable_icc: "false"
+    ipam_config:
+      - subnet: "{{ gitlab_runner_jobs_subnet }}"
+    state: present
+
+- name: Create runner directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - "{{ gitlab_runner_install_dir }}"
+    - "{{ gitlab_runner_install_dir }}/config"
+
+- name: Write runner configuration
+  ansible.builtin.template:
+    src: config.toml.j2
+    dest: "{{ gitlab_runner_install_dir }}/config/config.toml"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart homelab runner
+
+- name: Write runner compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ gitlab_runner_install_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart homelab runner
+
+- name: Install runner unit
+  ansible.builtin.template:
+    src: homelab-runner.service.j2
+    dest: /etc/systemd/system/homelab-runner.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart homelab runner
+
+- name: Enable and start runner
+  ansible.builtin.systemd_service:
+    name: homelab-runner.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply pending runner changes before verifying it
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for the runner container
+  ansible.builtin.command: docker inspect -f "{{ '{{' }}.State.Running{{ '}}' }}" homelab-runner
+  register: gitlab_runner_running
+  changed_when: false
+  retries: 10
+  delay: 3
+  until: gitlab_runner_running.stdout == "true"
+
+- name: Verify runner registration
+  ansible.builtin.command: docker exec homelab-runner gitlab-runner verify
+  register: gitlab_runner_verify
+  changed_when: false
+  failed_when: "'is valid' not in gitlab_runner_verify.stderr + gitlab_runner_verify.stdout"
+
+# ------------------------------------------------------------------
+# runner-quota controller (off until the runner is proven)
+# ------------------------------------------------------------------
+- name: Install runner-quota controller
+  ansible.builtin.import_tasks: controller.yml
+  when: runner_quota_enabled | bool
+
+# Disabling stops the periodic checks only: RUNNER_ROUTE keeps its last value
+# (run "runner-quota set-mode gitlab" first to send pipelines back to GitLab.com).
+- name: Look for an installed runner-quota timer
+  ansible.builtin.stat:
+    path: /etc/systemd/system/runner-quota.timer
+  register: runner_quota_timer_unit
+  when: not (runner_quota_enabled | bool)
+
+- name: Stop runner-quota timer when disabled
+  ansible.builtin.systemd_service:
+    name: runner-quota.timer
+    enabled: false
+    state: stopped
+  when:
+    - not (runner_quota_enabled | bool)
+    - runner_quota_timer_unit.stat.exists

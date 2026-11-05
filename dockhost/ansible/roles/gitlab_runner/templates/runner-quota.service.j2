@@ -1,0 +1,27 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=Route GitLab CI jobs from the compute quota (runner-quota check)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User={{ runner_quota_user }}
+Group={{ runner_quota_user }}
+ExecStart=/usr/bin/python3 {{ runner_quota_install_dir }}/runner_quota.py --config {{ runner_quota_config_dir }}/config.json check
+# 6 API calls x (2 attempts x 15 s + 2 s backoff) stays under this.
+TimeoutStartSec=300
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+ReadWritePaths={{ runner_quota_state_dir }}

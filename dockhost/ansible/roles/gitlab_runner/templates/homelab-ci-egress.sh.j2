@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+{{ ansible_managed | comment }}
+# Forbid CI job containers ({{ gitlab_runner_jobs_subnet }}) any private
+# destination: LAN, Proxmox, other Docker networks, dockhost itself.
+# The two chains are replaced atomically (iptables-restore --noflush flushes
+# and refills only the chains it declares, in one commit): no open window, and
+# no state exception, so a connection can never outlive the policy.
+set -euo pipefail
+
+subnet="{{ gitlab_runner_jobs_subnet }}"
+
+iptables -N DOCKER-USER 2>/dev/null || true
+iptables -N HOMELAB-CI-EGRESS 2>/dev/null || true
+iptables -N HOMELAB-CI-INPUT 2>/dev/null || true
+
+iptables-restore --noflush <<RULES
+*filter
+:HOMELAB-CI-EGRESS - [0:0]
+-A HOMELAB-CI-EGRESS -d ${subnet} -j RETURN
+{% for net in gitlab_runner_egress_blocked %}
+-A HOMELAB-CI-EGRESS -d {{ net }} -j DROP
+{% endfor %}
+:HOMELAB-CI-INPUT - [0:0]
+-A HOMELAB-CI-INPUT -j DROP
+COMMIT
+RULES
+
+ensure_jump() {
+  local parent=$1
+  shift
+  iptables -C "$parent" "$@" 2>/dev/null || iptables -I "$parent" 1 "$@"
+}
+ensure_jump DOCKER-USER -s "$subnet" -j HOMELAB-CI-EGRESS
+ensure_jump INPUT -s "$subnet" -j HOMELAB-CI-INPUT
+
+# Fail if anything above did not land, so units requiring this one stay down.
+iptables -C DOCKER-USER -s "$subnet" -j HOMELAB-CI-EGRESS
+iptables -C INPUT -s "$subnet" -j HOMELAB-CI-INPUT

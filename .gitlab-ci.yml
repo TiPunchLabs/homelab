@@ -4,10 +4,34 @@ stages:
   - security
 
 # =============================================================================
+# Runner routing (hybrid CI, see dockhost/ansible/roles/gitlab_runner/README.md)
+# =============================================================================
+# RUNNER_ROUTE is a project CI/CD variable written by runner-quota on dockhost
+# (gitlab | homelab). It is read once, when the pipeline is created: existing
+# jobs keep their runner. Any other value, or no variable, means GitLab.com.
+# Override for one pipeline: Run pipeline with RUNNER_ROUTE=homelab.
+# Never define RUNNER_TAG as a project or group variable: it would bypass this map.
+variables:
+  RUNNER_TAG: saas-linux-small-amd64
+
+workflow:
+  rules:
+    # Same pipelines as before this block: branch, tag, schedule, web, API;
+    # no merge request pipelines (no job declares them).
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: $RUNNER_ROUTE == "homelab"
+      variables:
+        RUNNER_TAG: homelab-dockhost
+    - when: always
+
+# =============================================================================
 # Global defaults
 # =============================================================================
 default:
   interruptible: true
+  tags:
+    - $RUNNER_TAG
 
 # =============================================================================
 # Templates
@@ -64,6 +88,17 @@ terraform-lint:
         echo "=== terraform validate: $root"
         (cd "$CI_PROJECT_DIR/$root" && terraform init -backend=false -input=false && terraform validate) || exit 1
       done
+
+# =============================================================================
+# Tests — runner-quota controller (offline, stdlib + pytest)
+# =============================================================================
+runner-quota-tests:
+  stage: lint
+  extends: .uv-setup
+  before_script:
+    - pip install uv
+  script:
+    - uv run --frozen --only-group dev pytest dockhost/tests -q
 
 # =============================================================================
 # Lint — Shell

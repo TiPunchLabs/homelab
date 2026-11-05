@@ -1,0 +1,59 @@
+---
+# ============================================================
+# GitLab Runner (project runner of tipunchlabs/homelab)
+# ============================================================
+gitlab_runner_image: "gitlab/gitlab-runner"
+# renovate: datasource=docker depName=gitlab/gitlab-runner
+gitlab_runner_image_tag: "v19.5.2"
+gitlab_runner_image_digest: "sha256:6d4cdfe23443fa5463bffa65cba9074a4517f68784756b69bcc362ca86f3d4c6"
+
+gitlab_runner_install_dir: "/opt/homelab-runner"
+gitlab_runner_name: "homelab-dockhost-90"
+gitlab_runner_url: "https://gitlab.com"
+# Authentication token (glrt-) of the runner created by gitlab-terraform
+# (gitlab_user_runner.homelab). Kept in vault/gitlab_runner.yml.
+gitlab_runner_token: "{{ vault_gitlab_runner_token }}"
+
+# Capacity: dockhost has 3 vCPU / 10 GB shared with the other services.
+gitlab_runner_concurrent: 2
+gitlab_runner_job_cpus: "1.5"
+gitlab_runner_job_memory: "2560m"
+gitlab_runner_default_image: "alpine:3.24"
+
+# Jobs run on their own bridge network. The egress filter below forbids it
+# every private range: jobs reach the Internet, never the LAN or dockhost.
+gitlab_runner_jobs_network: "homelab-ci-jobs"
+gitlab_runner_jobs_bridge: "br-ci-jobs"
+gitlab_runner_jobs_subnet: "172.31.250.0/24"
+gitlab_runner_egress_blocked:
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  - "100.64.0.0/10"
+  - "169.254.0.0/16"
+
+# ============================================================
+# runner-quota controller (systemd timer)
+# ============================================================
+runner_quota_enabled: false
+runner_quota_install_dir: "/opt/runner-quota"
+runner_quota_config_dir: "/etc/runner-quota"
+runner_quota_state_dir: "/var/lib/runner-quota"
+runner_quota_user: "runner-quota"
+runner_quota_interval: "*:0/15"
+# Fine-grained PAT: Namespace read, project Variable read+update, Runner read.
+runner_quota_token: "{{ vault_runner_quota_token }}"
+# Tunables: change them in group_vars, the controller code stays untouched.
+runner_quota_threshold_percent: 85
+# The API hides the quota from non-admins: the limit is the documented Free
+# tier allowance, trusted only while the namespace plan reads expected_plan.
+runner_quota_monthly_limit_minutes: 400
+runner_quota_settings:
+  gitlab_url: "https://gitlab.com"
+  namespace_id: 125854366
+  project_id: 80082616
+  expected_plan: "free"
+  variable_key: "RUNNER_ROUTE"
+  homelab_runner_tag: "homelab-dockhost"
+  saas_runner_tag: "saas-linux-small-amd64"
+  timeout_seconds: 15

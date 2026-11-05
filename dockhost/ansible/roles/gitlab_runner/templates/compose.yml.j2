@@ -1,0 +1,31 @@
+{{ ansible_managed | comment }}
+
+# Runner manager only. It talks to the Docker daemon to start job containers;
+# jobs themselves never get the socket (see config.toml volumes).
+# Lifecycle owned by homelab-runner.service (gated by the egress filter):
+# no Docker restart policy, or dockerd would restart it before the filter.
+services:
+  gitlab-runner:
+    image: {{ gitlab_runner_image }}:{{ gitlab_runner_image_tag }}@{{ gitlab_runner_image_digest }}
+    container_name: homelab-runner
+    restart: "no"
+    volumes:
+      - "{{ gitlab_runner_install_dir }}/config:/etc/gitlab-runner"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      - runner-net
+    healthcheck:
+      test: ["CMD", "gitlab-runner", "verify"]
+      interval: 10m
+      timeout: 30s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  runner-net:
+    driver: bridge

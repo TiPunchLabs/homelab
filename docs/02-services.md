@@ -41,24 +41,22 @@ The playbook `dockhost/ansible/deploy.yml` runs the following roles:
 | `motd` | `motd` | Custom Message of the Day |
 | `docker` | `docker` | Docker Engine + Docker Compose installation |
 | `security_hardening` | `security-hardening` | SSH hardening, UFW, system security |
-| `gitlab_runner` | `gitlab-runner` | GitLab Runner (Docker executor) |
+| `gitlab_runner` | `gitlab-runner` | GitLab Runner (quota fallback) + runner-quota controller |
 
-### GitLab Runner (Docker executor)
+### GitLab Runner (Docker executor, quota fallback)
 
-GitLab CI runner for the **tipunchlabs/homelab** project.
+Project runner of **tipunchlabs/homelab**, used only when GitLab.com compute
+minutes run low. GitLab.com hosted runners stay the default.
 
 **Details**:
-- Executor: Docker
-- Installation: `/opt/gitlab-runner/docker-compose.yml` + `config/config.toml`
-- Token: stored in Ansible Vault
+- Executor: Docker, unprivileged, no Docker socket in jobs, jobs on `homelab-ci-jobs` (172.31.250.0/24) with every private range blocked
+- Installation: `/opt/homelab-runner/compose.yml` + `config/config.toml`, container `homelab-runner`
+- Runner object: `gitlab-terraform` (`gitlab_user_runner.homelab`, tag `homelab-dockhost`, untagged jobs refused)
+- Routing: `runner-quota` systemd timer writes the project variable `RUNNER_ROUTE`
 
-**Required vault variable**: `vault_gitlab_runner_token` in `dockhost/ansible/group_vars/dockhost/vault/config.yml`
+**Required vault variables** (`dockhost/ansible/group_vars/dockhost/vault/gitlab_runner.yml`): `vault_gitlab_runner_token`, `vault_runner_quota_token`
 
-**Deployment**:
-1. Register the runner on GitLab (project or group token)
-2. Encrypt the token with `ansible-vault encrypt` in the vault file
-3. Deploy with `ansible-playbook ansible/deploy.yml --tags gitlab-runner`
-4. Verify in GitLab > Settings > CI/CD > Runners
+Architecture, operation and runbook: [`dockhost/ansible/roles/gitlab_runner/README.md`](../dockhost/ansible/roles/gitlab_runner/README.md).
 
 ### Security Hardening
 
