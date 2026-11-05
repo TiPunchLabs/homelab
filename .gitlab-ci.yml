@@ -9,7 +9,8 @@ stages:
 # RUNNER_ROUTE is a project CI/CD variable written by runner-quota on dockhost
 # (gitlab | homelab). It is read once, when the pipeline is created: existing
 # jobs keep their runner. Any other value, or no variable, means GitLab.com.
-# Override for one pipeline: Run pipeline with RUNNER_ROUTE=homelab.
+# Pipeline variables are disabled on this project (no_one_allowed): to force the
+# route, use "runner-quota set-mode homelab|gitlab" on dockhost-90.
 # Never define RUNNER_TAG as a project or group variable: it would bypass this map.
 variables:
   RUNNER_TAG: saas-linux-small-amd64
