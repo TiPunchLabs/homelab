@@ -55,9 +55,10 @@ when the pipeline is created:
 - Jobs already created keep their runner. A pipeline created on GitLab.com
   before the switch stays on GitLab.com, retries included.
 - To move it, run a new pipeline (CI/CD > Pipelines > Run pipeline, or push).
-  To force one pipeline onto the homelab runner, whatever the controller
-  says, set the pipeline variable `RUNNER_ROUTE=homelab` in Run pipeline
-  (pipeline variables take precedence over project variables).
+  To force the route, whatever the quota says, use
+  `runner-quota set-mode homelab|gitlab` (then `set-mode auto`). Pipeline
+  variables cannot be used: this project sets
+  `ci_pipeline_variables_minimum_override_role = no_one_allowed`.
 - Forks have no `RUNNER_ROUTE` and no access to the project runner: they
   always use GitLab.com.
 - Never define `RUNNER_TAG` as a project or group variable: it would take
@@ -237,8 +238,10 @@ terminal (pass, vault, Terraform credentials).
      and `http://192.168.10.71` fails;
    - two containers on `homelab-ci-jobs` cannot reach each other (ICC);
    - the other dockhost services still answer (kandidat, Komodo UI, Excalidraw);
-   - Run pipeline on a test branch with `RUNNER_ROUTE=homelab`: every job
-     must run on `homelab-dockhost-90` and pass.
+   - on a test branch pushed with `git push -o ci.skip`, set `RUNNER_ROUTE=homelab`,
+     create one pipeline (`glab api -X POST 'projects/80082616/pipeline?ref=<branch>'`),
+     set `RUNNER_ROUTE=gitlab` back at once: every job must run on
+     `homelab-dockhost-90` and pass. Pipeline variables are disabled here.
 8. Old runner: `docker compose -f /opt/gitlab-runner/docker-compose.yml down`
    (it has been unregistered since bastion-60: 403 on every poll). Keep
    `/opt/gitlab-runner` until the new runner has run for a month.
@@ -251,6 +254,15 @@ terminal (pass, vault, Terraform credentials).
     on dockhost; `runner-quota set-mode auto` → `RUNNER_ROUTE=gitlab`, next
     pipeline on GitLab.com.
 12. Watch: `systemctl list-timers runner-quota.timer`, `journalctl -u runner-quota`.
+
+### Deployment status
+
+Deployed on 2026-11-05: runner 58580750 (`gitlab_user_runner.homelab`), runner
+v19.5.2, controller timer enabled, mode AUTO. The old `gitlab_runner`
+container was removed with `docker compose down`; `/opt/gitlab-runner` and
+its volumes are kept until 2026-12-05. Docker loads `br_netfilter` itself
+for the `enable_icc=false` network (bridge traffic then goes through
+iptables), which is expected.
 
 ### Rollback
 
