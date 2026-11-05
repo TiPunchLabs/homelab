@@ -41,6 +41,7 @@
 - name: Check the egress filter is active
   ansible.builtin.command: iptables -C DOCKER-USER -s {{ gitlab_runner_jobs_subnet }} -j HOMELAB-CI-EGRESS
   changed_when: false
+  check_mode: false
 
 # ------------------------------------------------------------------
 # Runner
@@ -110,6 +111,7 @@
   ansible.builtin.command: docker inspect -f "{{ '{{' }}.State.Running{{ '}}' }}" homelab-runner
   register: gitlab_runner_running
   changed_when: false
+  check_mode: false
   retries: 10
   delay: 3
   until: gitlab_runner_running.stdout == "true"
@@ -118,6 +120,7 @@
   ansible.builtin.command: docker exec homelab-runner gitlab-runner verify
   register: gitlab_runner_verify
   changed_when: false
+  check_mode: false
   failed_when: "'is valid' not in gitlab_runner_verify.stderr + gitlab_runner_verify.stdout"
 
 # ------------------------------------------------------------------

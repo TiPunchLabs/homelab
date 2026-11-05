@@ -82,6 +82,8 @@
   ansible.builtin.command: /usr/local/bin/runner-quota check --dry-run
   register: runner_quota_dry_run
   changed_when: false
+  # Read-only (--dry-run): also runs under --check.
+  check_mode: false
   failed_when: runner_quota_dry_run.rc not in [0, 1]
 
 - name: Enable runner-quota timer
