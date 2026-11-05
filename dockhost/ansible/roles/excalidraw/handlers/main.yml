@@ -1,5 +1,0 @@
----
-- name: Restart excalidraw
-  community.docker.docker_compose_v2:
-    project_src: "{{ excalidraw_install_dir }}"
-    state: restarted

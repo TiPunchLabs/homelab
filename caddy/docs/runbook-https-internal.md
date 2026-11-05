@@ -37,9 +37,9 @@ Ajouter `tls_internal: true` au(x) backend(s) voulu(s). Exemple pour tout bascul
 
 ```yaml
 caddy_backends:
-  - name: excalidraw
-    domain: excalidraw.internal
-    upstream: http://192.168.10.90:8082
+  - name: miniboard
+    domain: miniboard.internal
+    upstream: http://192.168.10.90:8090
     tls_internal: true          # <— ajouter cette ligne
   - name: komodo
     domain: komodo.internal

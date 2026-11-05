@@ -237,7 +237,7 @@ terminal (pass, vault, Terraform credentials).
    - the same against `http://192.168.10.100:8006`, `http://192.168.10.90:9120`
      and `http://192.168.10.71` fails;
    - two containers on `homelab-ci-jobs` cannot reach each other (ICC);
-   - the other dockhost services still answer (kandidat, Komodo UI, Excalidraw);
+   - the other dockhost services still answer (kandidat, Komodo UI, miniboard);
    - on a test branch pushed with `git push -o ci.skip`, set `RUNNER_ROUTE=homelab`,
      create one pipeline (`glab api -X POST 'projects/80082616/pipeline?ref=<branch>'`),
      set `RUNNER_ROUTE=gitlab` back at once: every job must run on

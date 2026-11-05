@@ -196,7 +196,7 @@ All Docker images are pinned by **SHA256 digest** to ensure integrity:
 
 ```yaml
 # Example
-image: excalidraw/excalidraw:<tag>@sha256:...
+image: <image>:<tag>@sha256:<digest>
 ```
 
 The CI runs a **Trivy** scan (v0.69.3) on all images extracted from Jinja2 templates, with severity `HIGH,CRITICAL`.

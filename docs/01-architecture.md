@@ -87,7 +87,7 @@ PROXMOX VE (192.168.1.100)
 
 | VM | vCPU | RAM | Disk | Usage |
 |----|------|-----|--------|-------|
-| dockhost-90 | 3 | 10 GB | 100 GB | Docker services (Komodo, kandidat, portail-client, Excalidraw, miniboard) |
+| dockhost-90 | 3 | 10 GB | 100 GB | Docker services (Komodo, kandidat, portail-client, miniboard) |
 | kubecluster-40 | 2 | 4 GB | 35 GB | K8s Control Plane |
 | kubecluster-41 | 1 | 3.5 GB | 30 GB | K8s Worker |
 | kubecluster-42 | 1 | 3.5 GB | 30 GB | K8s Worker |
@@ -115,7 +115,7 @@ Caddy runs locally and routes traffic to the various backends.
 ├───────────────────┤    ├─────────────────────────┤    ├─────────────────────┤
 │ syncthing:8384    │    │ proxmox: 192.168.1.100  │    │ traefik:30928       │
 │                   │    │          :8006 (HTTPS)  │    │ prometheus:30928    │
-│ excalidraw:8082   │    │                         │    │ grafana:30928       │
+│                   │    │                         │    │ grafana:30928       │
 │                   │    │                         │    │ alertmanager:30928  │
 │ n8n:5678          │    │                         │    │                     │
 └───────────────────┘    └─────────────────────────┘    └─────────────────────┘
