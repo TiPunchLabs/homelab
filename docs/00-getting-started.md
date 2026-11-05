@@ -438,7 +438,7 @@ ssh dockhost-90
 docker ps
 # Should show running containers: komodo-core, kandidat, kandidat-db, ...
 
-docker compose -f /opt/gitlab-runner/docker-compose.yml ps
+docker compose -f /opt/homelab-runner/compose.yml ps
 ```
 
 ---

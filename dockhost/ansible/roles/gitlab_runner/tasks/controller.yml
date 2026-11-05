@@ -1,0 +1,92 @@
+---
+- name: Check controller inputs
+  ansible.builtin.assert:
+    that:
+      - runner_quota_token | length > 20
+    fail_msg: "Set vault_runner_quota_token before enabling runner-quota"
+    quiet: true
+  no_log: true
+
+- name: Create runner-quota system user
+  ansible.builtin.user:
+    name: "{{ runner_quota_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    home: /nonexistent
+
+- name: Create runner-quota directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ runner_quota_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ runner_quota_install_dir }}", owner: root, mode: "0755" }
+    - { path: "{{ runner_quota_config_dir }}", owner: root, mode: "0750" }
+    - { path: "{{ runner_quota_state_dir }}", owner: "{{ runner_quota_user }}", mode: "0700" }
+
+- name: Install runner-quota program
+  ansible.builtin.copy:
+    src: runner_quota.py
+    dest: "{{ runner_quota_install_dir }}/runner_quota.py"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write runner-quota configuration
+  ansible.builtin.copy:
+    content: >-
+      {{ runner_quota_settings
+         | combine({'threshold_percent': runner_quota_threshold_percent | float,
+                    'monthly_limit_minutes': runner_quota_monthly_limit_minutes | int,
+                    'token_file': runner_quota_config_dir ~ '/token',
+                    'state_file': runner_quota_state_dir ~ '/state.json',
+                    'lock_file': runner_quota_state_dir ~ '/lock'})
+         | to_nice_json }}
+    dest: "{{ runner_quota_config_dir }}/config.json"
+    owner: root
+    group: "{{ runner_quota_user }}"
+    mode: "0640"
+
+- name: Write runner-quota token
+  ansible.builtin.copy:
+    content: "{{ runner_quota_token }}\n"
+    dest: "{{ runner_quota_config_dir }}/token"
+    owner: root
+    group: "{{ runner_quota_user }}"
+    mode: "0640"
+  no_log: true
+
+- name: Install runner-quota operator command
+  ansible.builtin.template:
+    src: runner-quota.sh.j2
+    dest: /usr/local/bin/runner-quota
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install runner-quota units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - runner-quota.service
+    - runner-quota.timer
+
+- name: Validate runner-quota against GitLab (read-only)
+  ansible.builtin.command: /usr/local/bin/runner-quota check --dry-run
+  register: runner_quota_dry_run
+  changed_when: false
+  failed_when: runner_quota_dry_run.rc not in [0, 1]
+
+- name: Enable runner-quota timer
+  ansible.builtin.systemd_service:
+    name: runner-quota.timer
+    enabled: true
+    state: started
+    daemon_reload: true

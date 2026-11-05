@@ -1,0 +1,17 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=Egress filter for GitLab CI job containers
+# Before Docker: Docker keeps the content of DOCKER-USER and only adds its
+# jump. homelab-runner.service Requires= this unit: if the filter fails, the
+# runner does not start (fail closed); the other dockhost services are unaffected.
+Before=docker.service homelab-runner.service
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/homelab-ci-egress
+
+[Install]
+WantedBy=multi-user.target

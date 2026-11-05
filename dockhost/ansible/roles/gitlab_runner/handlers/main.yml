@@ -1,0 +1,12 @@
+---
+- name: Restart homelab runner
+  ansible.builtin.systemd_service:
+    name: homelab-runner.service
+    state: restarted
+    daemon_reload: true
+
+- name: Apply CI egress filter
+  ansible.builtin.systemd_service:
+    name: homelab-ci-egress.service
+    state: restarted
+    daemon_reload: true

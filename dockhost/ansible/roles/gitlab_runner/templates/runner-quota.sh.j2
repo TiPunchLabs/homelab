@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+{{ ansible_managed | comment }}
+# Operator entry point: runner-quota status | check [--dry-run] | set-mode <mode>
+exec sudo -u {{ runner_quota_user }} /usr/bin/python3 {{ runner_quota_install_dir }}/runner_quota.py \
+  --config {{ runner_quota_config_dir }}/config.json "$@"

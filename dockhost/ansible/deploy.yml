@@ -40,3 +40,6 @@
     - role: miniboard
       tags:
         - miniboard
+    - role: gitlab_runner
+      tags:
+        - gitlab-runner

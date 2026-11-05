@@ -111,22 +111,24 @@ ansible-galaxy collection install -r requirements.yml
 ssh dockhost-90
 
 # View container logs
-docker logs gitlab_runner
+docker logs homelab-runner
 
 # Check compose files
-docker compose -f /opt/gitlab-runner/docker-compose.yml config
+docker compose -f /opt/homelab-runner/compose.yml config
 ```
 
 ### GitLab Runner won't register
 
 ```bash
-# Check logs
-docker logs gitlab_runner
+# Check logs and registration
+docker logs homelab-runner
+docker exec homelab-runner gitlab-runner verify
 
 # Common causes:
-# 1. Expired or invalid token -> regenerate and update the vault
-# 2. Insufficient scope -> the token must have admin:org
-# 3. Runner already registered with the same name -> delete in GitLab Settings
+# 1. "403 Forbidden" on jobs/request -> the runner object was deleted in GitLab;
+#    recreate it with gitlab-terraform and update vault_gitlab_runner_token
+# 2. Jobs stay pending -> check RUNNER_ROUTE and the runner tag (homelab-dockhost)
+# See dockhost/ansible/roles/gitlab_runner/README.md
 ```
 
 ---

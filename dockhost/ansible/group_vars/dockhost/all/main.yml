@@ -29,3 +29,12 @@ komodo_host: "http://komodo.internal"
 #   vault_komodo_admin_password
 #   vault_komodo_webhook_secret
 #   vault_komodo_jwt_secret
+
+# ============================================================
+# 🏃 GitLab Runner - Role gitlab_runner (hybrid CI, runner-quota)
+# ============================================================
+# Secrets resolved from vault/gitlab_runner.yml:
+#   vault_gitlab_runner_token   (glrt-, gitlab-terraform gitlab_user_runner.homelab)
+#   vault_runner_quota_token    (fine-grained PAT, see roles/gitlab_runner/README.md)
+# Enabled only once the runner has passed its test job (runbook step 7).
+runner_quota_enabled: false

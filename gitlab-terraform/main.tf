@@ -51,3 +51,21 @@ resource "gitlab_branch_protection" "main" {
     { access_level = "maintainer" },
   ]
 }
+
+# =============================================================================
+# Homelab runner - fallback for the GitLab.com compute quota (dockhost-90)
+# =============================================================================
+# Tagged only: it never picks untagged jobs, so GitLab.com stays the default.
+# Jobs reach it through RUNNER_ROUTE=homelab, a project CI/CD variable written
+# by runner-quota on dockhost. That variable is operational state and is
+# deliberately NOT managed here (it changes every month).
+resource "gitlab_user_runner" "homelab" {
+  runner_type     = "project_type"
+  project_id      = gitlab_project.project.id
+  description     = "homelab-dockhost-90 (docker executor, quota fallback)"
+  tag_list        = ["homelab-dockhost"]
+  untagged        = false
+  locked          = true
+  access_level    = "not_protected"
+  maximum_timeout = 3600
+}
