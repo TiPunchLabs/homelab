@@ -34,9 +34,6 @@
     - role: portail_client
       tags:
         - portail-client
-    - role: excalidraw
-      tags:
-        - excalidraw
     - role: miniboard
       tags:
         - miniboard
