@@ -7,21 +7,37 @@
     state: present
     update_cache: true
 
-- name: Create Pi-hole config directory
+# /etc/pihole belongs to pihole:pihole (installer, FTL prestart). The account is
+# created by the installer, so before the first install these paths stay root
+# owned and the installer's chown takes over. The directory mode is left to
+# Pi-hole: the FTL prestart sets 0755 and gravity.sh adds g+w.
+- name: Look up the Pi-hole service account
+  ansible.builtin.getent:
+    database: passwd
+    key: pihole
+    fail_key: false
+  tags:
+    - pihole-permissions
+
+# noqa risky-file-permissions: no mode on purpose, see the comment above.
+- name: Create Pi-hole config directory  # noqa: risky-file-permissions
   ansible.builtin.file:
     path: "{{ pihole_install_dir }}"
     state: directory
-    owner: root
-    group: root
-    mode: '0755'
+    owner: "{{ 'pihole' if ansible_facts.getent_passwd.pihole is not none else omit }}"
+    group: "{{ 'pihole' if ansible_facts.getent_passwd.pihole is not none else omit }}"
+  tags:
+    - pihole-permissions
 
 - name: Deploy setupVars.conf for unattended install
   ansible.builtin.template:
     src: setupVars.conf.j2
     dest: "{{ pihole_install_dir }}/setupVars.conf"
-    owner: root
-    group: root
-    mode: '0644'
+    owner: "{{ 'pihole' if ansible_facts.getent_passwd.pihole is not none else omit }}"
+    group: "{{ 'pihole' if ansible_facts.getent_passwd.pihole is not none else omit }}"
+    mode: '0640'
+  tags:
+    - pihole-permissions
 
 - name: Check if Pi-hole is already installed
   ansible.builtin.stat:
