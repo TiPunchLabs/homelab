@@ -1,0 +1,120 @@
+{
+  "source": "kandidat mcp/src/tools/*.ts at commit a0cf66ea (image registry.gitlab.com/tipunchlabs/kandidat/mcp:a0cf66ea, deployed by homelab-gitops/kandidat/compose.yaml)",
+  "tools": [
+    {
+      "name": "enrich_cible",
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "apply_enrichment",
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "adapt_cv",
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "save_adapted_cv",
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "evaluate_match",
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "list_candidatures",
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "get_candidature",
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "get_candidature_history",
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "create_candidature",
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "update_candidature",
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "update_historique_comment",
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "delete_candidature",
+      "readOnlyHint": false,
+      "destructiveHint": true
+    },
+    {
+      "name": "list_cibles",
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "get_cible_detail",
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "create_cible",
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "update_cible",
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "delete_cible",
+      "readOnlyHint": false,
+      "destructiveHint": true
+    },
+    {
+      "name": "create_contact",
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "update_contact",
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "delete_contact",
+      "readOnlyHint": false,
+      "destructiveHint": true
+    },
+    {
+      "name": "search_candidatures",
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "get_stats",
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "get_settings",
+      "readOnlyHint": true,
+      "destructiveHint": false
+    }
+  ]
+}
