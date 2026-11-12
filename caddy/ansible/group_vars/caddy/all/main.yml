@@ -97,3 +97,15 @@ caddy_backends:
     domain: miniboard.internal
     upstream: http://192.168.10.90:8090
     tls_insecure_skip_verify: false
+  # Open WebUI on the owner's laptop (hixmaster-laptop, Wi-Fi static DHCP lease
+  # -> .217), deployed by laptop-bootstrap (role open_webui, host port 3030).
+  # Available only while the laptop is on and on the LAN: otherwise Caddy
+  # answers 502. Requires laptop-bootstrap to publish 3030 on an address Caddy
+  # can reach (default is 127.0.0.1). tls internal: login, session cookie and
+  # chat content. WebSocket and streamed (SSE) responses need no extra
+  # directive: reverse_proxy upgrades WebSockets and flushes event streams.
+  - name: openwebui
+    domain: openwebui.internal
+    upstream: http://192.168.10.217:3030
+    tls_internal: true
+    tls_insecure_skip_verify: false
