@@ -163,9 +163,11 @@ def deployed(group_vars: dict[str, Any]) -> list[dict[str, Any]]:
 def m4_era(scout: dict[str, Any]) -> dict[str, Any]:
     """The declaration as M4.3 deployed it (v0.20.4 labs): no MCP server, `no_mcp` on every platform.
 
-    SCOUT-03 added Kandidat; its own lab (test_scout03_kandidat.py) covers today's declaration on v0.22.5.
+    SCOUT-03 added Kandidat and SCOUT-04 turned the background skill review off; their own tests
+    (test_scout03_kandidat.py, test_scout04_search_budget.py) cover today's declaration on v0.22.5.
     """
-    cfg = {k: v for k, v in scout["config"].items() if not k.startswith("mcp_servers.")}
+    cfg = {k: v for k, v in scout["config"].items()
+           if not k.startswith("mcp_servers.") and k != "skills.creation_nudge_interval"}
     for key in [k for k in cfg if k.startswith("platform_toolsets.")]:
         cfg[key] = [t for t in cfg[key] if not t.startswith("kandidat")] + ["no_mcp"]
     return {k: v for k, v in scout.items() if k not in ("mcp_policy", "soul_predecessor_sha256")} | {"config": cfg}
