@@ -1048,8 +1048,21 @@ gated server.
 
 **Limits**
 
-- Hermes' approval prompt names the tool, not its arguments: SOUL.md makes
-  Scout write the exact change before the call. One approval = one call.
+- Hermes' approval prompt names the tool, the server and the cost, not the
+  arguments (`tools/mcp_tool_handlers.py`, `_ask_for_call`). An approval
+  therefore authorises "one `create_candidature`", not a given record: the
+  match between what Scout described and what it sends is **behavioural**
+  (SOUL.md: exact change written just before, one write at a time), not
+  bound to the arguments by Hermes. What Hermes does enforce, proven in the
+  lab on v0.22.5 through the real gateway approval queue: one prompt per
+  call; nothing remembered after `once`, `session` or `always` (the next
+  write asks again); two parallel writes in one chat get two prompts (the
+  cost gate's per-chat lock serialises them, so the second never adopts the
+  first answer); another chat cannot answer Scout's prompt; `/yolo` does not
+  touch the MCP gate.
+- `create_candidature` cannot save a lead without side effects (date of
+  application today, company `contactee`): SOUL.md tells Scout to keep such
+  a lead in its answer instead. A neutral draft needs a Kandidat change.
 - Kandidat keeps one record per company name: a second offer at the same
   company is recorded as `<Company> <short qualifier>` (`Acme DevOps`), the convention already used in Kandidat.
 - Status history dates are recording dates; unknown event dates stay empty

@@ -79,8 +79,16 @@ par l'utilisateur (une approbation de plus).
 - Second verrou local sur `kandidat_confirm` : `tool_costs` (2 par outil) au-dessus de `spend_limit` (1). Hermes
   demande alors l'approbation a chaque appel meme si le serveur annoncait un jour ces outils en lecture seule
   (le verrou `untrusted` depend de `readOnlyHint`, fourni par le serveur). Revue Codex, constat 3.
-- L'invite d'approbation de Hermes nomme l'outil, pas ses arguments : le SOUL de Scout exige d'ecrire la
-  modification exacte avant l'appel. Une approbation porte sur un appel, jamais sur une session.
+- L'invite d'approbation de Hermes nomme l'outil, le serveur et le cout, pas les arguments : approuver,
+  c'est autoriser « un `create_candidature` », pas une fiche donnee. La correspondance entre la modification
+  decrite et l'appel envoye releve du comportement (SOUL : modification exacte ecrite juste avant, une seule
+  ecriture a la fois), pas d'une autorisation liee aux arguments. Ce que Hermes impose, prouve en labo v0.22.5
+  par la vraie file d'approbation de la gateway : une invite par appel ; rien n'est retenu apres `once`,
+  `session` ou `always` ; deux ecritures paralleles dans une meme conversation recoivent deux invites (le
+  verrou par conversation du second verrou les serialise) ; une autre conversation ne peut pas repondre a
+  l'invite de Scout ; `/yolo` ne touche pas ce verrou.
+- Garder une piste sans la dater ni marquer l'entreprise contactee est impossible par `create_candidature` :
+  Scout la garde dans sa reponse. Une creation neutre releve d'une mission Kandidat distincte.
 - Kandidat ne garde qu'une fiche par nom d'entreprise : une deuxieme offre prend un nom qualifie
   (« Acme DevOps »), convention deja en usage dans Kandidat.
 - La frontiere borne l'agent, pas le LAN : tout poste du LAN peut toujours ecrire dans Kandidat. Une

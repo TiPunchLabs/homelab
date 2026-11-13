@@ -15,6 +15,7 @@ embedded instruction. Nothing reaches hermes-31 or the real Kandidat.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -237,6 +238,99 @@ def test_t04_failed_check_cannot_lose_the_restart() -> None:
     assert "hermes_multiplex_restarted is changed" in main[done]["when"]
 
 
+RECOVERY_DOCKER = r"""#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ["FAKE_LOG"], "a") as log:
+    log.write(json.dumps(["restart" if "restart" in sys.argv else "check" if "python3" in sys.argv else "other"]) + "\n")
+if "python3" in sys.argv and open(os.environ["FAKE_STATE"]).read().strip() == "kandidat-down":
+    print("NO-GO: kandidat: connection refused")
+    sys.exit(1)
+print("ok")
+"""
+
+
+def test_t04_failed_check_then_retry_restarts_once(scout: dict[str, Any], tmp_path: Path) -> None:
+    """Run the real tasks (marker, MCP check, scheduling, pending read, restart, done) with ansible-playbook and a fake
+    docker. Run 1: config written, Kandidat down -> fails, marker pending, no restart. Run 2: still down -> same.
+    Run 3: config already converged, check passes -> exactly one restart, after the check, marker done. Run 4:
+    nothing pending -> no restart, changed=0."""
+    from conftest import ANSIBLE_PLAYBOOK, recap
+
+    if not ANSIBLE_PLAYBOOK.exists():
+        pytest.skip("ansible-playbook not installed in this environment")
+    wanted = {
+        "profile_multiplex.yml": [
+            "Persist a pending gateway restart ({{ hermes_profile.name }})",
+            "Verify the MCP servers and tools exposed ({{ hermes_profile.name }})",
+            "Schedule one restart of the multiplexed gateway ({{ hermes_profile.name }})",
+        ],
+        "main.yml": [
+            "Read a gateway restart left pending by an interrupted run",
+            "Restart the multiplexed gateway once with the final profile configuration",
+            "Mark the pending gateway restart as done",
+        ],
+    }
+    real = {}
+    for name, task_names in wanted.items():
+        for task in yaml.safe_load((TASKS / name).read_text()):
+            if task.get("name") in task_names:
+                real[task["name"]] = task
+    stub = [
+        {"name": "Simulated write of the config keys", "ansible.builtin.command": "true",
+         "register": "hermes_profile_config_set", "changed_when": "config_changes | bool"},
+        {"name": "Simulated .env pinning", "ansible.builtin.set_fact": {"hermes_env_keys_result": {"changed": False}}},
+    ]
+    order = [stub[0], real[wanted["profile_multiplex.yml"][0]], real[wanted["profile_multiplex.yml"][1]], stub[1],
+             real[wanted["profile_multiplex.yml"][2]], *(real[n] for n in wanted["main.yml"])]
+    role = tmp_path / "roles/recovery"
+    (role / "tasks").mkdir(parents=True)
+    (role / "files").mkdir()
+    (role / "tasks/main.yml").write_text(yaml.safe_dump(order, sort_keys=False))
+    (role / "files/hermes_checks.py").symlink_to(ROLE / "files/hermes_checks.py")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "docker").write_text(RECOVERY_DOCKER.replace("#!/usr/bin/env python3", f"#!{sys.executable}"))
+    (bindir / "docker").chmod(0o755)
+    (tmp_path / "play.yml").write_text(
+        "- hosts: localhost\n  connection: local\n  gather_facts: false\n  roles: [recovery]\n")
+    (tmp_path / "ansible.cfg").write_text("[defaults]\n")
+    install = tmp_path / "opt-hermes"
+    install.mkdir()
+    marker = install / ".multiplex-restart-pending"
+    log, state = tmp_path / "docker.log", tmp_path / "state"
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "ANSIBLE_CONFIG": str(tmp_path / "ansible.cfg"),
+           "ANSIBLE_ROLES_PATH": str(tmp_path / "roles"), "ANSIBLE_FILTER_PLUGINS": str(ROLE / "filter_plugins"),
+           "ANSIBLE_LOCAL_TEMP": str(tmp_path / ".ansible-tmp"), "ANSIBLE_NOCOLOR": "1",
+           "FAKE_LOG": str(log), "FAKE_STATE": str(state)}
+
+    def deploy(config_changes: bool, kandidat: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+        state.write_text(kandidat)
+        log.write_text("")
+        variables = {"hermes_profile": scout, "hermes_install_dir": str(install), "hermes_gateway_multiplex": True,
+                     "hermes_puid": os.getuid(), "config_changes": config_changes,
+                     "ansible_python_interpreter": sys.executable}
+        (tmp_path / "vars.json").write_text(json.dumps(variables))
+        result = subprocess.run([str(ANSIBLE_PLAYBOOK), "-i", "localhost,", "play.yml", "-e", "@vars.json"],
+                                cwd=tmp_path, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                check=False, timeout=300)
+        return result, [json.loads(line)[0] for line in log.read_text().splitlines()]
+
+    first, calls_1 = deploy(True, "kandidat-down")
+    assert first.returncode != 0 and "NO-GO: kandidat" in first.stdout
+    assert marker.read_text() == "pending\n" and calls_1 == ["check"]
+    second, calls_2 = deploy(False, "kandidat-down")
+    assert second.returncode != 0
+    assert marker.read_text() == "pending\n" and calls_2 == ["check"]
+    third, calls_3 = deploy(False, "kandidat-up")
+    assert third.returncode == 0, third.stdout
+    assert calls_3 == ["check", "restart"]
+    assert marker.read_text() == "done\n"
+    fourth, calls_4 = deploy(False, "kandidat-up")
+    assert fourth.returncode == 0 and calls_4 == ["check"]
+    assert recap(fourth)["changed"] == 0 and marker.read_text() == "done\n"
+    assert "SYNTHETIQUE-M4-TEST" not in "".join(r.stdout + r.stderr for r in (first, second, third, fourth))
+
+
 def test_t04_soul_replaced_once_from_the_m43_version() -> None:
     """The live SOUL.md is replaced only if it is still the M4.3 one (checked on hermes-31 on 2026-11-12)."""
     previous = subprocess.run(
@@ -318,6 +412,10 @@ def test_t05_platform_and_exposure_verdicts() -> None:
         "marque l'entreprise « contactée »",
         "Toute écriture passe par",
         "l'utilisateur approuve chaque appel",
+        "ne montre que le **nom de l'outil**",
+        "**un seul appel d'écriture à la fois**",
+        "Ne présente jamais cet appel comme un simple enregistrement de piste",
+        "Kandidat ne le permet pas encore par cet outil et n'écris rien",
         "Une relance déclarée est **une** relance",
         "propose-le, n'écris rien sans son accord",
         "n'est pas une exclusion",
@@ -445,6 +543,16 @@ STEPS = [
     {"tool": "mcp__kandidat_confirm__create_candidature", "consent": "accept",
      "args": {"entreprise": "Offre Approuvee", "cible_id": 1}},
     {"tool": "mcp__kandidat__create_candidature", "args": {"entreprise": "Offre Directe", "cible_id": 1}},
+    # Kandidat's side effects on an untouched company (23-28): refused -> nothing changes; approved -> the
+    # application is dated today and the company becomes contactee.
+    {"tool": "mcp__kandidat__get_cible_detail", "args": {"cible_id": 3}},
+    {"tool": "mcp__kandidat_confirm__create_candidature", "consent": "decline",
+     "args": {"entreprise": "Offre Temoin", "cible_id": 3}},
+    {"tool": "mcp__kandidat__get_cible_detail", "args": {"cible_id": 3}},
+    {"tool": "mcp__kandidat__get_candidature", "args": {"slug": "offre-temoin"}},
+    {"tool": "mcp__kandidat_confirm__create_candidature", "consent": "accept",
+     "args": {"entreprise": "Offre Temoin", "cible_id": 3}},
+    {"tool": "mcp__kandidat__get_cible_detail", "args": {"cible_id": 3}},
 ]
 FLIP_STEPS = [
     {"tool": "mcp__kandidat_confirm__create_cible", "consent": "accept", "args": {"nom": "Flip1", "categorie": "esn"}},
@@ -632,7 +740,7 @@ def test_l07_every_gated_call_asks_once(lab: dict[str, Any]) -> None:
     assert any(word in res[19] for word in BLOCKED) and any(word in res[20] for word in BLOCKED)
     assert '"slug": "offre-approuvee"' in res[21]
     creates = [c["args"]["entreprise"] for c in lab["calls"] if c["tool"] == "create_candidature"]
-    assert creates[4:] == ["Offre Approuvee"]
+    assert creates[4:] == ["Offre Approuvee", "Offre Temoin"]
 
 
 def test_l08_embedded_instruction_is_data_and_its_request_still_fails(lab: dict[str, Any]) -> None:
@@ -701,3 +809,92 @@ def test_l13_one_process_profiles_in_turn(lab: dict[str, Any]) -> None:
         assert turn["exposed"] == {"telegram": [], "cron": []}, turn
         # Not just hidden from the model: under their scope the registry does not know the tool.
         assert "Unknown tool: mcp__kandidat__list_cibles" in turn["list_cibles"], turn
+
+
+def test_l06_create_candidature_side_effects(lab: dict[str, Any]) -> None:
+    """Why create_candidature is gated: refused, nothing changes (no draft, company not contactee); approved, the
+    draft is dated today and the company becomes contactee (Kandidat a0cf66ea, reproduced by the fake)."""
+    from datetime import date
+
+    res, asked = results(lab), lab["scout"]["asked"]
+    before = json.loads(res[23])["data"]
+    assert before["contactee"] == 0
+    assert asked[24] == 1 and any(word in res[24] for word in BLOCKED), res[24]
+    assert json.loads(res[25])["data"] == before
+    assert "non trouvee" in res[26]
+    assert asked[27] == 1
+    created = json.loads(res[27])["data"]
+    assert created["statut"] == "brouillon"
+    assert created["date_candidature"] == date.today().isoformat()
+    assert json.loads(res[28])["data"]["contactee"] == 1
+    assert [c["args"] for c in lab["calls"] if c["args"].get("entreprise") == "Offre Temoin"] == [
+        {"entreprise": "Offre Temoin", "cible_id": 3}
+    ]
+
+
+def concurrent(lab: dict[str, Any]) -> dict[str, Any]:
+    """The concurrent phase, checked for completion."""
+    conc = lab["concurrent"]
+    assert "error" not in conc, conc
+    assert conc["timeouts"] == [], conc["timeouts"]
+    return conc
+
+
+def test_l14_concurrent_turns_do_not_leak_kandidat(lab: dict[str, Any]) -> None:
+    """One multiplex-shaped process (per-profile MCP discovery, per-turn scopes copied into worker threads).
+
+    While a Scout read is held in flight by the server, and again while a Scout write waits for approval, Nora and
+    Kaféine run their turns together: no enabled Kandidat server in their config (Nora keeps the M5 entry with
+    enabled: false), no tool exposed or in their registry view,
+    and a read, the held read and a write all answer Unknown tool without reaching the server."""
+    conc = concurrent(lab)
+    assert conc["scout_read_in_flight_during_others"] is True
+    assert conc["scout_write_pending_after_foreign"] is True
+    for label in ("default", "cafe-ia", "default_during_prompt", "cafe-ia_during_prompt"):
+        seen = conc["results"][label]
+        assert isinstance(seen, dict), (label, seen)
+        assert seen["servers"] == [] and seen["registry"] == [] and seen["entry"] is False, (label, seen)
+        assert seen["declared"] in ({}, {"kandidat": False}), (label, seen["declared"])
+        assert seen["exposed"] == {"telegram": [], "cron": []}, (label, seen)
+        for key in ("read", "held_read", "write"):
+            assert "Unknown tool" in seen[key], (label, key, seen[key])
+    assert "Fuite" not in json.dumps(lab["concurrent_calls"])
+    assert [c["tool"] for c in lab["concurrent_calls"]].count("get_stats") == 1
+    assert '"cibles"' in text(conc["results"]["scout_read"])
+
+
+def test_l15_approvals_stay_in_their_chat_and_never_carry_over(lab: dict[str, Any]) -> None:
+    """The real gateway approval queue. Other chats cannot answer Scout's pending write (0 resolved, still pending),
+    and Scout's refusal leaves Kandidat unchanged. Two parallel writes in one chat: the first answer is the widest
+    ("session"), yet the second gets its own prompt (the cost gate serialises the prompts, so the second never
+    coalesces onto the first) and its refusal holds. After an "always", the next write still asks."""
+    conc = concurrent(lab)
+    res = conc["results"]
+    assert conc["foreign_resolves"] == {"telegram:nora-chat": 0, "telegram:kafeine-chat": 0}
+    assert conc["scout_queue_while_pending"] == 1
+    assert conc["scout_resolved_deny"] == 1
+    assert any(word in text(res["scout_write"]) for word in BLOCKED), res["scout_write"]
+    assert json.loads(text(conc["cible_2_after"]))["data"]["contactee"] == 0
+    assert [s for s, _ in conc["prompts_phase2"]] == ["telegram:scout-chat"]
+    assert conc["parallel_queue_at_first_prompt"] == 1
+    assert conc["second_prompt_seen"] is True
+    assert [s for s, _ in conc["prompts_phase3"]] == ["telegram:scout-chat"] * 2
+    outcomes = sorted("ran" if '"slug": "parallele-' in text(res["parallel_" + x]) else "blocked" for x in "AB")
+    assert outcomes == ["blocked", "ran"], (res["parallel_A"], res["parallel_B"])
+    created = [c["args"]["entreprise"] for c in lab["concurrent_calls"] if c["tool"] == "create_candidature"]
+    assert len(created) == 1 and created[0].startswith("Parallele ")
+    assert len(conc["prompts_phase4"]) == 2
+    assert '"nom": "after_always_1"' in text(res["after_always_1"])
+    assert any(word in text(res["after_always_2"]) for word in BLOCKED)
+    assert "after_always_2" not in json.dumps(lab["concurrent_calls"])
+
+
+def test_l15_the_prompt_names_the_tool_not_the_record(lab: dict[str, Any]) -> None:
+    """The limitation Scout's rules compensate for: the approval text names the tool, the server and the cost, never
+    the arguments. Approving it authorises "a create_candidature", not a specific record."""
+    conc = concurrent(lab)
+    prompt_text = conc["prompts_phase2"][0][1]
+    assert "create_candidature" in prompt_text and "kandidat_confirm" in prompt_text
+    assert "Offre Concurrente" not in prompt_text and "cible_id" not in prompt_text
+    for _, prompt_text in conc["prompts_phase3"]:
+        assert "Parallele" not in prompt_text
