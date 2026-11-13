@@ -1020,11 +1020,11 @@ server on them.
 |---|---|---|
 | Read companies, offers, applications, history | `list_cibles`, `get_cible_detail`, `list_candidatures`, `get_candidature`, `get_candidature_history`, `search_candidatures`, `get_stats` | `mcp_servers.kandidat.tools.include`; all `readOnlyHint=true` |
 | Search duplicates before recommending or inserting | same reads | SOUL.md (behaviour) |
-| Add a verified offer, never as applied | `create_candidature` on `kandidat` (`trust: full`), no approval | Kandidat API: status forced to `brouillon`, one slug per company (a retry fails, never duplicates); MCP schema has no `statut` |
+| Add a verified offer | `create_candidature` on `kandidat_confirm` | approval per call. **Not automatic**, unlike the approved policy: at Kandidat `a0cf66ea` the API forces `brouillon` but also sets `date_candidature` to today and marks the company `contactee` (`services/candidature.py`), so an unattended insert would record the company as contacted. Automatic insertion needs a Kandidat change first (Codex review, pass 3) |
 | Record a fact stated by the owner | `update_candidature`, `update_cible` on `kandidat_confirm` | `trust: untrusted`: Hermes asks the owner **for every call** (stricter than the policy, which allowed it automatically: Hermes cannot tell a stated fact from an inference) |
 | Status change inferred by Scout | `update_candidature` | same approval per call; SOUL: propose, never impose |
 | New company | `create_cible` | approval per call (the API has no duplicate check) |
-| Second, local gate on the three gated writes | `tool_costs` 2 each, `spend_limit` 1 on `kandidat_confirm` | Hermes asks before **every** call that goes past the per-chat limit, whatever `readOnlyHint` the server advertises (a Kandidat release marking these tools read-only would otherwise skip the `untrusted` gate). No real cost: a counter of approvals. The prompt mentions the spend limit |
+| Second, local gate on the four gated writes | `tool_costs` 2 each, `spend_limit` 1 on `kandidat_confirm` | Hermes asks before **every** call that goes past the per-chat limit, whatever `readOnlyHint` the server advertises (a Kandidat release marking these tools read-only would otherwise skip the `untrusted` gate). No real cost: a counter of approvals. The prompt mentions the spend limit |
 | Permanent company exclusion | `update_cible` (notes) or the private context | approval per call; documented exclusions live in the vault context |
 | Delete, bulk, contacts, AI operations, settings, history comments | `delete_*`, `*_contact`, `enrich_cible`, `apply_enrichment`, `adapt_cv`, `save_adapted_cv`, `evaluate_match`, `get_settings`, `update_historique_comment` | not in any `tools.include`: never registered, `Unknown tool` |
 | Send applications, e-mail, follow-ups | none | no such tool exists for Scout |
@@ -1037,8 +1037,8 @@ gated call in cron or `-q` sessions anyway (fail-closed).
 check, before the token write and the gateway restart): the profile's
 `mcp_servers` equal the declaration; each platform resolves exactly the
 declared servers; Hermes connects (`tools/list` only) and registers exactly
-the allowlisted tools; on `kandidat` the only write-capable tool (live
-`readOnlyHint`) is `create_candidature`; on `kandidat_confirm` every tool is
+the allowlisted tools; on `kandidat` no tool is write-capable (live
+`readOnlyHint`, no `auto_writes` declared); on `kandidat_confirm` every tool is
 write-capable, so each call is gated; each platform exposes exactly those
 MCP tools. A Kandidat release that changed an annotation would fail the
 deploy instead of silently skipping approval. `validate.yml` refuses, before
@@ -1085,7 +1085,8 @@ Kandidat must answer during the deployment: the `mcp` check connects to it
 and fails closed (before the token write and the restart) when it cannot.
 The config is written before that check: a failed run leaves
 `/opt/hermes/.multiplex-restart-pending` on the host, and the next run
-restarts the gateway even if nothing else changes, then removes it.
+restarts the gateway even if nothing else changes, then rewrites it to
+`done` (the file stays; only the content `pending` means a restart is due).
 
 Expected effect: job-search `config.yaml` gets the two servers and the new
 `platform_toolsets`; its `SOUL.md` is replaced once (only if it is still the

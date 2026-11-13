@@ -210,7 +210,7 @@ run("hermes", "-p", "job-search", "config", "set", "mcp_servers.kandidat_confirm
 
 # Lost connection after the server received a write: Hermes must not replay it.
 before = len(calls())
-out["cut"] = call("job-search", [{"tool": "mcp__kandidat__create_candidature",
+out["cut"] = call("job-search", [{"tool": "mcp__kandidat_confirm__create_candidature", "consent": "accept",
                                   "args": {"entreprise": "Coupure", "cible_id": 1}}])
 out["cut_calls"] = calls()[before:]
 server.kill()

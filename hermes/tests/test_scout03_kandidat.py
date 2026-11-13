@@ -15,6 +15,7 @@ embedded instruction. Nothing reaches hermes-31 or the real Kandidat.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -50,8 +51,10 @@ READS = {
     "search_candidatures",
     "get_stats",
 }
-AUTO = {"create_candidature"}
-CONFIRM = {"create_cible", "update_candidature", "update_cible"}
+# No automatic write: at Kandidat a0cf66ea create_candidature also sets today's date_candidature and marks the
+# company contactee (services/candidature.py), so it is gated with the others (Codex review, pass 3).
+AUTO: set[str] = set()
+CONFIRM = {"create_candidature", "create_cible", "update_candidature", "update_cible"}
 LAB_PORT = 18765
 FAKE_URL = f"http://127.0.0.1:{LAB_PORT}/mcp"
 
@@ -78,7 +81,7 @@ def servers(profile: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_t01_two_entries_with_the_approved_tools(scout: dict[str, Any]) -> None:
-    """kandidat: reads + create_candidature; kandidat_confirm: the three gated writes; same URL, nothing else."""
+    """kandidat: the seven reads only; kandidat_confirm: the four gated writes; same URL, nothing else."""
     decl = servers(scout)
     assert set(decl) == {"kandidat", "kandidat_confirm"}
     assert set(decl["kandidat"]["tools"]["include"]) == READS | AUTO
@@ -116,8 +119,8 @@ def test_t01_every_other_kandidat_tool_stays_out(scout: dict[str, Any]) -> None:
 
 
 def test_t02_write_capable_tools_match_the_policy() -> None:
-    """With the deployed annotations: kandidat's only write is create_candidature; every gated tool is a write."""
-    assert {t for t in READS | AUTO if not HINTS[t]} == AUTO
+    """With the deployed annotations: kandidat exposes no write at all; every gated tool is a write."""
+    assert {t for t in READS | AUTO if not HINTS[t]} == set()
     assert all(HINTS[t] is True for t in READS)
     assert all(HINTS[t] is False for t in CONFIRM)
 
@@ -140,7 +143,7 @@ def test_t02_platforms_and_cron(scout: dict[str, Any]) -> None:
     assert "kandidat" in cfg["platform_toolsets.cron"]
     assert "kandidat_confirm" not in cfg["platform_toolsets.cron"]
     assert not any("no_mcp" in cfg[f"platform_toolsets.{p}"] for p in ("telegram", "api_server", "cli", "cron"))
-    assert scout["mcp_policy"]["auto_writes"] == {"kandidat": ["create_candidature"]}
+    assert "auto_writes" not in scout["mcp_policy"]
     assert hp.hermes_mcp_declaration_errors(scout) == []
 
 
@@ -168,7 +171,7 @@ def test_t03_other_profiles_keep_no_mcp(group_vars: dict[str, Any]) -> None:
         ("trust", lambda s: s["config"]["mcp_servers.kandidat_confirm"].pop("trust"), "trust"),
         ("utilities", lambda s: s["config"]["mcp_servers.kandidat"]["tools"].update(resources=True), "resources"),
         ("headers", lambda s: s["config"]["mcp_servers.kandidat"].update(headers={"X": "y"}), "headers"),
-        ("auto on gated", lambda s: s["mcp_policy"]["auto_writes"].update(kandidat_confirm=["update_cible"]),
+        ("auto on gated", lambda s: s["mcp_policy"].update(auto_writes={"kandidat_confirm": ["update_cible"]}),
          "approval-gated"),
         ("cron drift", lambda s: s["config"]["platform_toolsets.cron"].append("kandidat_confirm"), "cron"),
         ("no_mcp kept", lambda s: s["config"]["platform_toolsets.telegram"].append("no_mcp"), "telegram"),
@@ -193,7 +196,7 @@ def test_t04_validate_yml_runs_the_guard(run_tasks: RunTasks, group_vars: dict[s
     """The real validate.yml accepts Scout as declared and refuses a gated write made automatic."""
     assert validate(run_tasks, group_vars, [scout]).returncode == 0
     bad = json.loads(json.dumps(scout))
-    bad["mcp_policy"]["auto_writes"]["kandidat_confirm"] = ["update_candidature"]
+    bad["mcp_policy"]["auto_writes"] = {"kandidat_confirm": ["update_candidature"]}
     result = validate(run_tasks, group_vars, [bad])
     assert result.returncode != 0
     assert "approval-gated" in result.stdout
@@ -278,8 +281,11 @@ def test_t05_hint_verdict(scout: dict[str, Any]) -> None:
     hints = {"kandidat": HINTS, "kandidat_confirm": HINTS}
     registered = {n: set(s["tools"]["include"]) for n, s in decl.items()}
     trust = {"kandidat": "full", "kandidat_confirm": "untrusted"}
-    auto = {"kandidat": ["create_candidature"]}
+    auto: dict[str, list[str]] = {}
     assert hc.mcp_hint_errors(decl, registered, hints, trust, auto) == []
+    # create_candidature put back on the full server: a write without approval, refused.
+    back = registered | {"kandidat": registered["kandidat"] | {"create_candidature"}}
+    assert any("without approval: create_candidature" in e for e in hc.mcp_hint_errors(decl, back, hints, trust, auto))
     flipped = hints | {"kandidat": HINTS | {"get_stats": False}}
     assert any("without approval: get_stats" in e for e in hc.mcp_hint_errors(decl, registered, flipped, trust, auto))
     loosened = hints | {"kandidat_confirm": HINTS | {"update_candidature": True}}
@@ -309,7 +315,8 @@ def test_t05_platform_and_exposure_verdicts() -> None:
         "sans paramètres de suivi",
         "Deux offres de la même entreprise restent deux offres",
         "correspondance à vérifier",
-        "jamais comme candidature envoyée",
+        "marque l'entreprise « contactée »",
+        "Toute écriture passe par",
         "l'utilisateur approuve chaque appel",
         "Une relance déclarée est **une** relance",
         "propose-le, n'écris rien sans son accord",
@@ -355,6 +362,8 @@ def test_t06_drafts_stay_inactive_and_use_kandidat() -> None:
         assert "search_candidatures" in prompt
         assert "historique Kandidat non vérifié" in prompt
         assert "update_candidature" not in prompt or "approbation" in prompt
+        # Nobody can approve in cron and every Kandidat write is gated: the drafts never ask for one.
+        assert not {"create_candidature", "create_cible", "update_cible"} & set(re.findall(r"\w+", prompt))
     for path in (ROLE / "tasks").glob("*.yml"):
         assert "cron-drafts" not in path.read_text(), path
 
@@ -401,10 +410,14 @@ STEPS = [
     {"tool": "mcp__kandidat__delete_cible", "args": {"payload": "1"}},
     {"tool": "mcp__kandidat_confirm__delete_candidature", "args": {"payload": "piege"}},
     {"tool": "mcp__kandidat__get_settings", "args": {}},
-    {"tool": "mcp__kandidat__create_candidature", "args": {"entreprise": "Entreprise Existante", "cible_id": 1}},
-    {"tool": "mcp__kandidat__create_candidature", "args": {"entreprise": "Nouvelle Offre", "cible_id": 1}},
-    {"tool": "mcp__kandidat__create_candidature", "args": {"entreprise": "Nouvelle Offre", "cible_id": 1}},
-    {"tool": "mcp__kandidat__create_candidature",
+    # Offers, each approved (3-6).
+    {"tool": "mcp__kandidat_confirm__create_candidature", "consent": "accept",
+     "args": {"entreprise": "Entreprise Existante", "cible_id": 1}},
+    {"tool": "mcp__kandidat_confirm__create_candidature", "consent": "accept",
+     "args": {"entreprise": "Nouvelle Offre", "cible_id": 1}},
+    {"tool": "mcp__kandidat_confirm__create_candidature", "consent": "accept",
+     "args": {"entreprise": "Nouvelle Offre", "cible_id": 1}},
+    {"tool": "mcp__kandidat_confirm__create_candidature", "consent": "accept",
      "args": {"entreprise": "Entreprise Existante SRE", "cible_id": 1, "poste": "SRE"}},
     # Each gated tool: approved, refused, nobody to answer (7-16).
     {"tool": "mcp__kandidat_confirm__create_cible", "consent": "accept", "args": {"nom": "Acme", "categorie": "esn"}},
@@ -424,6 +437,14 @@ STEPS = [
     # An offer text ordering deletions, then the very call it asks for (17-18).
     {"tool": "mcp__kandidat__get_candidature", "args": {"slug": "piege"}},
     {"tool": "mcp__kandidat__delete_cible", "args": {"payload": "all"}},
+    # create_candidature: refused, nobody, approved (19-21); the former automatic path is unknown (22).
+    {"tool": "mcp__kandidat_confirm__create_candidature", "consent": "decline",
+     "args": {"entreprise": "Offre Refusee", "cible_id": 1}},
+    {"tool": "mcp__kandidat_confirm__create_candidature", "nobody": True,
+     "args": {"entreprise": "Offre Cron", "cible_id": 1}},
+    {"tool": "mcp__kandidat_confirm__create_candidature", "consent": "accept",
+     "args": {"entreprise": "Offre Approuvee", "cible_id": 1}},
+    {"tool": "mcp__kandidat__create_candidature", "args": {"entreprise": "Offre Directe", "cible_id": 1}},
 ]
 FLIP_STEPS = [
     {"tool": "mcp__kandidat_confirm__create_cible", "consent": "accept", "args": {"nom": "Flip1", "categorie": "esn"}},
@@ -438,6 +459,12 @@ FLIP_STEPS = [
     {"tool": "mcp__kandidat_confirm__update_cible", "consent": "accept", "args": {"payload": "p1"}},
     {"tool": "mcp__kandidat_confirm__update_cible", "consent": "decline", "args": {"payload": "p2"}},
     {"tool": "mcp__kandidat_confirm__update_cible", "nobody": True, "args": {"payload": "p3"}},
+    {"tool": "mcp__kandidat_confirm__create_candidature", "consent": "accept",
+     "args": {"entreprise": "Flip Offre A", "cible_id": 1}},
+    {"tool": "mcp__kandidat_confirm__create_candidature", "consent": "decline",
+     "args": {"entreprise": "Flip Offre B", "cible_id": 1}},
+    {"tool": "mcp__kandidat_confirm__create_candidature", "nobody": True,
+     "args": {"entreprise": "Flip Offre C", "cible_id": 1}},
 ]
 BLOCKED = ("was NOT run", "did not approve", "blocked", "spend limit")
 
@@ -517,7 +544,7 @@ def test_l02_deploy_check_passes_for_every_profile(lab: dict[str, Any]) -> None:
     for name, (rc, out) in lab["check"].items():
         assert rc == 0, (name, out)
     assert "telegram: 11 MCP tools" in lab["check"]["job-search"][1]
-    assert "cron: 8 MCP tools" in lab["check"]["job-search"][1]
+    assert "cron: 7 MCP tools" in lab["check"]["job-search"][1]
     assert lab["check"]["default"][1].endswith("no MCP tool")
 
 
@@ -539,7 +566,7 @@ def test_l03_deploy_check_catches_drift(lab: dict[str, Any], drift: str, reason:
 
 
 def test_l04_exposed_tools_per_platform(lab: dict[str, Any]) -> None:
-    """Telegram/API/CLI: 8 kandidat + 3 gated tools; cron: the 8 only; never a denied tool."""
+    """Telegram/API/CLI: 7 kandidat reads + 4 gated writes; cron: the 7 reads only; never a denied tool."""
     exposed = lab["scout"]["exposed"]
     full = {f"mcp__kandidat__{t}" for t in READS | AUTO}
     gated = {f"mcp__kandidat_confirm__{t}" for t in CONFIRM}
@@ -557,26 +584,28 @@ def test_l04_other_profiles_expose_no_mcp_tool(lab: dict[str, Any]) -> None:
 
 def test_l05_denied_tools_cannot_execute(lab: dict[str, Any]) -> None:
     """delete_*, get_settings: unknown tools for Hermes, and the server never saw them."""
-    for res in [*results(lab)[:3], results(lab)[18]]:
+    for res in [*results(lab)[:3], results(lab)[18], results(lab)[22]]:
         assert "Unknown tool" in res, res
     reached = {c["tool"] for c in lab["calls"]}
     assert not reached & {"delete_cible", "delete_candidature", "get_settings"}
 
 
 def test_l06_existing_offer_not_duplicated_other_offer_eligible(lab: dict[str, Any]) -> None:
-    """Same company slug refused; a retry of a new offer refused; a second offer at the same company accepted."""
+    """Approved each time: same company slug refused; a retry of a new offer refused; a second offer at the same
+    company accepted. The created draft carries Kandidat's side effect (today's date), the reason for the gate."""
     res = results(lab)
     assert "already exists" in res[3]
     assert '"statut": "brouillon"' in res[4]
+    assert '"date_candidature": "20' in res[4]
     assert "already exists" in res[5]
     assert '"slug": "entreprise-existante-sre"' in res[6]
-    assert lab["scout"]["asked"][3:7] == [0, 0, 0, 0]
+    assert lab["scout"]["asked"][3:7] == [1, 1, 1, 1]
     creates = [c["args"]["entreprise"] for c in lab["calls"] if c["tool"] == "create_candidature"]
-    assert creates == ["Entreprise Existante", "Nouvelle Offre", "Nouvelle Offre", "Entreprise Existante SRE"]
+    assert creates[:4] == ["Entreprise Existante", "Nouvelle Offre", "Nouvelle Offre", "Entreprise Existante SRE"]
 
 
 def test_l07_every_gated_call_asks_once(lab: dict[str, Any]) -> None:
-    """Each of the three gated tools, in one session: approved -> runs; refused -> not run; nobody -> not run.
+    """Each of the four gated tools, in one session: approved -> runs; refused -> not run; nobody -> not run.
 
     One approval request per approved or refused call (no approval carried over to the next call), none when
     nobody can answer (fail-closed without prompting), and only approved calls reach the server.
@@ -598,6 +627,12 @@ def test_l07_every_gated_call_asks_once(lab: dict[str, Any]) -> None:
     ]
     assert "Transition de statut non autorisee" in res[10]
     assert '"statut": "envoyee"' in res[13]
+    # create_candidature, the fourth gated tool: refused and nobody never reach the server; approved does.
+    assert asked[19:22] == [1, 0, 1], asked
+    assert any(word in res[19] for word in BLOCKED) and any(word in res[20] for word in BLOCKED)
+    assert '"slug": "offre-approuvee"' in res[21]
+    creates = [c["args"]["entreprise"] for c in lab["calls"] if c["tool"] == "create_candidature"]
+    assert creates[4:] == ["Offre Approuvee"]
 
 
 def test_l08_embedded_instruction_is_data_and_its_request_still_fails(lab: dict[str, Any]) -> None:
@@ -614,6 +649,7 @@ def test_l08_embedded_instruction_is_data_and_its_request_still_fails(lab: dict[
 def test_l09_lost_connection_is_not_replayed(lab: dict[str, Any]) -> None:
     """The server dies after receiving a write: Hermes reports a failure and does not send it again."""
     assert "error" not in lab["cut"], lab["cut"]
+    assert lab["cut"]["asked"] == [1]
     assert [c["args"]["entreprise"] for c in lab["cut_calls"]] == ["Coupure"]
     assert '"statut": "brouillon"' not in text(lab["cut"]["results"][0])
 
@@ -635,19 +671,20 @@ def test_l11_lab_used_no_real_secret_or_context(lab: dict[str, Any]) -> None:
 def test_l12_server_claiming_read_only_still_gated(lab: dict[str, Any]) -> None:
     """A Kandidat advertising the gated writes as read-only: the deploy check refuses it, and the local cost gate alone
     still asks before every call, in one session: approved -> runs, then refused -> not run (no approval carried
-    over), nobody -> not run, for each of the three tools."""
+    over), nobody -> not run, for each of the four tools."""
     rc, out = lab["flip_check"]
     assert rc != 0 and "skip the approval gate" in out, out
     flip = lab["flip"]
     assert "error" not in flip, flip
     res = [text(r) for r in flip["results"]]
-    assert flip["asked"] == [1, 1, 0] * 3
-    for refused in (1, 2, 4, 5, 7, 8):
+    assert flip["asked"] == [1, 1, 0] * 4
+    for refused in (1, 2, 4, 5, 7, 8, 10, 11):
         assert any(word in res[refused] for word in BLOCKED), (refused, res[refused])
     assert [(c["tool"], c["args"]) for c in lab["flip_calls"]] == [
         ("create_cible", {"nom": "Flip1", "categorie": "esn"}),
         ("update_candidature", {"slug": "entreprise-existante", "statut": "envoyee", "commentaire": ""}),
         ("update_cible", {"payload": "p1"}),
+        ("create_candidature", {"entreprise": "Flip Offre A", "cible_id": 1}),
     ]
 
 
@@ -658,7 +695,7 @@ def test_l13_one_process_profiles_in_turn(lab: dict[str, Any]) -> None:
     assert isinstance(seq, list), seq
     assert [x["profile"] for x in seq] == ["job-search", "default", "cafe-ia", "job-search"]
     for turn in (seq[0], seq[3]):
-        assert len(turn["exposed"]["telegram"]) == 11 and len(turn["exposed"]["cron"]) == 8, turn["exposed"]
+        assert len(turn["exposed"]["telegram"]) == 11 and len(turn["exposed"]["cron"]) == 7, turn["exposed"]
         assert "Entreprise Existante" in text(turn["list_cibles"])
     for turn in (seq[1], seq[2]):
         assert turn["exposed"] == {"telegram": [], "cron": []}, turn

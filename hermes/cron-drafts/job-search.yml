@@ -14,9 +14,9 @@
 # (agent.environment_hint), l'interdiction de [SILENT].
 #
 # SCOUT-03 (2026-11-12) : la deduplication passe par Kandidat (serveur MCP
-# `kandidat` : lectures + create_candidature), plus par session_search. En
-# cron, personne ne peut approuver : `kandidat_confirm` n'est pas expose a
-# cette plateforme et aucune ecriture soumise a approbation n'y est possible.
+# `kandidat` : lectures seules), plus par session_search. En cron, personne
+# ne peut approuver : `kandidat_confirm` (toutes les ecritures) n'est pas
+# expose a cette plateforme, donc aucune ecriture n'y est possible.
 # Sources revues sur les sondes Tavily du 2026-11-12 (rapport SCOUT-03).
 #
 # Depot PUBLIC : aucune donnee personnelle ici. Le niveau reel, le parcours,
@@ -156,14 +156,10 @@ veille-emploi:
     N'invente jamais une URL d'offre. Si tu ne peux pas citer le lien direct,
     l'offre n'est pas retenue.
 
-    Enregistrement : une offre retenue, vérifiée sur la page de l'employeur ou
-    de l'ATS, dont l'entreprise existe déjà dans Kandidat, est créée par
-    create_candidature (statut brouillon, jamais candidature envoyée ; dans le
-    contenu : lien, date de publication si lue, date de vérification, source,
-    réserves). Une entreprise absente de Kandidat n'est pas créée en cron :
-    liste-la dans le compte rendu. Aucune autre écriture : les changements de
-    statut demandent l'approbation de l'utilisateur, impossible ici. Si le
-    résultat d'une écriture est incertain, relis la fiche, ne recommence pas.
+    Enregistrement : aucun en cron. Toute écriture dans Kandidat demande
+    l'approbation de l'utilisateur, impossible ici. Pour chaque offre retenue,
+    indique dans le compte rendu si elle est déjà dans Kandidat (statut) ou
+    « à enregistrer » ; l'utilisateur décidera dans la conversation.
 
     ## Étape 6 — Compte rendu (ta réponse finale, en français)
 

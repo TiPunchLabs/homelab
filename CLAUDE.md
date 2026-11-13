@@ -279,8 +279,8 @@ ansible-playbook ansible/deploy.yml --limit hermes-31 --tags komodo-periphery
 > modification de celle-ci.
 
 > 🗂️ **Scout + Kandidat (SCOUT-03)** : Scout seul accede a Kandidat, par deux
-> entrees MCP (`kandidat` lectures + `create_candidature` ; `kandidat_confirm`
-> `trust: untrusted`, approbation a chaque appel). Nora et Kaféine gardent
+> entrees MCP (`kandidat` lectures seules ; `kandidat_confirm` `trust: untrusted` : toutes
+> les ecritures, dont `create_candidature`, approuvees a chaque appel). Nora et Kaféine gardent
 > `no_mcp`. Controle de deploiement `hermes_checks.py mcp` ; decision
 > `docs/adr/hermes.md` ADR-001 ; procedure et rollback dans le README du role.
 

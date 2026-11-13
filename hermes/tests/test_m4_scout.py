@@ -800,9 +800,9 @@ def test_s08_veille_keeps_its_logic(drafts: dict[str, Any]) -> None:
         "réserves",
     ):
         assert kept in prompt, kept
-    # SCOUT-03: a verified offer is recorded as `brouillon`; nothing else is written from cron.
-    assert "statut brouillon, jamais candidature envoyée" in prompt
-    assert "Aucune autre écriture" in prompt
+    # SCOUT-03: every Kandidat write needs the owner's approval, impossible in cron: nothing is recorded there.
+    assert "Enregistrement : aucun en cron" in prompt
+    assert "« à enregistrer »" in prompt
     assert "applique la grille de ton SOUL au niveau déclaré dans ton" in prompt
     assert "un axe de progression" in prompt
 

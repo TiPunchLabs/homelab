@@ -43,10 +43,9 @@ accede par deux entrees MCP vers le meme serveur, une par niveau d'autorisation,
 modification de Kandidat :**
 
 - `kandidat` (`trust: full`) : `list_cibles`, `get_cible_detail`, `list_candidatures`, `get_candidature`,
-  `get_candidature_history`, `search_candidatures`, `get_stats`, et `create_candidature` (statut force a
-  `brouillon` par l'API ; slug unique par entreprise, un rejeu echoue au lieu de dupliquer) ;
-- `kandidat_confirm` (`trust: untrusted`) : `create_cible`, `update_candidature`, `update_cible`, chacun
-  approuve par l'utilisateur a chaque appel ;
+  `get_candidature_history`, `search_candidatures`, `get_stats` : lectures seules ;
+- `kandidat_confirm` (`trust: untrusted`) : `create_candidature`, `create_cible`, `update_candidature`,
+  `update_cible`, chacun approuve par l'utilisateur a chaque appel ;
 - aucun autre outil ; `kandidat_confirm` absent de la plateforme cron ; `no_mcp` maintenu pour Nora et
   Kaféine.
 
@@ -54,12 +53,19 @@ modification de Kandidat :**
 
 | Critere | Deux entrees MCP (choisi) | Une entree `untrusted` | Adaptateur MCP dedie |
 |---------|---------------------------|------------------------|----------------------|
-| Ecriture automatique d'une offre neutre | Oui, `create_candidature` seul | Non, approbation a chaque ajout | Oui |
+| Ecriture automatique d'une offre neutre | Non (Kandidat ne sait pas creer une offre neutre, voir plus bas) | Non | Oui, si l'adaptateur corrige la semantique |
 | Statuts et nouvelles entreprises | Approbation par appel (Hermes) | Idem | A coder |
 | Code nouveau a maintenir | Aucun cote Kandidat ; un controle de deploiement | Aucun | Un service, son image, son deploiement |
 | Doublon d'entreprise au rejeu | Evite : `create_cible` toujours approuve | Idem | A coder |
 | Restriction par champ / statut | Non (approbation humaine a la place) | Non | Oui |
+| Cron : lectures seules, aucun outil d'ecriture expose | Oui (`kandidat` seul en cron) | Non, outils d'ecriture exposes puis refuses | Oui |
+| Controle de deploiement : lectures sans annotation d'ecriture, ecritures toutes sous approbation | Oui, un serveur par niveau | Non, verdict melange | A coder |
 
+`create_candidature` ne peut pas etre automatique non plus : a Kandidat `a0cf66ea`
+(`services/candidature.py`), il force `brouillon` mais pose `date_candidature` a la date du jour et passe la
+cible en `contactee`. Une insertion sans accord marquerait l'entreprise contactee : contraire a la politique
+(« jamais candidatee »). L'ecriture automatique d'une offre est donc **non livree** ; elle demande d'abord une
+creation neutre cote Kandidat (sans date, sans `contactee`). Revue Codex, passe 3.
 `create_cible` n'a aucun controle de doublon cote API : il ne peut pas etre automatique. `update_candidature`
 accepte tout champ et tout statut valide : le filtrage par champ n'existe ni dans Hermes ni dans Kandidat ;
 l'approbation humaine par appel le remplace, ce qui est plus strict que la politique pour les faits declares
