@@ -1192,15 +1192,20 @@ Kandidat release (homelab-gitops pin), then this SOUL.
 Same seven read tools, same annotations (`readOnlyHint` unchanged, checked
 with Hermes' own MCP client), no permission change. Scout's SOUL now looks
 an offer up by its URL (`list_candidatures(url, fields="compact")`), then the
-company by a name fragment on `list_cibles` and `list_candidatures`
-(`q`, case and accents ignored), follows `next_offset` while `has_more`,
-and classes the result: already tracked (same URL), to verify, company
-tracked but offer absent, absent (all lookups done, all pages read), or not
-verifiable (error, unread page, or a server without paging). It never asks
-for an uncompacted list. Measured with Hermes v0.22.5 against a copy of the
+company by one distinctive word of its name on `list_cibles` and
+`list_candidatures`, and by its website domain on `list_cibles` (`q` is a
+literal substring, case and accents ignored, punctuation and spaces not:
+`Sopra-Steria` would miss `Sopra Steria`, `sopra` finds both), follows
+`next_offset` while `has_more`, and classes the result: already tracked
+(same URL), to verify, company tracked but offer absent, absent (all
+lookups done, all pages read), or not verifiable (error, unread page, a
+name without distinctive word, or a server without paging). It never asks
+for an uncompacted list; an ATS identifier is searched with
+`search_candidatures` and `limit` (paged). Measured with Hermes v0.22.5 against a copy of the
 production data: a targeted lookup returns 0.2–0.8k characters, a compact
-page at most 13.4k (Kandidat caps the page JSON at 12k), versus 95k and 75k
-for the old full lists. The SOUL guard accepts the M4.3, SCOUT-03 and
+page at most 11.9k as Hermes receives it (Kandidat budgets 12k per page and
+flags the rare page that cannot fit with `page_over_budget`), versus 95k
+and 75k for the old full lists. The SOUL guard accepts the M4.3, SCOUT-03 and
 SCOUT-04 versions as predecessors.
 
 ### Cron drafts (M4.4, not created)
