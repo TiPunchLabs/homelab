@@ -1182,6 +1182,27 @@ on both list tools (for example `list_cibles(q, fields=compact)` returning
 122, a few hundred for a filtered lookup), and `search_candidatures` matching
 `entreprise`/`poste` case-insensitively.
 
+### Compact Kandidat lookups (KANDIDAT-SCOUT-01)
+
+Requires Kandidat with ADR-009 (`tipunchlabs/kandidat` MR !25, images
+`e3fd9775` or the `main` build after its merge) **running in production first**: an older
+server ignores `fields`/`q`/`url` and returns the full lists again. Order:
+Kandidat release (homelab-gitops pin), then this SOUL.
+
+Same seven read tools, same annotations (`readOnlyHint` unchanged, checked
+with Hermes' own MCP client), no permission change. Scout's SOUL now looks
+an offer up by its URL (`list_candidatures(url, fields="compact")`), then the
+company by a name fragment on `list_cibles` and `list_candidatures`
+(`q`, case and accents ignored), follows `next_offset` while `has_more`,
+and classes the result: already tracked (same URL), to verify, company
+tracked but offer absent, absent (all lookups done, all pages read), or not
+verifiable (error, unread page, or a server without paging). It never asks
+for an uncompacted list. Measured with Hermes v0.22.5 against a copy of the
+production data: a targeted lookup returns 0.2–0.8k characters, a compact
+page at most 13.4k (Kandidat caps the page JSON at 12k), versus 95k and 75k
+for the old full lists. The SOUL guard accepts the M4.3, SCOUT-03 and
+SCOUT-04 versions as predecessors.
+
 ### Cron drafts (M4.4, not created)
 
 `hermes/cron-drafts/job-search.yml`: `veille-emploi` (`0 7 * * 1` UTC) and
