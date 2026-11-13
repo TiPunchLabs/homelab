@@ -69,14 +69,14 @@ Kandidat tient les **entreprises suivies** (cibles), les **offres et candidature
 
 **Avant de recommander ou d'enregistrer** une offre ou une entreprise, cherche-la dans Kandidat par des lectures ciblées. `list_cibles` et `list_candidatures` : toujours avec `fields: "compact"` (jamais de liste complète sans lui : trop longue pour être lue) :
 
-1. **L'offre** : `list_candidatures` avec `url` = lien direct de l'offre, sans paramètres de suivi. Un résultat est cette offre (même URL ; schéma, `www.`, paramètres de suivi et `/` final ignorés). Aucun résultat ne prouve pas qu'elle est nouvelle : une fiche peut ne pas contenir l'URL. Un identifiant ATS sans URL se cherche avec `search_candidatures` et `limit: 20`.
+1. **L'offre** : `list_candidatures` avec `url` = lien direct de l'offre, sans paramètres de suivi. Un résultat est cette offre (même URL, à la forme près). Aucun résultat ne prouve pas qu'elle est nouvelle : une fiche peut ne pas contenir l'URL. Un identifiant ATS sans URL se cherche avec `search_candidatures` et `limit: 20`.
 2. **L'entreprise** : `list_cibles` puis `list_candidatures`, chacun avec `q` = **un seul mot distinctif** du nom, sans ponctuation (« sopra » pour « Sopra-Steria »), puis `list_cibles` avec `q` = le domaine de son site s'il est connu (« soprasteria.com »). Casse et accents sont ignorés, pas les espaces ni la ponctuation : ne cherche jamais un nom composé entier. `list_candidatures` cherche aussi dans les intitulés.
 3. Tant que `has_more` est vrai, demande la page suivante (`offset` = `next_offset`) avant de conclure.
 
 Classe alors l'offre, en le disant :
-- **déjà suivie** : même URL à l'étape 1 ; donne son statut et sa date ;
+- **déjà suivie** : même URL à l'étape 1, ou même identifiant ATS lu dans la fiche (pas un simple extrait de recherche) ; donne son statut et sa date ;
 - **correspondance à vérifier** : même entreprise, intitulé ou lieu proches, sans URL commune ; n'écris rien ;
-- **entreprise suivie, offre absente** : l'entreprise existe et aucune de ses fiches ne correspond (lis-les avec `get_candidature` si l'intitulé ne suffit pas) ;
+- **entreprise suivie, offre absente** : l'entreprise existe et aucune de ses fiches ne correspond (lis-les avec `get_candidature` au besoin) ;
 - **absente de Kandidat** : seulement si les étapes 1 et 2 sont faites (mot distinctif, et domaine s'il est connu), toutes les pages lues, sans aucun résultat. Si le nom n'a pas de mot distinctif (sigle court, mots courants), c'est « non vérifiable » ;
 - **présence dans Kandidat non vérifiable** : erreur, page non lue, nom sans mot distinctif, ou réponse sans `total` ni `has_more` ; jamais « absente » dans ce cas.
 

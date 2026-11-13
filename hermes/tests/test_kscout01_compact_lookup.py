@@ -74,7 +74,7 @@ def test_c01_permissions_unchanged(scout: dict[str, Any]) -> None:
         "`list_cibles` puis `list_candidatures`, chacun avec `q`",
         "Casse et accents sont ignorés, pas les espaces ni la ponctuation",
         "Tant que `has_more` est vrai, demande la page suivante (`offset` = `next_offset`)",
-        "**déjà suivie** : même URL à l'étape 1",
+        "**déjà suivie** : même URL à l'étape 1, ou même identifiant ATS lu dans la fiche",
         "**correspondance à vérifier**",
         "**entreprise suivie, offre absente**",
         "**absente de Kandidat** : seulement si les étapes 1 et 2 sont faites (mot distinctif, et domaine s'il est connu), toutes les pages lues",
