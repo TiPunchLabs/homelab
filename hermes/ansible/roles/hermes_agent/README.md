@@ -1143,8 +1143,8 @@ API, per-call `API call #N` lines of the profile `agent.log` and the session
 in `state.db`): the `usage.prompt_tokens` an API turn returns
 (`session_prompt_tokens`, `agent/turn_usage.py`) is the **sum of the prompt
 of every model call** of the turn, not a context size. 18 calls summed to
-669k; the largest single prompt was 61k; DeepSeek reported ~93 % of the
-input as cache hits.
+669,431; the largest single prompt was 61,106; DeepSeek reported 91.6 % of
+that input as cache hits.
 
 | Contributor (cumulative input of the turn) | Share | Evidence |
 |---|---|---|
@@ -1153,12 +1153,15 @@ input as cache hits.
 | `web_extract` results (13 calls) | ~18 % | same |
 | DeepSeek reasoning echoed on tool turns (`agent/reasoning_params.py`) | ~10 % | same |
 | All Kandidat reads | ~4 % | same; `list_cibles` was spilled (preview only) |
-| After the answer: background skill review, 3 calls | +~205k input | `agent.background_review` log line |
+| After the answer: background skill review, 3 calls (separate fork, not in the turn's usage) | +205,590 prompt tokens, 96.8 % cached | sum of its 3 `API call #N` lines (= `in` 6,678 uncached + `cache_read` 198,912 of its completion line) |
 
 Changes (Scout only): `skills.creation_nudge_interval: 0` removes the
 post-answer skill review (`agent/turn_finalizer.py` requires > 0; skills
-stay usable, and any skill write still needs approval). SOUL.md: Kandidat
-lookup from the most precise read to the broadest, and a bounded research
+stay usable, and any skill write still needs approval; the separate memory
+review, every `memory.nudge_interval` user turns, is unchanged). SOUL.md: Kandidat
+lookup from the most precise read to the broadest (a company match does
+not end the check for the offer itself; records are re-read at each new
+message, since the owner may edit Kandidat), and a bounded research
 rule (about three qualified offers, about ten Web searches, `char_limit`
 5000, no retry of a failed extraction, say what was not covered). The SOUL
 guard now accepts the M4.3 and the SCOUT-03 versions as predecessors.

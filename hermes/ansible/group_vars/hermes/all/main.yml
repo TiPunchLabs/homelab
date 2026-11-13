@@ -331,7 +331,8 @@ hermes_profile_job_search:
     # SCOUT-04 : pas de revue de skills en arriere-plan apres une recherche.
     # Tout tour d'au moins 10 iterations d'outils (une recherche Web en fait
     # ~17) lancait, apres la reponse, un agent de revue de 3 appels modele qui
-    # relisait toute la conversation (~205k jetons d'entree mesures, 2026-11-13)
+    # relisait toute la conversation (205 590 jetons de prompt cumules sur ses
+    # 3 appels, 97 % en cache, mesure du 2026-11-13)
     # pour proposer des skills, de toute facon mises en attente
     # (skills.write_approval). La reponse n'en depend pas (agent/turn_finalizer.py).
     skills.creation_nudge_interval: 0

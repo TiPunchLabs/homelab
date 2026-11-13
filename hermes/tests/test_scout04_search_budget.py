@@ -1,7 +1,8 @@
 """SCOUT-04 — Scout's search consumption: what the declaration changes, checked offline and in the real image.
 
 Baseline (hermes-31, 2026-11-13, private trace): one bounded search = 18 model calls, 669,431 cumulative prompt
-tokens (the sum over calls, `agent/turn_usage.py`), then a background skill review of 3 more calls (~205k input).
+tokens (the sum over calls, `agent/turn_usage.py`), then a background skill review of 3 more calls (205,590 prompt
+tokens summed over its calls, outside the turn's usage).
 Kandidat's list tools return 73-92k chars, above Hermes' 50k MCP spill threshold, so the model only sees a preview.
 
 Offline: the declaration (skill review off for Scout only, SOUL predecessors) and the SOUL rules.
@@ -69,21 +70,25 @@ def test_b02_soul_predecessors_are_the_two_deployed_versions(group_vars: dict[st
         ["git", "show", "35d693d:hermes/ansible/roles/hermes_agent/files/profiles/job-search/SOUL.md"],
         cwd=REPO, capture_output=True, check=False,
     )
-    if previous.returncode == 0:
-        assert hashlib.sha256(previous.stdout).hexdigest() == SCOUT03_SOUL
+    if previous.returncode != 0:
+        pytest.skip("commit 35d693d not in this checkout: SCOUT-03 SOUL provenance not checked")
+    assert hashlib.sha256(previous.stdout).hexdigest() == SCOUT03_SOUL
     assert hashlib.sha256(SOUL.read_bytes()).hexdigest() not in (M43_SOUL, SCOUT03_SOUL)
 
 
 @pytest.mark.parametrize(
     "rule",
     [
-        "du plus précis au plus large, et arrête-toi dès qu'elle est trouvée",
+        "Arrête-toi seulement quand **cette offre-là** est identifiée",
         "`get_candidature` avec le slug probable",
+        "prouve que l'entreprise est suivie, pas que cette offre l'est",
+        "Continue donc avec l'étape 2",
         "ne cherche que dans le texte des fiches et respecte la casse",
         "un résultat vide ne prouve pas l'absence",
         "au plus une fois par demande",
         "« présence dans Kandidat non vérifiable », jamais « absente de Kandidat »",
-        "reste valable jusqu'à ta prochaine écriture",
+        "Pendant le traitement d'une même demande, ne relis pas",
+        "À un nouveau message, avant toute nouvelle recommandation ou proposition d'écriture, relis les fiches",
         "**Recherche bornée**",
         "dis ce qui n'a pas été couvert",
         "Ne relance pas une requête presque identique",
@@ -102,8 +107,8 @@ def test_b03_soul_rules(rule: str) -> None:
 
 
 def test_b03_soul_stays_compact() -> None:
-    """SOUL.md is re-sent with every model call: the SCOUT-04 rules add at most ~1.6k chars to SCOUT-03's."""
-    assert len(SOUL.read_text()) <= 13800
+    """SOUL.md is re-sent with every model call: the SCOUT-04 rules add at most ~2.2k chars to SCOUT-03's."""
+    assert len(SOUL.read_text()) <= 14300
 
 
 LAB = r'''
