@@ -96,4 +96,8 @@ par l'utilisateur (une approbation de plus).
 - Les dates d'historique de statut sont des dates d'enregistrement : un fait passe sans date garde ses dates
   vides et sa provenance dans le commentaire.
 - Si Kandidat ne repond pas, les outils manquent ou echouent : Scout cherche sur le Web en le disant et
-  n'ecrit rien. Hermes ne rejoue pas une ecriture au resultat incertain.
+  n'ecrit rien. Hermes ne rejoue pas une ecriture au resultat incertain tant que Kandidat l'annote
+  `readOnlyHint` faux (cas de `a0cf66ea`) : la meme annotation decide de la reprise apres expiration de session.
+  Une version annoncant une ecriture en lecture seule resterait soumise au second verrou, mais une reprise
+  pourrait la rejouer sous une seule approbation ; le controle de deploiement refuse ces annotations avant le
+  redemarrage (cas de reprise non teste en labo). Revue Codex, passe 5.

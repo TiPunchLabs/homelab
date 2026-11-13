@@ -1070,8 +1070,14 @@ gated server.
 - The boundary limits the agent, not the LAN: Kandidat has no
   authentication; any LAN host can still write to it.
 - Kandidat down: the tools fail or are missing; Scout searches the Web and
-  says « historique Kandidat non vérifié », writes nothing. Hermes never
-  replays a write whose outcome is uncertain.
+  says « historique Kandidat non vérifié », writes nothing. Hermes does not
+  replay a write whose outcome is uncertain **as long as Kandidat annotates it
+  write-capable** (`readOnlyHint` false, as at `a0cf66ea`): Hermes decides
+  retry safety from that same annotation (`tools/mcp_tool_handlers.py`,
+  `_handle_session_expired_and_retry`). A release marking a write read-only
+  would still be gated by the cost gate, but a session-expiry retry could
+  then replay it under one approval. The deploy check refuses such
+  annotations before the restart; that replay case is not lab-tested.
 
 **Deploy** (operator terminal, vault available). `profiles-preflight.yml` is
 a v0.20.4 playbook and refuses hermes-31 (`legacy_v0204_guard.yml`): the

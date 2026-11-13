@@ -298,9 +298,10 @@ out["prompts_phase3"] = list(prompts)
 # Phase 4: sequential writes after an "always": the next one still asks.
 prompts.clear()
 for label, answer in (("after_always_1", "always"), ("after_always_2", "deny")):
+    expected = len(prompts) + 1  # counted before the worker can publish its prompt
     t = start(label, "job-search", lambda l=label: dispatch(
         "mcp__kandidat_confirm__create_cible", {"nom": l, "categorie": "esn"}), res)
-    wait_until(label + " prompt", lambda n=len(prompts): len(prompts) == n + 1)
+    wait_until(label + " prompt", lambda n=expected: len(prompts) == n)
     A.resolve_gateway_approval(SESSION["job-search"], answer)
     t.join(60)
 out["prompts_phase4"] = list(prompts)
