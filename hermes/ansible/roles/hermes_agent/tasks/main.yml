@@ -365,6 +365,15 @@
 #   - Telegram par profil : entrees `telegram` (default) et `<profil>:telegram`
 #     du gateway_state.json RACINE, ecrites par ce meme pid.
 # =============================================================================
+# Un passage interrompu apres l'ecriture d'une config (profile_multiplex.yml)
+# laisse ce marqueur : le redemarrage qu'il devait faire est rejoue ici.
+- name: Read a gateway restart left pending by an interrupted run
+  ansible.builtin.slurp:
+    src: "{{ hermes_install_dir }}/.multiplex-restart-pending"
+  register: hermes_multiplex_restart_pending
+  failed_when: false
+  when: hermes_gateway_multiplex
+
 - name: Restart the multiplexed gateway once with the final profile configuration
   ansible.builtin.command:
     argv:
@@ -380,8 +389,19 @@
       - restart
   when:
     - hermes_gateway_multiplex
-    - hermes_multiplex_restart | default(false) | bool
+    - (hermes_multiplex_restart | default(false) | bool)
+      or ((hermes_multiplex_restart_pending.content | default('') | b64decode | trim) == 'pending')
     - not ansible_check_mode
+  register: hermes_multiplex_restarted
+
+- name: Mark the pending gateway restart as done
+  ansible.builtin.copy:
+    dest: "{{ hermes_install_dir }}/.multiplex-restart-pending"
+    content: "done\n"
+    mode: '0644'
+  when:
+    - hermes_gateway_multiplex
+    - hermes_multiplex_restarted is changed
 
 - name: Wait for the multiplexed gateway API to listen
   ansible.builtin.wait_for:

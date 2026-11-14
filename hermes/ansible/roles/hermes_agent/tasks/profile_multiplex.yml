@@ -126,6 +126,21 @@
   register: hermes_profile_config_set
   no_log: "{{ item.item.key in hermes_profile.config_no_log | default([]) }}"
 
+# SCOUT-03 (revue Codex) : la config est ecrite AVANT des controles qui peuvent
+# echouer (le controle MCP joint Kandidat). Sans trace persistante, un nouveau
+# passage trouverait la config deja a jour, ne programmerait aucun redemarrage,
+# et la gateway garderait l'ancienne configuration. Le marqueur survit a
+# l'echec ; main.yml ne le repasse a `done` qu'apres le redemarrage (aucune
+# suppression de fichier dans le role, T17).
+- name: "Persist a pending gateway restart ({{ hermes_profile.name }})"
+  ansible.builtin.copy:
+    dest: "{{ hermes_install_dir }}/.multiplex-restart-pending"
+    content: "pending\n"
+    mode: '0644'
+  when:
+    - not ansible_check_mode
+    - hermes_profile_config_set is changed
+
 # Le hook stage2 de l'image n'ecrit que dans /opt/data/.env ; la cle d'API
 # doit venir du managed (charge en dernier), jamais d'un .env de profil.
 - name: "Verify that API_SERVER_KEY comes from managed only ({{ hermes_profile.name }})"
@@ -175,6 +190,29 @@
   when:
     - not ansible_check_mode
     - "'agent.disabled_toolsets' in (hermes_profile.config | default({}))"
+
+# SCOUT-03 : les serveurs MCP du profil, connectes par le code de Hermes
+# (tools/list seulement, aucun appel d'outil). Echoue AVANT le redemarrage si
+# un outil hors liste est expose, si une ecriture echappe a l'approbation, ou
+# si un profil sans mcp_policy a un serveur actif.
+- name: "Verify the MCP servers and tools exposed ({{ hermes_profile.name }})"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - -e
+      - "HERMES_HOME=/opt/data/profiles/{{ hermes_profile.name }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - mcp
+      - "{{ hermes_profile | hermes_mcp_policy | to_json }}"
+  register: hermes_profile_mcp
+  changed_when: false
+  when: not ansible_check_mode
 
 # getMe AVANT d'ecrire le jeton : jeton sur stdin, jamais en argv ni en
 # sortie. Rattrape un jeton valide colle sous la mauvaise cle du vault.

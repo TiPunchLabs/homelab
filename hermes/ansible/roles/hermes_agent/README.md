@@ -1003,7 +1003,138 @@ Proved on the image (`tests/test_m4_scout.py`): exactly the 9 tools on
 telegram, api_server, cli and cron, `web_search` and `web_extract` each
 present, no `browser_*`, terminal, file, code or `cronjob`; a real cron run
 (the scheduler's own resolution) gets 7 — Hermes cuts `memory` and `clarify`
-from cron runs by policy.
+from cron runs by policy. **Since SCOUT-03, `no_mcp` is replaced by the two
+Kandidat entries below**; the 9 built-in tools are unchanged.
+
+### Kandidat (SCOUT-03)
+
+Decision: [`docs/adr/hermes.md`, ADR-001](../../../../docs/adr/hermes.md).
+Kandidat is Scout's reference for companies (`cibles`), offers and
+applications (`candidatures`) and their status history. **Scout only**: Nora
+and Kaféine keep `no_mcp`, and the deploy check requires zero active MCP
+server on them.
+
+**Capabilities and where they are enforced**
+
+| Capability | Kandidat tools | Enforcement |
+|---|---|---|
+| Read companies, offers, applications, history | `list_cibles`, `get_cible_detail`, `list_candidatures`, `get_candidature`, `get_candidature_history`, `search_candidatures`, `get_stats` | `mcp_servers.kandidat.tools.include`; all `readOnlyHint=true` |
+| Search duplicates before recommending or inserting | same reads | SOUL.md (behaviour) |
+| Add a verified offer | `create_candidature` on `kandidat_confirm` | approval per call. **Not automatic**, unlike the approved policy: at Kandidat `a0cf66ea` the API forces `brouillon` but also sets `date_candidature` to today and marks the company `contactee` (`services/candidature.py`), so an unattended insert would record the company as contacted. Automatic insertion needs a Kandidat change first (Codex review, pass 3) |
+| Record a fact stated by the owner | `update_candidature`, `update_cible` on `kandidat_confirm` | `trust: untrusted`: Hermes asks the owner **for every call** (stricter than the policy, which allowed it automatically: Hermes cannot tell a stated fact from an inference) |
+| Status change inferred by Scout | `update_candidature` | same approval per call; SOUL: propose, never impose |
+| New company | `create_cible` | approval per call (the API has no duplicate check) |
+| Second, local gate on the four gated writes | `tool_costs` 2 each, `spend_limit` 1 on `kandidat_confirm` | Hermes asks before **every** call that goes past the per-chat limit, whatever `readOnlyHint` the server advertises (a Kandidat release marking these tools read-only would otherwise skip the `untrusted` gate). No real cost: a counter of approvals. The prompt mentions the spend limit |
+| Permanent company exclusion | `update_cible` (notes) or the private context | approval per call; documented exclusions live in the vault context |
+| Delete, bulk, contacts, AI operations, settings, history comments | `delete_*`, `*_contact`, `enrich_cible`, `apply_enrichment`, `adapt_cv`, `save_adapted_cv`, `evaluate_match`, `get_settings`, `update_historique_comment` | not in any `tools.include`: never registered, `Unknown tool` |
+| Send applications, e-mail, follow-ups | none | no such tool exists for Scout |
+| Arbitrary SQL / code, other MCP servers | none | terminal, file, code denied; MCP server names in `platform_toolsets` act as an allowlist (`no_mcp` gone, only the two names) |
+
+Cron gets `kandidat` only: nobody can approve there, and Hermes refuses a
+gated call in cron or `-q` sessions anyway (fail-closed).
+
+**What the deploy check proves** (`hermes_checks.py mcp`, after the toolset
+check, before the token write and the gateway restart): the profile's
+`mcp_servers` equal the declaration; each platform resolves exactly the
+declared servers; Hermes connects (`tools/list` only) and registers exactly
+the allowlisted tools; on `kandidat` no tool is write-capable (live
+`readOnlyHint`, no `auto_writes` declared); on `kandidat_confirm` every tool is
+write-capable, so each call is gated; each platform exposes exactly those
+MCP tools. A Kandidat release that changed an annotation would fail the
+deploy instead of silently skipping approval. `validate.yml` refuses, before
+any write, a declaration with an `exclude`, a pattern, a `delete_*` tool,
+utilities on, a missing `trust`, headers/auth, or automatic writes on the
+gated server.
+
+**Limits**
+
+- Hermes' approval prompt names the tool, the server and the cost, not the
+  arguments (`tools/mcp_tool_handlers.py`, `_ask_for_call`). An approval
+  therefore authorises "one `create_candidature`", not a given record: the
+  match between what Scout described and what it sends is **behavioural**
+  (SOUL.md: exact change written just before, one write at a time), not
+  bound to the arguments by Hermes. What Hermes does enforce, proven in the
+  lab on v0.22.5 through the real gateway approval queue: one prompt per
+  call; nothing remembered after `once`, `session` or `always` (the next
+  write asks again); two parallel writes in one chat get two prompts (the
+  cost gate's per-chat lock serialises them, so the second never adopts the
+  first answer); another chat cannot answer Scout's prompt; `/yolo` does not
+  touch the MCP gate.
+- `create_candidature` cannot save a lead without side effects (date of
+  application today, company `contactee`): SOUL.md tells Scout to keep such
+  a lead in its answer instead. A neutral draft needs a Kandidat change.
+- Kandidat keeps one record per company name: a second offer at the same
+  company is recorded as `<Company> <short qualifier>` (`Acme DevOps`), the convention already used in Kandidat.
+- Status history dates are recording dates; unknown event dates stay empty
+  with their provenance in the comment.
+- The boundary limits the agent, not the LAN: Kandidat has no
+  authentication; any LAN host can still write to it.
+- Kandidat down: the tools fail or are missing; Scout searches the Web and
+  says « historique Kandidat non vérifié », writes nothing. Hermes does not
+  replay a write whose outcome is uncertain **as long as Kandidat annotates it
+  write-capable** (`readOnlyHint` false, as at `a0cf66ea`): Hermes decides
+  retry safety from that same annotation (`tools/mcp_tool_handlers.py`,
+  `_handle_session_expired_and_retry`). A release marking a write read-only
+  would still be gated by the cost gate, but a session-expiry retry could
+  then replay it under one approval. The deploy check refuses such
+  annotations before the restart; that replay case is not lab-tested.
+
+**Deploy** (operator terminal, vault available). `profiles-preflight.yml` is
+a v0.20.4 playbook and refuses hermes-31 (`legacy_v0204_guard.yml`): the
+preflight is the read-only one of the M7 runbook, plus Kandidat.
+
+```bash
+# R — preflight (read-only)
+ssh hermes-31 'sudo docker ps --filter name=hermes; sudo docker exec hermes /command/s6-svstat /run/service/gateway-default'
+ssh hermes-31 'sudo sha256sum /opt/hermes/data/profiles/job-search/SOUL.md'   # f712d335… (M4.3) or this repo's version
+ssh hermes-31 'sudo docker exec hermes curl -fsS -m 8 https://kandidat-mcp.internal/health'   # {"status":"ok"}
+# P — deploy (written GO)
+cd hermes
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags hermes --check --diff
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags hermes
+ansible-playbook ansible/deploy.yml --limit hermes-31 --tags hermes   # R: expect changed=0
+```
+
+Any other SOUL.md checksum: the replacement refuses and stops the run
+(review the live file first). Note the gateway pid before; after the run, one
+new pid, three `telegram` / `<profile>:telegram` entries connected (the
+playbook's own multiplex and Telegram checks).
+
+Kandidat must answer during the deployment: the `mcp` check connects to it
+and fails closed (before the token write and the restart) when it cannot.
+The config is written before that check: a failed run leaves
+`/opt/hermes/.multiplex-restart-pending` on the host, and the next run
+restarts the gateway even if nothing else changes, then rewrites it to
+`done` (the file stays; only the content `pending` means a restart is due).
+
+Expected effect: job-search `config.yaml` gets the two servers and the new
+`platform_toolsets`; its `SOUL.md` is replaced once (only if it is still the
+M4.3 version, sha256 `f712d335…`, a `.bak` is kept); **one restart of the
+multiplexed gateway** (`hermes -p default gateway restart`), which serves the
+three bots: each reconnects to Telegram within about a minute. No compose
+restart (managed config, `.env` and compose file unchanged), no other
+profile touched.
+
+**Rollback**: a reverted declaration does not remove keys already written,
+so first disable both entries (Nora's pattern; `config set mcp_servers '{}'`
+is refused on a section, checked on the v0.22.5 image):
+
+```bash
+sudo docker exec -u 1000 hermes hermes -p job-search config set mcp_servers.kandidat.enabled false
+sudo docker exec -u 1000 hermes hermes -p job-search config set mcp_servers.kandidat_confirm.enabled false
+```
+
+then restore `SOUL.md` from its `.bak`, revert the SCOUT-03 commit and
+deploy with the `deploy.yml` commands above (the reverted declaration puts `no_mcp` back;
+its toolset check then requires zero active MCP server, which disabled
+entries satisfy). Kandidat data needs no rollback from the deployment itself.
+
+**Maintaining the history**: Kandidat is the only application ledger. The
+private context (`vault_hermes_job_search_environment_hint`) keeps durable
+preferences and documented exclusions, never a second list of applications.
+Facts stated in chat are recorded through `update_candidature` with the
+owner's approval; facts recorded by hand in the Kandidat UI are visible to
+Scout immediately.
 
 ### Cron drafts (M4.4, not created)
 

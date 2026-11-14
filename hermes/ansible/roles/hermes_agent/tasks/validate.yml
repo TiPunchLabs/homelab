@@ -104,6 +104,22 @@
     loop_var: idx
     label: "{{ idx }}"
 
+# SCOUT-03 : un serveur MCP n'entre dans un profil que declare en entier,
+# liste blanche explicite, utilitaires coupes, niveau de confiance pose et
+# politique d'ecriture (mcp_policy) coherente avec les toolsets.
+- name: Validate the MCP declaration of each profile
+  ansible.builtin.assert:
+    that:
+      - hermes_profiles[idx] | hermes_mcp_declaration_errors | length == 0
+    fail_msg: >-
+      Profil {{ hermes_profiles[idx].name | default(idx) }} : declaration MCP invalide :
+      {{ hermes_profiles[idx] | hermes_mcp_declaration_errors | join(' ; ') }}
+    quiet: true
+  loop: "{{ range(hermes_profiles | length) | list }}"
+  loop_control:
+    loop_var: idx
+    label: "{{ hermes_profiles[idx].name | default(idx) }}"
+
 - name: Assert that each profile has its own Telegram bot token
   ansible.builtin.assert:
     that:

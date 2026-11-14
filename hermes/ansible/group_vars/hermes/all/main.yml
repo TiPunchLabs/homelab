@@ -208,8 +208,28 @@ hermes_profile_cafe_ia:
 #     (le depot est public). Procedure : roles/hermes_agent/README.md, Scout.
 #
 # Outils : meme matrice que Kaféine et Néo (D5, M3.3.1). Ni terminal, ni
-# fichiers, ni navigateur, ni cronjob, ni MCP (donc pas Kandidat). Les crons
-# emploi seront crees par l'operateur en M4.4 (cron-drafts/job-search.yml).
+# fichiers, ni navigateur, ni cronjob. Les crons emploi seront crees par
+# l'operateur en M4.4 (cron-drafts/job-search.yml).
+#
+# Kandidat (SCOUT-03) : Scout SEUL, par deux entrees MCP vers le meme serveur,
+# une par niveau d'autorisation. Le filtre `tools.include` de Hermes est la
+# frontiere : un outil absent de la liste n'est jamais enregistre, donc ni
+# visible ni appelable. `trust: untrusted` fait demander, a CHAQUE appel,
+# l'approbation de l'utilisateur pour tout outil sans readOnlyHint=true
+# (tools/mcp_tool_handlers.py, _trust_gate_check) ; sans personne pour
+# repondre (cron, -q), l'appel est refuse.
+#   - kandidat : lectures seules (readOnlyHint=true), aucune ecriture ;
+#   - kandidat_confirm : create_candidature, create_cible (aucun controle de
+#     doublon cote API), update_candidature, update_cible, sous approbation.
+# create_candidature n'est PAS automatique : a Kandidat a0cf66ea, il force
+# `brouillon` mais pose date_candidature = aujourd'hui et passe la cible en
+# `contactee` (services/candidature.py). Automatique, il marquerait une
+# entreprise contactee sans accord (revue Codex SCOUT-03, passe 3).
+# Jamais : delete_*, contacts, enrich/apply_enrichment, adapt_cv,
+# save_adapted_cv, evaluate_match, get_settings, update_historique_comment.
+# L'API Kandidat n'a pas d'authentification : cette frontiere borne l'agent,
+# pas le LAN (docs/adr/hermes.md, ADR-001). Valeurs litterales : ce que
+# `config set` ecrit est exactement ce qui est lu ici et dans les tests.
 hermes_profile_job_search:
   name: job-search
   description: "Scout — recherche d'emploi, analyse d'offres et accompagnement professionnel."
@@ -224,8 +244,26 @@ hermes_profile_job_search:
   # Ansible (lecture et `config set` en no_log, profile.yml).
   config_no_log:
     - agent.environment_hint
+  # SCOUT-03 : SOUL.md vivant remplace UNE fois par default_soul.yml, et
+  # seulement s'il porte encore cette empreinte (celui de M4.3, verifie sur
+  # hermes-31 le 2026-11-12). Une version modifiee depuis n'est pas touchee.
+  soul_predecessor_sha256: f712d3359f8a9bcb3a1eb4481435d11e5c17c31cabac9c61e6ca3f4e3f0382fa
+  # Controle de deploiement (hermes_checks.py mcp) : serveurs MCP attendus par
+  # plateforme ; aucune ecriture automatique (pas d'`auto_writes`). Les autres
+  # profils n'en ont pas : le meme controle y exige zero serveur MCP actif.
+  mcp_policy:
+    platforms:
+      telegram: [kandidat, kandidat_confirm]
+      api_server: [kandidat, kandidat_confirm]
+      cli: [kandidat, kandidat_confirm]
+      # Personne pour approuver en cron : kandidat_confirm n'y servirait qu'a
+      # des refus.
+      cron: [kandidat]
   config:
     web.backend: tavily
+    # Les noms de serveurs MCP listes forment une liste blanche
+    # (hermes_cli/tools_config.py, _merge_mcp_servers) : aucun autre serveur,
+    # ni plugin MCP portable, ne s'y ajoute.
     platform_toolsets.telegram: &hermes_job_search_toolsets
       - web
       - skills
@@ -233,10 +271,59 @@ hermes_profile_job_search:
       - session_search
       - todo
       - clarify
-      - no_mcp
-    platform_toolsets.cron: *hermes_job_search_toolsets
+      - kandidat
+      - kandidat_confirm
+    platform_toolsets.cron:
+      - web
+      - skills
+      - memory
+      - session_search
+      - todo
+      - clarify
+      - kandidat
     platform_toolsets.api_server: *hermes_job_search_toolsets
     platform_toolsets.cli: *hermes_job_search_toolsets
+    # Une cle par serveur, valeur entiere : `config set` remplace la table,
+    # aucune sous-cle ancienne (exclude, auth) ne survit.
+    mcp_servers.kandidat:
+      url: https://kandidat-mcp.internal/mcp
+      trust: full
+      tools:
+        include:
+          - list_cibles
+          - get_cible_detail
+          - list_candidatures
+          - get_candidature
+          - get_candidature_history
+          - search_candidatures
+          - get_stats
+        resources: false
+        prompts: false
+    mcp_servers.kandidat_confirm:
+      url: https://kandidat-mcp.internal/mcp
+      trust: untrusted
+      tools:
+        include:
+          - create_candidature
+          - create_cible
+          - update_candidature
+          - update_cible
+        resources: false
+        prompts: false
+      # Second verrou, LOCAL : `trust: untrusted` s'appuie sur le readOnlyHint
+      # annonce par le serveur ; une version de Kandidat qui marquerait ces
+      # outils en lecture contournerait l'approbation. Un cout declare
+      # superieur a la limite par conversation fait demander l'approbation a
+      # CHAQUE appel, quelles que soient les annotations
+      # (tools/mcp_tool_handlers.py, _trust_gate_check ; spend_limit 0 = sans
+      # limite, donc 1). Aucun cout reel : un compteur d'approbations.
+      tool_costs:
+        create_candidature: 2
+        create_cible: 2
+        update_candidature: 2
+        update_cible: 2
+      spend_limit: 1
+      cost_unit: validations
     skills.write_approval: true
     # Meme liste que Kaféine et Néo : `browser` n'y figure PAS (il embarque
     # web_search sur v2026.8.18, cf. M3.3.1) et reste hors des quatre listes

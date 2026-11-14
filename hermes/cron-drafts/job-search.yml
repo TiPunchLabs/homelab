@@ -9,10 +9,15 @@
 #
 # Adaptes des prompts de default (audit M4.1), logique conservee : familles
 # A/B/C, sources, fraicheur, filtre geographique, 2-3 offres / 3-8 entreprises,
-# reserves argumentees. Retires : Kandidat, terminal, scripts, fichiers,
-# navigateur. Ajoutes : web_search / web_extract, le contexte prive
-# (agent.environment_hint), la deduplication par session_search et
-# l'interdiction de [SILENT].
+# reserves argumentees. Retires : terminal, scripts, fichiers, navigateur.
+# Ajoutes : web_search / web_extract, le contexte prive
+# (agent.environment_hint), l'interdiction de [SILENT].
+#
+# SCOUT-03 (2026-11-12) : la deduplication passe par Kandidat (serveur MCP
+# `kandidat` : lectures seules), plus par session_search. En cron, personne
+# ne peut approuver : `kandidat_confirm` (toutes les ecritures) n'est pas
+# expose a cette plateforme, donc aucune ecriture n'y est possible.
+# Sources revues sur les sondes Tavily du 2026-11-12 (rapport SCOUT-03).
 #
 # Depot PUBLIC : aucune donnee personnelle ici. Le niveau reel, le parcours,
 # les certifications, le niveau de langue, les domaines d'interet non acquis
@@ -22,16 +27,13 @@
 # Champs = options de `hermes -p job-search cron create` (v0.20.4) :
 #   schedule (UTC, horloge du conteneur), --name, --deliver, --continuity.
 #
-# continuity: false, a dessein. --continuity (context_from: self) injecte les
+# continuity: false, a dessein (historique de M4.2, toujours vrai). --continuity (context_from: self) injecte les
 # 8000 PREMIERS caracteres du dernier fichier de sortie du job, or ce fichier
 # commence par le prompt construit (consigne cron + sortie precedente + prompt)
 # et finit par la reponse : le 2e run voit la reponse du 1er, mais des le 3e,
 # la reponse precedente n'est plus injectee, seulement un fragment perime
-# d'une plus ancienne (prouve sur l'image, tests/test_m4_scout.py). La
-# deduplication passe par session_search, qui retrouve les sessions cron du
-# profil (retrogradees, pas exclues) sur tout l'historique, pas seulement le
-# dernier run. Limite : recherche par mots, non garantie ; la 1re execution
-# de Scout ne voit rien de l'historique de default.
+# d'une plus ancienne (prouve sur l'image, tests/test_m4_scout.py). Depuis
+# SCOUT-03, la reference est Kandidat.
 #   deliver : chat Telegram de la liste blanche (hermes_telegram_allowed_users),
 #   envoye par le bot du profil qui execute le job, donc Scout.
 # =============================================================================
@@ -46,8 +48,9 @@ veille-emploi:
     Personne ne te lit pendant l'exécution : ne pose aucune question, va au bout
     de la procédure ou signale précisément où tu t'es arrêté.
 
-    Outils : web_search pour trouver, web_extract pour lire une page. Tu n'as ni
-    terminal, ni script, ni fichier, ni navigateur, ni Kandidat : ne les cherche
+    Outils : web_search pour trouver, web_extract pour lire une page, les outils
+    Kandidat pour l'historique. Tu n'as ni
+    terminal, ni script, ni fichier, ni navigateur : ne les cherche
     pas. Ne crée et ne modifie aucun skill pendant cette exécution.
 
     Ne réponds jamais [SILENT] : même un résultat vide fait l'objet d'un compte
@@ -59,12 +62,17 @@ veille-emploi:
     niveau réel par famille, ancienneté, langues, postes à écarter, entreprises
     écartées. Respecte-le, ne surestime jamais le niveau.
 
-    Avant de retenir une offre, utilise session_search (nom de l'entreprise,
-    puis intitulé du poste) pour vérifier qu'elle n'a pas déjà été présentée
-    dans une veille précédente. Une offre déjà présentée n'est reprise que si
-    elle a changé (nouvelle date, conditions de télétravail précisées), avec la
-    mention « déjà vue le <date> ». Cette vérification est une aide, pas une
-    garantie : en cas de doute, signale-le.
+    Avant de retenir une offre, cherche-la dans Kandidat : search_candidatures
+    avec l'URL de l'offre (sans paramètres de suivi) puis son identifiant ATS,
+    et list_candidatures / list_cibles sur le nom d'entreprise normalisé. Une
+    offre déjà suivie n'est reprise que si elle a changé (nouvelle date,
+    conditions précisées), avec son statut Kandidat. Deux offres de la même
+    entreprise restent deux offres. Un ancien tri (« écartée faute de signal »)
+    n'est pas une exclusion.
+
+    Si Kandidat ne répond pas, continue la recherche Web mais écris
+    « historique Kandidat non vérifié », signale les doublons possibles et
+    n'enregistre rien.
 
     ## Étape 2 — Familles de postes
 
@@ -95,31 +103,27 @@ veille-emploi:
 
     ## Étape 3 — Sources
 
-    Jobboards (web_search ciblé, par exemple `site:remotefr.com devops`, puis
-    web_extract de la fiche de chaque offre candidate) :
-    - remotefr.com — offres 100 % télétravail datées (pages /competences/devops,
-      /python, /java)
-    - free-work.com — CDI/CDD uniquement, écarte les missions freelance
-    - leremote.fr — jobboard dédié au télétravail ; la fiche expose la date de
-      publication, le contrat et la localisation
-    - France Travail — recherche « Guadeloupe » (devops, java, python, développeur)
-
-    Boards de cabinets et d'ESN (point de départ ; l'accessibilité change, si un
-    site est vide, bloqué ou en SPA illisible, note-le en une ligne et passe) :
-    - Cabinets : jobs.talentysrh.com/jobs, alphaconseil.nos-recrutements.fr/jobs,
-      workandyou.fr/nos-offres, caribeaconseil.com/offres-emploi,
-      externatic.fr/offres, mercato-emploi.com/offres-emploi
-    - ESN : c2i-outremer.com/recrutement (offres souvent > 30 j),
-      es2icaraibes.com/jobs, recrutement.gbh.fr (chercher « informatique »),
-      jobs.lever.co/margo-group (souvent hybride ou sur site à Paris),
-      seyos.fr/offres (souvent bloqué)
-    - antillesrecrutement.com, fallonrecrutement.com, anvole.com : portails sans
-      offres publiques, canal de candidature spontanée, pas de veille d'offres
-
-    Retour d'expérience : les boards des cabinets antillais généralistes sont
-    surtout BTP, commerce, comptabilité, industrie ; ceux des ESN locales plutôt
-    ERP, chef de projet, management. Ne t'attarde pas si rien d'IT n'apparaît
-    dans les premières offres.
+    Sources (relevé Tavily du 2026-11-12 ; l'accessibilité change : si une page
+    est vide, bloquée ou illisible, note-le en une ligne, seulement pour une URL
+    réellement essayée, et passe) :
+    - France Travail Guadeloupe : liste lisible, dates relatives
+      (candidat.francetravail.fr/offres/recherche?motsCles=<mot>&lieux=01R) ;
+      mots utiles : informatique, systeme, reseau, cloud, linux, devops
+    - HelloWork, région outre-mer : liste lisible, dates et mode de télétravail
+    - emploi-outremer.com/tech : offres tech DOM-TOM
+    - flux RSS des sites carrières (ATS) quand ils existent : dates lisibles
+    - remotefr.com (pages /competences/devops, /python, /java) : découverte
+      seulement, l'extraction ne donne pas la date ; confirme sur la page de
+      l'employeur
+    - leremote.fr : non sondé en 2026-11 ; la date et le mode de télétravail
+      fiables étaient dans les données structurées de la fiche
+    - free-work.com : liste filtrée CDI/full remote lisible mais sans dates ;
+      écarte les missions freelance
+    - Externatic (offres/?categorie[]=devops) : liste pauvre à l'extraction
+    - Peu exploitables à l'extraction : LinkedIn (recherche publique), Seyos,
+      pages entreprise Welcome to the Jungle
+    - Cabinets et ESN locaux : surtout BTP, commerce, ERP, management ; ne
+      t'attarde pas si rien d'IT n'apparaît
 
     ## Étape 4 — Localisation et fraîcheur
 
@@ -130,9 +134,15 @@ veille-emploi:
     - Guadeloupe — sur site ou à distance
     - France — UNIQUEMENT en télétravail total (100 % remote), accessible depuis
       la Guadeloupe : qualifie-le confirmé / à vérifier
-    Rejette toute offre exigeant une présence régulière hors de Guadeloupe, même
-    partielle. Une offre « remote » sans précision de zone est « à vérifier »,
-    jamais « confirmée ».
+    Rejette toute offre exigeant une présence physique programmée et récurrente
+    hors de Guadeloupe, même courte (une semaine par trimestre, quelques
+    déplacements par an). Une offre « remote » sans précision de zone est « à
+    vérifier », jamais « confirmée » ; « remote France » ne prouve pas que les
+    DROM sont acceptés. Vérifie le contrat, l'employeur et, hors de France,
+    l'autorisation de travail.
+
+    Sépare la date de publication (lue sur la page), la date de ta vérification
+    et la preuve que le canal de candidature est encore ouvert.
 
     ## Étape 5 — Sélection
 
@@ -144,8 +154,12 @@ veille-emploi:
     une offre faible coûte plus cher qu'une semaine vide.
 
     N'invente jamais une URL d'offre. Si tu ne peux pas citer le lien direct,
-    l'offre n'est pas retenue. Tu n'enregistres rien nulle part : ta réponse est
-    le seul livrable.
+    l'offre n'est pas retenue.
+
+    Enregistrement : aucun en cron. Toute écriture dans Kandidat demande
+    l'approbation de l'utilisateur, impossible ici. Pour chaque offre retenue,
+    indique dans le compte rendu si elle est déjà dans Kandidat (statut) ou
+    « à enregistrer » ; l'utilisateur décidera dans la conversation.
 
     ## Étape 6 — Compte rendu (ta réponse finale, en français)
 
@@ -183,8 +197,9 @@ prospection-entreprises:
     Personne ne te lit pendant l'exécution : ne pose aucune question, va au bout
     ou signale précisément où tu t'es arrêté.
 
-    Outils : web_search pour trouver, web_extract pour lire une page. Tu n'as ni
-    terminal, ni script, ni fichier, ni navigateur, ni Kandidat : ne les cherche
+    Outils : web_search pour trouver, web_extract pour lire une page, les outils
+    Kandidat pour l'historique. Tu n'as ni
+    terminal, ni script, ni fichier, ni navigateur : ne les cherche
     pas. Ne crée et ne modifie aucun skill pendant cette exécution.
 
     Ne réponds jamais [SILENT] : même un résultat vide fait l'objet d'un compte
@@ -203,11 +218,15 @@ prospection-entreprises:
     ## Étape 2 — Périmètre
 
     Exclus :
-    - les entreprises déjà proposées lors d'une prospection précédente :
-      vérifie chaque nom avec session_search avant de le retenir (sauf signal
-      nouveau et notable, mentionné comme tel) ;
+    - les entreprises déjà suivies dans Kandidat : vérifie chaque nom avec
+      list_cibles et search_candidatures avant de le retenir (sauf signal
+      nouveau et notable, mentionné comme tel, avec son statut Kandidat) ;
     - les entreprises écartées de ton contexte professionnel.
+    Un ancien tri (« écartée faute de signal ») n'est pas une exclusion.
     Pour toutes les autres, la prospection est ouverte.
+
+    Si Kandidat ne répond pas, écris « historique Kandidat non vérifié » et
+    signale les doublons possibles.
 
     Signaux de besoin IT compatible, même sans offre publiée :
     - recrutements IT récents ou récemment pourvus (offres retirées, annonces

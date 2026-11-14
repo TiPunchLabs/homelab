@@ -684,7 +684,10 @@ def test_n08_profile_declarations_are_unchanged_since_m4(group_vars: dict[str, A
     if old.returncode != 0:
         pytest.skip(f"{M4_COMMIT} not in this clone")
     before = yaml.safe_load(old.stdout)
-    assert group_vars["hermes_profile_job_search"] == before["hermes_profile_job_search"]
+    # SCOUT-03 added the Kandidat entries, the MCP policy and the SOUL predecessor; nothing else changed.
+    from test_m4_scout import m4_era
+
+    assert m4_era(group_vars["hermes_profile_job_search"]) == before["hermes_profile_job_search"]
     assert group_vars["hermes_profiles"] == [p for p in before["hermes_profiles"] if "tech_watch" not in p]
     m7_keys = {"description", "soul_predecessor_sha256"}
     cafe, old_cafe = group_vars["hermes_profile_cafe_ia"], before["hermes_profile_cafe_ia"]

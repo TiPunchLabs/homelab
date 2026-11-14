@@ -573,7 +573,8 @@ def apply_profile(run: RunTasks, host: dict[str, Any], telegram: bool, *extra: s
     """Run the real profile_multiplex.yml for Kaféine against the fake container."""
     return run(
         "profile_multiplex.yml",
-        {"hermes_profile": cafe_ia(), "hermes_data_dir": str(host["data"]), "hermes_telegram_enabled": telegram},
+        {"hermes_profile": cafe_ia(), "hermes_data_dir": str(host["data"]), "hermes_install_dir": str(host["data"].parent),
+         "hermes_telegram_enabled": telegram},
         *extra,
     )
 
@@ -905,8 +906,10 @@ def lab(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
         for name, cfg in configs.items():
             home = "/opt/data" if name == "default" else f"/opt/data/profiles/{name}"
             allowed = [t for t in cfg["platform_toolsets.telegram"] if t != "no_mcp"]
+            # Same arguments as the role: Scout (SCOUT-03) lists its Kandidat servers instead of `no_mcp`.
+            no_mcp = "true" if "no_mcp" in cfg["platform_toolsets.telegram"] else "false"
             facts.setdefault("toolsets", {})[name] = _checks(
-                "toolsets", ",".join(allowed), ",".join(cfg["agent.disabled_toolsets"]), "true", env={"HERMES_HOME": home}
+                "toolsets", ",".join(allowed), ",".join(cfg["agent.disabled_toolsets"]), no_mcp, env={"HERMES_HOME": home}
             )
             if name != "default":
                 facts.setdefault("api_key", {})[name] = _checks("api-key", f"{home}/.env", env={"HERMES_HOME": home})

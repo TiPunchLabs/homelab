@@ -148,7 +148,10 @@ def test_k02_nora_and_scout_hints_unchanged() -> None:
     """Nora's and Scout's declarations are byte-identical to main before M7."""
     before = yaml.safe_load(at_base("hermes/ansible/group_vars/hermes/all/main.yml"))
     assert GROUP_VARS["hermes_default_nora"] == before["hermes_default_nora"]
-    assert GROUP_VARS["hermes_profile_job_search"] == before["hermes_profile_job_search"]
+    # SCOUT-03 changed Scout later (Kandidat); without it, the declaration is the pre-M7 one.
+    from test_m4_scout import m4_era
+
+    assert m4_era(GROUP_VARS["hermes_profile_job_search"]) == before["hermes_profile_job_search"]
 
 
 def test_k03_kafeine_tool_matrix_unchanged() -> None:
@@ -265,7 +268,10 @@ def test_i05_profile_multiplex_replaces_a_declared_soul_after_the_seed() -> None
     assert replace["when"] == "hermes_profile.soul_predecessor_sha256 is defined"
     assert replace["vars"]["hermes_soul_profile"] == "{{ hermes_profile.name }}"
     assert GROUP_VARS["hermes_profile_cafe_ia"]["soul_predecessor_sha256"] == PRE_M7_CAFE_SOUL_SHA
-    assert "soul_predecessor_sha256" not in GROUP_VARS["hermes_profile_job_search"]
+    # SCOUT-03: Scout's SOUL.md is replaced once too, from its M4.3 version only.
+    assert GROUP_VARS["hermes_profile_job_search"]["soul_predecessor_sha256"] == (
+        "f712d3359f8a9bcb3a1eb4481435d11e5c17c31cabac9c61e6ca3f4e3f0382fa"
+    )
 
 
 # --- Guarded replacement, real default_soul.yml ---------------------------------------------

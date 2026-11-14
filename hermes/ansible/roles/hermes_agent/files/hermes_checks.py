@@ -18,6 +18,10 @@ Usage (argv after `-c`):
     api-key <profile .env>                       (HERMES_HOME = the profile)
     toolsets <allowed,csv> <denied,csv> <no_mcp> (HERMES_HOME = the profile):
         toolset names AND the tools the model really receives
+    mcp <policy json>                            (HERMES_HOME = the profile):
+        declared MCP servers, platforms and approval policy; connects to
+        the servers (tools/list only) and judges the MCP tools each platform
+        really exposes. `{}` = no MCP server may be active.
     bot-identity <profile .env | -> <expected bot username>
                                                  (`-`: token on stdin, for a
                                                  profile not created yet)
@@ -331,6 +335,112 @@ def tool_errors(exposed: Mapping[str, set[str]], expected: set[str]) -> list[str
     return errors
 
 
+def _declared_server(spec: Any) -> dict[str, Any]:
+    """Return a server spec without the implicit `enabled: true`, for comparison."""
+    spec = dict(spec) if isinstance(spec, Mapping) else {}
+    if spec.get("enabled", True) is True:
+        spec.pop("enabled", None)
+    return spec
+
+
+def mcp_config_errors(servers: Any, declared: Mapping[str, Any]) -> list[str]:
+    """Judge a profile's `mcp_servers` against its declaration.
+
+    The enabled servers must be exactly the declared ones, each equal to its
+    declaration (a later `hermes mcp add` or an added `auth` is drift), with an
+    explicit `tools.include` list (never exclude-only: a new upstream tool would
+    appear by itself) and the generated resource/prompt utilities off.
+    """
+    errors: list[str] = []
+    enabled = enabled_mcp_servers(servers)
+    if enabled != set(declared):
+        errors.append(f"enabled MCP servers {sorted(enabled)} differ from the declared {sorted(declared)}")
+    for name, want in sorted(declared.items()):
+        tools = want.get("tools") if isinstance(want, Mapping) else None
+        include = tools.get("include") if isinstance(tools, Mapping) else None
+        if not isinstance(include, list) or not include:
+            errors.append(f"{name}: declaration without an explicit tools.include list")
+        elif "exclude" in tools:
+            errors.append(f"{name}: declaration carries tools.exclude")
+        if not isinstance(tools, Mapping) or tools.get("resources") is not False or tools.get("prompts") is not False:
+            errors.append(f"{name}: declaration must set tools.resources and tools.prompts to false")
+        if not isinstance(want, Mapping) or want.get("trust") not in ("full", "untrusted"):
+            errors.append(f"{name}: declaration must set trust to full or untrusted")
+        current = servers.get(name) if isinstance(servers, Mapping) else None
+        if current is None:
+            errors.append(f"{name}: not configured")
+        elif json.dumps(_declared_server(current), sort_keys=True) != json.dumps(_declared_server(want), sort_keys=True):
+            errors.append(f"{name}: configuration differs from the declaration")
+    return errors
+
+
+def mcp_platform_errors(
+    effective: Mapping[str, set[str]], servers: set[str], expected: Mapping[str, Sequence[str]]
+) -> list[str]:
+    """Judge which MCP servers each platform resolves (the gateway's own resolver)."""
+    errors: list[str] = []
+    for platform, toolsets in sorted(effective.items()):
+        got = toolsets & servers
+        want = set(expected.get(platform, ()))
+        if got != want:
+            errors.append(f"{platform}: MCP servers {sorted(got)} instead of {sorted(want)}")
+    return errors
+
+
+def mcp_hint_errors(
+    declared: Mapping[str, Any],
+    registered: Mapping[str, set[str]],
+    hints: Mapping[str, Mapping[str, Any]],
+    trust: Mapping[str, Any],
+    auto_writes: Mapping[str, Sequence[str]],
+) -> list[str]:
+    """Judge what the live servers register against the approval policy.
+
+    `registered` maps a server to the tool names Hermes registered for it
+    (after `tools.include`); `hints` to {tool: readOnlyHint} as Hermes captured
+    them at discovery, for every tool the server lists. Hermes treats anything
+    but True as write-capable. On a `full` server only the declared automatic
+    writes may be write-capable: any other would run without approval. On an
+    `untrusted` server every tool must be write-capable, so the gate asks for
+    each call; and none may be automatic.
+    """
+    errors: list[str] = []
+    for name, spec in sorted(declared.items()):
+        include = set(spec["tools"]["include"])
+        got = set(registered.get(name) or ())
+        seen = hints.get(name) or {}
+        if got - include:
+            errors.append(f"{name}: tools registered beyond tools.include: {', '.join(sorted(got - include))}")
+        if include - got:
+            errors.append(f"{name}: tools not registered (absent from the server?): {', '.join(sorted(include - got))}")
+        writes = {tool for tool in got if seen.get(tool) is not True}
+        level = trust.get(name)
+        if level != spec.get("trust"):
+            errors.append(f"{name}: Hermes applies trust {level!r}, declared {spec.get('trust')!r}")
+        if level == "full":
+            unapproved = sorted(writes - set(auto_writes.get(name, ())))
+            if unapproved:
+                errors.append(f"{name}: write-capable tools would run without approval: {', '.join(unapproved)}")
+        elif level == "untrusted":
+            if auto_writes.get(name):
+                errors.append(f"{name}: automatic writes declared on an approval-gated server")
+            ungated = sorted(got - writes)
+            if ungated:
+                errors.append(f"{name}: read-only tools would skip the approval gate: {', '.join(ungated)}")
+    return errors
+
+
+def mcp_exposure_errors(exposed: Mapping[str, set[str]], expected: Mapping[str, set[str]]) -> list[str]:
+    """Judge the MCP tools the model really receives on each platform."""
+    errors: list[str] = []
+    for platform in sorted(set(exposed) | set(expected)):
+        got, want = exposed.get(platform, set()), expected.get(platform, set())
+        if got != want:
+            extra, missing = sorted(got - want), sorted(want - got)
+            errors.append(f"{platform}: MCP tools beyond the policy {extra}, missing {missing}")
+    return errors
+
+
 def bot_identity_errors(reply: Any, expected_username: str) -> list[str]:
     """Judge a Telegram getMe reply against the bot username declared in Git.
 
@@ -639,6 +749,64 @@ def main(argv: list[str]) -> int:
             f"toolsets restricted to: {', '.join(sorted(set().union(*effective.values())))}"
             f" | tools: {', '.join(sorted(set().union(*exposed.values())))}",
         )
+    if mode == "mcp" and len(argv) == 2:
+        import logging
+
+        from hermes_cli.config import load_config
+        from hermes_cli.env_loader import load_hermes_dotenv
+        from hermes_cli.tools_config import _get_platform_tools
+
+        load_hermes_dotenv()
+        logging.disable(logging.CRITICAL)
+        import model_tools
+        from tools import mcp_tool as mcp_core
+        from tools.mcp_tool_discovery import register_mcp_servers
+        from tools.mcp_tool_lifecycle import shutdown_mcp_servers
+        from tools.mcp_tool_scope import _resolve_server_key
+        from tools.registry import registry
+
+        policy = json.loads(argv[1])
+        declared = policy.get("servers") or {}
+        cfg = load_config()
+        servers = cfg.get("mcp_servers") or {}
+        known = set(servers) if isinstance(servers, Mapping) else set()
+        effective = {p: set(_get_platform_tools(cfg, p)) for p in ("telegram", "cron", "api_server", "cli")}
+        errors = mcp_config_errors(servers, declared) + mcp_platform_errors(
+            effective, known | set(declared), policy.get("platforms") or {}
+        )
+        exposed: dict[str, set[str]] = {}
+        registered: dict[str, set[str]] = {name: set() for name in declared}
+        if not errors:
+            try:
+                if declared:
+                    register_mcp_servers({name: servers[name] for name in declared})
+                    keys = {name: _resolve_server_key(name) for name in declared}
+                    hints = {n: dict(mcp_core._tool_read_only_hints.get(k, {})) for n, k in keys.items()}
+                    trust = {n: mcp_core._server_trust_levels.get(k) for n, k in keys.items()}
+                    registered = {n: set(registry.get_tool_names_for_toolset(f"mcp-{n}")) for n in declared}
+                    origins = {n: {t.removeprefix(f"mcp__{n}__") for t in names} for n, names in registered.items()}
+                    errors += mcp_hint_errors(declared, origins, hints, trust, policy.get("auto_writes") or {})
+                disabled = (cfg.get("agent") or {}).get("disabled_toolsets") or None
+                # Every MCP definition the model would receive, whatever registered it (another server, a
+                # portable plugin): nothing is filtered out before the comparison.
+                for p, toolsets in effective.items():
+                    defs = model_tools.get_tool_definitions(
+                        enabled_toolsets=sorted(toolsets), disabled_toolsets=disabled, quiet_mode=True
+                    )
+                    names = {d["function"]["name"] for d in defs}
+                    exposed[p] = {
+                        n for n in names if n.startswith("mcp_") or (registry.get_toolset_for_tool(n) or "").startswith("mcp-")
+                    }
+                expected = {
+                    p: set().union(set(), *(registered.get(s, set()) for s in (policy.get("platforms") or {}).get(p, ())))
+                    for p in effective
+                }
+                errors += mcp_exposure_errors(exposed, expected)
+            finally:
+                if declared:
+                    shutdown_mcp_servers()
+        summary = "; ".join(f"{p}: {len(t)} MCP tools" for p, t in sorted(exposed.items()) if t) or "no MCP tool"
+        return _report(errors, f"MCP policy applied | {summary}")
     if mode == "bot-identity" and len(argv) == 3:
         import urllib.error
         import urllib.request

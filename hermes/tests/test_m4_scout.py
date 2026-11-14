@@ -160,6 +160,17 @@ def deployed(group_vars: dict[str, Any]) -> list[dict[str, Any]]:
     return [cafe, neo]
 
 
+def m4_era(scout: dict[str, Any]) -> dict[str, Any]:
+    """The declaration as M4.3 deployed it (v0.20.4 labs): no MCP server, `no_mcp` on every platform.
+
+    SCOUT-03 added Kandidat; its own lab (test_scout03_kandidat.py) covers today's declaration on v0.22.5.
+    """
+    cfg = {k: v for k, v in scout["config"].items() if not k.startswith("mcp_servers.")}
+    for key in [k for k in cfg if k.startswith("platform_toolsets.")]:
+        cfg[key] = [t for t in cfg[key] if not t.startswith("kandidat")] + ["no_mcp"]
+    return {k: v for k, v in scout.items() if k not in ("mcp_policy", "soul_predecessor_sha256")} | {"config": cfg}
+
+
 def resolved(scout: dict[str, Any], token: str = FAKE_TOKEN_4, username: str = FAKE_USERNAME) -> dict[str, Any]:
     """The job-search declaration with fakes in place of the vault keys, the bot name and the context."""
     return scout | {
@@ -235,13 +246,14 @@ def test_s03_dedicated_vault_references(group_vars: dict[str, Any], scout: dict[
     assert not re.search(r"\b\d{8,10}:[A-Za-z0-9_-]{30,}\b|tvly-[A-Za-z0-9]", GROUP_VARS.read_text())
 
 
-def test_s03_tavily_backend_no_mcp_no_cron(scout: dict[str, Any]) -> None:
-    """Tavily backend; no MCP server, no cron key, Kandidat named nowhere in the declaration."""
+def test_s03_tavily_backend_kandidat_only_mcp_no_cron(scout: dict[str, Any]) -> None:
+    """Tavily backend; no cron key. Since SCOUT-03 the only MCP servers are the two Kandidat entries
+    (allowlists and approval policy: test_scout03_kandidat.py)."""
     cfg = scout["config"]
     assert cfg["web.backend"] == "tavily"
-    assert not any(key.startswith(("mcp", "cron")) for key in cfg)
-    assert "no_mcp" in cfg["platform_toolsets.telegram"]
-    assert "kandidat" not in json.dumps(scout).lower()
+    assert not any(key.startswith("cron") for key in cfg)
+    assert sorted(k for k in cfg if k.startswith("mcp")) == ["mcp_servers.kandidat", "mcp_servers.kandidat_confirm"]
+    assert "no_mcp" not in cfg["platform_toolsets.telegram"]
 
 
 def test_s03_no_telegram_conflict_with_the_deployed_bots(
@@ -350,9 +362,10 @@ def test_s04_no_automatic_action_and_no_invention() -> None:
 
 
 def test_s04_soul_states_its_limits() -> None:
-    """No terminal, files, browser, Kandidat, MCP, sending tool or schedule: said, never promised."""
+    """No terminal, files, browser, other Kandidat tool or MCP server, sending tool or schedule (SCOUT-03)."""
     limits = SOUL.read_text().split("## Tes limites")[1]
-    for limit in ("ni terminal", "ni accès aux fichiers", "ni navigateur automatisé", "ni Kandidat", "MCP"):
+    for limit in ("ni terminal", "ni accès aux fichiers", "ni navigateur automatisé", "aucun autre outil Kandidat",
+                  "aucun autre serveur MCP"):
         assert limit in limits, limit
     assert "ni outil d'envoi" in limits and "ni tâches planifiées" in limits
 
@@ -517,20 +530,27 @@ def test_s05_tasks_reading_the_profile_mask_per_key() -> None:
 
 
 def test_s06_tool_matrix_is_kafeines(scout: dict[str, Any], group_vars: dict[str, Any]) -> None:
-    """Same least-privilege matrix as Kaféine (and Néo, D5, M3.3.1, until M7), on the four platforms."""
+    """Same least-privilege matrix as Kaféine (and Néo, D5, M3.3.1, until M7), on the four platforms.
+
+    SCOUT-03 adds the two Kandidat MCP entries (kandidat_confirm not on cron) and nothing else.
+    """
     cfg = scout["config"]
-    allowed = set(cfg["platform_toolsets.telegram"]) - {"no_mcp"}
+    allowed = set(cfg["platform_toolsets.telegram"]) - {"no_mcp", "kandidat", "kandidat_confirm"}
     denied = set(cfg["agent.disabled_toolsets"])
     assert allowed == ALLOWED
     assert (allowed | denied) <= HERMES_TOOLSETS
     assert SENSITIVE - {"browser"} <= denied
     assert {"terminal", "file", "code_execution", "cronjob", "kanban", "delegation", "computer_use"} <= denied
     assert "browser" not in denied and "browser" not in cfg["platform_toolsets.telegram"]
+    builtin = [t for t in cfg["platform_toolsets.telegram"] if not t.startswith("kandidat")]
     for platform in PLATFORMS:
-        assert cfg[f"platform_toolsets.{platform}"] == cfg["platform_toolsets.telegram"]
+        mcp = ["kandidat"] if platform == "cron" else ["kandidat", "kandidat_confirm"]
+        assert cfg[f"platform_toolsets.{platform}"] == [*builtin, *mcp], platform
     for other in ("hermes_profile_cafe_ia",):
         assert cfg["agent.disabled_toolsets"] == group_vars[other]["config"]["agent.disabled_toolsets"]
-        assert cfg["platform_toolsets.telegram"] == group_vars[other]["config"]["platform_toolsets.telegram"]
+        assert [t for t in cfg["platform_toolsets.telegram"] if not t.startswith("kandidat")] == [
+            t for t in group_vars[other]["config"]["platform_toolsets.telegram"] if t != "no_mcp"
+        ]
     assert cfg["skills.write_approval"] is True
 
 
@@ -624,7 +644,7 @@ def lab(scout: dict[str, Any]) -> dict[str, Any]:
         or subprocess.run([docker, "image", "inspect", IMAGE], capture_output=True, check=False).returncode != 0
     ):
         pytest.skip(f"{IMAGE} not available locally")
-    cfg = resolved(scout)["config"]
+    cfg = resolved(m4_era(scout))["config"]
     payload = json.dumps(
         [
             {k: hp.hermes_config_arg(v) for k, v in cfg.items()},
@@ -655,7 +675,7 @@ def test_s07_lab_config_applies_and_converges(lab: dict[str, Any], scout: dict[s
     """Real image: every key accepted, read back equal (the multi-line context included): no perpetual change."""
     assert lab["create"]["job-search"] == 0
     assert all(rc == 0 for rc in lab["set"].values()), lab["set"]
-    for key, value in resolved(scout)["config"].items():
+    for key, value in resolved(m4_era(scout))["config"].items():
         assert hp.hermes_config_equal(lab["get"][key], value), key
     assert json.loads(lab["get"]["agent.environment_hint"]) == FAKE_HINT
 
@@ -739,12 +759,13 @@ def test_s08_two_drafts_same_schedules_and_delivery(drafts: dict[str, Any], grou
 
 
 @pytest.mark.parametrize("name", list(ORIGINAL_SCHEDULES))
-def test_s08_drafts_need_no_kandidat_shell_file_or_browser(drafts: dict[str, Any], name: str) -> None:
-    """Only web_search/web_extract/session_search: no Kandidat tool, shell command, local path or script."""
+def test_s08_drafts_need_no_shell_file_or_browser(drafts: dict[str, Any], name: str) -> None:
+    """Web tools and, since SCOUT-03, Kandidat reads for deduplication; no gated or destructive Kandidat tool,
+    shell command, local path or script."""
     prompt = drafts[name]["prompt"]
-    assert "web_search" in prompt and "web_extract" in prompt and "session_search" in prompt
+    assert "web_search" in prompt and "web_extract" in prompt and "search_candidatures" in prompt
     assert not re.search(
-        r"mcp__|list_cibles|search_candidatures|create_cible|create_candidature|get_stats|"
+        r"mcp__|create_cible|update_cible|delete_|get_settings|"
         r"/opt/|\.py\b|\bcurl\b|\bpython3\b|playwright|chrome|sitemap|\bcd\b|write_file|read_file|terminal\s*:",
         prompt,
         re.IGNORECASE,
@@ -779,7 +800,9 @@ def test_s08_veille_keeps_its_logic(drafts: dict[str, Any]) -> None:
         "réserves",
     ):
         assert kept in prompt, kept
-    assert "Tu n'enregistres rien nulle part" in prompt
+    # SCOUT-03: every Kandidat write needs the owner's approval, impossible in cron: nothing is recorded there.
+    assert "Enregistrement : aucun en cron" in prompt
+    assert "« à enregistrer »" in prompt
     assert "applique la grille de ton SOUL au niveau déclaré dans ton" in prompt
     assert "un axe de progression" in prompt
 
