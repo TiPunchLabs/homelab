@@ -268,10 +268,12 @@ def test_i05_profile_multiplex_replaces_a_declared_soul_after_the_seed() -> None
     assert replace["when"] == "hermes_profile.soul_predecessor_sha256 is defined"
     assert replace["vars"]["hermes_soul_profile"] == "{{ hermes_profile.name }}"
     assert GROUP_VARS["hermes_profile_cafe_ia"]["soul_predecessor_sha256"] == PRE_M7_CAFE_SOUL_SHA
-    # SCOUT-03: Scout's SOUL.md is replaced once too, from its M4.3 version; SCOUT-04 adds the SCOUT-03 version.
+    # SCOUT-03: Scout's SOUL.md is replaced once too, from its M4.3 version; SCOUT-04 adds the SCOUT-03 version,
+    # KANDIDAT-SCOUT-01 the SCOUT-04 one.
     assert GROUP_VARS["hermes_profile_job_search"]["soul_predecessor_sha256"] == [
         "f712d3359f8a9bcb3a1eb4481435d11e5c17c31cabac9c61e6ca3f4e3f0382fa",
         "777470b3fcaced3a4f7e7322e30aed238bc61907bb56d8b4eb16d2c0ab5b2fc1",
+        "7fb4915a7c8951e60df769a40c6bd6aff1e4380db1b84b8abe94676bfd7073a9",
     ]
 
 

@@ -64,8 +64,9 @@ def test_b01_scout_permissions_unchanged(group_vars: dict[str, Any]) -> None:
 
 
 def test_b02_soul_predecessors_are_the_two_deployed_versions(group_vars: dict[str, Any]) -> None:
-    """The guard replaces the M4.3 or the SCOUT-03 SOUL (35d693d, live on hermes-31 on 2026-11-13), nothing else."""
-    assert group_vars["hermes_profile_job_search"]["soul_predecessor_sha256"] == [M43_SOUL, SCOUT03_SOUL]
+    """The guard replaces the M4.3 or the SCOUT-03 SOUL (35d693d, live on hermes-31 on 2026-11-13); KANDIDAT-SCOUT-01
+    appends the SCOUT-04 version (test_kscout01_compact_lookup.py)."""
+    assert group_vars["hermes_profile_job_search"]["soul_predecessor_sha256"][:2] == [M43_SOUL, SCOUT03_SOUL]
     previous = subprocess.run(
         ["git", "show", "35d693d:hermes/ansible/roles/hermes_agent/files/profiles/job-search/SOUL.md"],
         cwd=REPO, capture_output=True, check=False,
@@ -79,14 +80,8 @@ def test_b02_soul_predecessors_are_the_two_deployed_versions(group_vars: dict[st
 @pytest.mark.parametrize(
     "rule",
     [
-        "Arrête-toi seulement quand **cette offre-là** est identifiée",
-        "`get_candidature` avec le slug probable",
-        "prouve que l'entreprise est suivie, pas que cette offre l'est",
-        "Continue donc avec l'étape 2",
-        "ne cherche que dans le texte des fiches et respecte la casse",
-        "un résultat vide ne prouve pas l'absence",
-        "au plus une fois par demande",
-        "« présence dans Kandidat non vérifiable », jamais « absente de Kandidat »",
+        # The SCOUT-04 lookup steps were replaced by KANDIDAT-SCOUT-01's targeted lookups
+        # (test_kscout01_compact_lookup.py); the rules below are kept.
         "Pendant le traitement d'une même demande, ne relis pas",
         "À un nouveau message, avant toute nouvelle recommandation ou proposition d'écriture, relis les fiches",
         "**Recherche bornée**",
