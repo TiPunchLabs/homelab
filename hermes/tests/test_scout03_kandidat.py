@@ -332,7 +332,8 @@ def test_t04_failed_check_then_retry_restarts_once(scout: dict[str, Any], tmp_pa
 
 
 def test_t04_soul_replaced_once_from_the_m43_version() -> None:
-    """The live SOUL.md is replaced only if it is still the M4.3 one (checked on hermes-31 on 2026-11-12)."""
+    """The live SOUL.md is replaced only if it is still a declared predecessor: the M4.3 one (checked on hermes-31 on
+    2026-11-12) stays one of them (SCOUT-04 adds the SCOUT-03 version)."""
     previous = subprocess.run(
         ["git", "show", "origin/main:hermes/ansible/roles/hermes_agent/files/profiles/job-search/SOUL.md"],
         cwd=REPO,
@@ -343,8 +344,8 @@ def test_t04_soul_replaced_once_from_the_m43_version() -> None:
     if previous.returncode == 0 and b"Kandidat \xe2\x80\x94 l'historique" not in previous.stdout:
         import hashlib
 
-        assert hashlib.sha256(previous.stdout).hexdigest() == decl["soul_predecessor_sha256"]
-    assert hashlib_of(SOUL) != decl["soul_predecessor_sha256"]
+        assert hashlib.sha256(previous.stdout).hexdigest() in decl["soul_predecessor_sha256"]
+    assert hashlib_of(SOUL) not in decl["soul_predecessor_sha256"]
 
 
 def hashlib_of(path: Path) -> str:

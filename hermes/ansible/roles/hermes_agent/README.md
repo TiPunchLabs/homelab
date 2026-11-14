@@ -1136,6 +1136,52 @@ Facts stated in chat are recorded through `update_candidature` with the
 owner's approval; facts recorded by hand in the Kandidat UI are visible to
 Scout immediately.
 
+### Search consumption (SCOUT-04)
+
+Measured on hermes-31 (2026-11-13, one bounded search through the gateway
+API, per-call `API call #N` lines of the profile `agent.log` and the session
+in `state.db`): the `usage.prompt_tokens` an API turn returns
+(`session_prompt_tokens`, `agent/turn_usage.py`) is the **sum of the prompt
+of every model call** of the turn, not a context size. 18 calls summed to
+669,431; the largest single prompt was 61,106; DeepSeek reported 91.6 % of
+that input as cache hits.
+
+| Contributor (cumulative input of the turn) | Share | Evidence |
+|---|---|---|
+| Fixed prefix re-sent each call (system prompt, SOUL, 20 tool schemas, private context) | 38 % | exact: first prompt × calls |
+| `web_search` results (11 calls) | ~28 % | estimate: growth between calls split by characters |
+| `web_extract` results (13 calls) | ~18 % | same |
+| DeepSeek reasoning echoed on tool turns (`agent/reasoning_params.py`) | ~10 % | same |
+| All Kandidat reads | ~4 % | same; `list_cibles` was spilled (preview only) |
+| After the answer: background skill review, 3 calls (separate fork, not in the turn's usage) | +205,590 prompt tokens, 96.8 % cached | sum of its 3 `API call #N` lines (= `in` 6,678 uncached + `cache_read` 198,912 of its completion line) |
+
+Changes (Scout only): `skills.creation_nudge_interval: 0` removes the
+post-answer skill review (`agent/turn_finalizer.py` requires > 0; skills
+stay usable, and any skill write still needs approval; the separate memory
+review, every `memory.nudge_interval` user turns, is unchanged). SOUL.md: Kandidat
+lookup from the most precise read to the broadest (a company match does
+not end the check for the offer itself; records are re-read at each new
+message, since the owner may edit Kandidat), and a bounded research
+rule (about three qualified offers, about ten Web searches, `char_limit`
+5000, no retry of a failed extraction, say what was not covered). The SOUL
+guard now accepts the M4.3 and the SCOUT-03 versions as predecessors.
+
+**Completeness limit (Kandidat a0cf66ea):** `list_cibles` (no argument, ~92k
+chars for 122 companies, half of it notes and descriptions) and
+`list_candidatures` (~73k chars for 41 applications, 62 % `contenu`) exceed
+Hermes' 50k MCP result threshold (`tool_budget.mcp_result_size_chars`): the
+model gets a 1.5k preview and Scout has no file tool to read the rest.
+`search_candidatures` searches only application text and attached Markdown
+files, case-sensitively in the database, not the company name or title its
+description announces. So a company without an application cannot be
+looked up completely: Scout says « présence dans Kandidat non vérifiable ».
+Raising the threshold would put ~25k tokens per list into every later call.
+Kandidat-side fix (separate mission): a name filter and a compact projection
+on both list tools (for example `list_cibles(q, fields=compact)` returning
+`id, nom, categorie, contactee, candidatures_count, url`, 16k chars measured for all
+122, a few hundred for a filtered lookup), and `search_candidatures` matching
+`entreprise`/`poste` case-insensitively.
+
 ### Cron drafts (M4.4, not created)
 
 `hermes/cron-drafts/job-search.yml`: `veille-emploi` (`0 7 * * 1` UTC) and
