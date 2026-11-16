@@ -39,3 +39,5 @@ pihole_local_records:
     domain: hermes.internal
   - ip: 192.168.10.70
     domain: openwebui.internal
+  - ip: 192.168.10.70
+    domain: portainer.internal

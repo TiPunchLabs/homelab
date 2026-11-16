@@ -36,6 +36,7 @@ Hosts not provisioned by this repo but consumed by homelab services.
 | kemax01 | 192.168.10.35 | Standalone host, own SSH key (`~/.ssh/ansible_id`). **Occupe une IP de la plage `.30-.39`** — en tenir compte avant d'y placer une nouvelle VM. |
 | Ollama (workstation) | 192.168.10.217 | LLM backend for kandidat (configured by IP in the app settings). May change IP / be offline (laptop). |
 | Open WebUI (workstation) | 192.168.10.217:3030 | Same laptop (`hixmaster-laptop`, Wi-Fi MAC `b8:1e:a4:da:3e:4d`; static DHCP lease on WERTMESH1800 recorded 2026-06-11). Container managed by laptop-bootstrap (role `open_webui`). Upstream of `openwebui.internal` via Caddy; reachable only if laptop-bootstrap publishes 3030 beyond loopback (default `127.0.0.1`), and offline whenever the laptop is. |
+| Portainer CE (workstation) | 192.168.10.217:9443 | Same laptop. Container managed by laptop-bootstrap (role `portainer`), HTTPS only with Portainer's self-signed certificate (HTTP 9000 disabled). Upstream of `portainer.internal` via Caddy; laptop-bootstrap publishes 9443 beyond loopback (default `127.0.0.1`) only for `192.168.10.70`, and it is offline whenever the laptop is. |
 
 ### Important ports
 
@@ -186,6 +187,7 @@ Two kinds of records:
 | `miniboard.internal` | 192.168.10.70 | via Caddy |
 | `hermes.internal` | 192.168.10.70 | via Caddy (dashboard Hermes Agent) |
 | `openwebui.internal` | 192.168.10.70 | via Caddy (Open WebUI on the laptop `192.168.10.217:3030`, only while the laptop is on) |
+| `portainer.internal` | 192.168.10.70 | via Caddy (Portainer CE on the laptop `https://192.168.10.217:9443`, only while the laptop is on) |
 
 > 💡 **Note**: Docker containers do **not** inherit `.internal` resolution from the
 > dockhost — its `/etc/resolv.conf` points to `systemd-resolved`, not Pi-hole. A
