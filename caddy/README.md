@@ -23,6 +23,7 @@ The project deploys a Caddy reverse proxy that handles traffic for internal serv
 - **kandidat.internal** - Kandidat application (http://192.168.10.90:8000) — served over HTTPS (`tls_internal`)
 - **vpngate.internal** - WireGuard VPN management interface (http://192.168.10.50:51821)
 - **openwebui.internal** - Open WebUI on the owner's laptop (http://192.168.10.217:3030, deployed by laptop-bootstrap) — served over HTTPS (`tls_internal`). Reachable only while the laptop is on the LAN and publishes port 3030 beyond loopback; otherwise 502
+- **portainer.internal** - Portainer CE on the owner's laptop (https://192.168.10.217:9443, deployed by laptop-bootstrap) — served over HTTPS (`tls_internal`), upstream self-signed certificate accepted with `tls_insecure_skip_verify` (this backend only). Reachable only while the laptop is on the LAN and publishes 9443 for Caddy; otherwise 502
 
 ### Per-Backend Flags
 

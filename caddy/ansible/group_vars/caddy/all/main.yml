@@ -109,3 +109,21 @@ caddy_backends:
     upstream: http://192.168.10.217:3030
     tls_internal: true
     tls_insecure_skip_verify: false
+  # Portainer CE on the owner's laptop (same host as openwebui, .217),
+  # deployed by laptop-bootstrap (role portainer, host port 9443, HTTPS only:
+  # HTTP 9000 is disabled upstream-side). Available only while the laptop is on
+  # and on the LAN: otherwise Caddy answers 502. laptop-bootstrap publishes 9443
+  # beyond loopback only for 192.168.10.70 (DOCKER-USER filter), and only once
+  # the admin account exists. tls internal: login and session token, which are
+  # root-equivalent on the laptop through the Docker socket.
+  # tls_insecure_skip_verify, scoped to this backend: Portainer serves its own
+  # self-signed leaf (no issuer, CA:FALSE, SAN localhost + 0.0.0.0 only, never
+  # 192.168.10.217), regenerated whenever its /data volume is recreated. Pinning
+  # it would need a new template option, a tls_server_name override and a cert
+  # copied by hand from the laptop, silently turning into 502 on regeneration.
+  # The hop stays encrypted; only an active MITM on the LAN is not detected.
+  - name: portainer
+    domain: portainer.internal
+    upstream: https://192.168.10.217:9443
+    tls_internal: true
+    tls_insecure_skip_verify: true

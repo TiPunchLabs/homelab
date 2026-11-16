@@ -235,11 +235,11 @@ Dans les faits la decision avait deja derive : `tls_internal: true` etait en pla
 
 > 💡 **Note** : `.internal` est un TLD reserve (RFC 6761 / RFC 8375). **Aucune CA publique n'emettra jamais** pour ces noms — la CA locale de Caddy n'est pas un repli faute de mieux, c'est la seule option techniquement possible. Le cas d'un vrai certificat Let's Encrypt est traite separement, sur un nom public (`portail-client.tipunchlabs.fr`, ACME DNS-01 OVH).
 
-Etat au 2026-11-07 (`portainer` et l'`openwebui` de dockhost retires le 2026-10-31, `excalidraw` le 2026-11-05 ; `openwebui` reintroduit le 2026-11-07, upstream = laptop `192.168.10.217:3030` gere par laptop-bootstrap) :
+Etat au 2026-11-16 (`portainer` et l'`openwebui` de dockhost retires le 2026-10-31, `excalidraw` le 2026-11-05 ; `openwebui` reintroduit le 2026-11-07, upstream = laptop `192.168.10.217:3030` gere par laptop-bootstrap ; `portainer` reintroduit le 2026-11-16, upstream = laptop `https://192.168.10.217:9443`, certificat auto-signe de Portainer accepte par `tls_insecure_skip_verify` limite a ce backend) :
 
 | Mode | Backends |
 |---|---|
-| **HTTPS** (`tls_internal: true`) | `proxmox`, `kandidat`, `portail-client`, `hermes`, `openwebui` |
+| **HTTPS** (`tls_internal: true`) | `proxmox`, `kandidat`, `portail-client`, `hermes`, `openwebui`, `portainer` |
 | **HTTP** (defaut) | `vpngate`, `pihole`, `komodo`, `miniboard` |
 | **HTTPS public** (`tls_public`, ACME DNS-01 OVH) | `portail-client.tipunchlabs.fr` |
 
