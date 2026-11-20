@@ -1,0 +1,159 @@
+{
+  "limits": {
+    "messages_per_request": 8,
+    "max_pages": 1,
+    "list_response_max_bytes": 262144,
+    "get_response_max_bytes": 262144,
+    "html_input_max_chars": 200000,
+    "subject_max_chars": 160,
+    "sender_max_chars": 120,
+    "body_max_chars": 3000,
+    "attachments_listed_max": 5,
+    "attachment_name_max_chars": 80,
+    "model_context_max_chars": 20000,
+    "model_calls_per_request": 1,
+    "model_max_output_tokens": 1200,
+    "model_response_max_bytes": 65536,
+    "http_retries": 1,
+    "retry_after_max_s": 2.0,
+    "http_timeout_s": 10.0,
+    "model_timeout_s": 40.0,
+    "wall_clock_s": 75.0,
+    "reply_max_chars": 3500
+  },
+  "runs": [
+    {
+      "batch": "all_fixtures",
+      "action": "",
+      "messages_in_inbox": 10,
+      "message_json_bytes": {
+        "min": 511,
+        "max": 847,
+        "median": 646.5
+      },
+      "list_response_bytes": 3689,
+      "http_calls": 9,
+      "model_calls": 1,
+      "read": 8,
+      "has_more": true,
+      "model_context_chars": 4460,
+      "model_request_bytes": 5028,
+      "reply_chars": 3446,
+      "reply_parts": 2,
+      "not_shown": false,
+      "local_processing_ms_median": 1.4,
+      "local_processing_ms_max": 1.89
+    },
+    {
+      "batch": "all_fixtures",
+      "action": "liste",
+      "messages_in_inbox": 10,
+      "message_json_bytes": {
+        "min": 511,
+        "max": 847,
+        "median": 646.5
+      },
+      "list_response_bytes": 3689,
+      "http_calls": 9,
+      "model_calls": 0,
+      "read": 8,
+      "has_more": true,
+      "model_context_chars": 0,
+      "model_request_bytes": 0,
+      "reply_chars": 3056,
+      "reply_parts": 2,
+      "not_shown": false,
+      "local_processing_ms_median": 1.08,
+      "local_processing_ms_max": 1.26
+    },
+    {
+      "batch": "typical_alerts_x8",
+      "action": "",
+      "messages_in_inbox": 8,
+      "message_json_bytes": {
+        "min": 2332,
+        "max": 2332,
+        "median": 2332.0
+      },
+      "list_response_bytes": 4266,
+      "http_calls": 9,
+      "model_calls": 1,
+      "read": 8,
+      "has_more": false,
+      "model_context_chars": 17201,
+      "model_request_bytes": 18821,
+      "reply_chars": 3487,
+      "reply_parts": 2,
+      "not_shown": false,
+      "local_processing_ms_median": 1.87,
+      "local_processing_ms_max": 2.5
+    },
+    {
+      "batch": "typical_alerts_x8",
+      "action": "liste",
+      "messages_in_inbox": 8,
+      "message_json_bytes": {
+        "min": 2332,
+        "max": 2332,
+        "median": 2332.0
+      },
+      "list_response_bytes": 4266,
+      "http_calls": 9,
+      "model_calls": 0,
+      "read": 8,
+      "has_more": false,
+      "model_context_chars": 0,
+      "model_request_bytes": 0,
+      "reply_chars": 3637,
+      "reply_parts": 2,
+      "not_shown": false,
+      "local_processing_ms_median": 1.76,
+      "local_processing_ms_max": 1.89
+    },
+    {
+      "batch": "html_newsletters_x8",
+      "action": "",
+      "messages_in_inbox": 8,
+      "message_json_bytes": {
+        "min": 9966,
+        "max": 9966,
+        "median": 9966.0
+      },
+      "list_response_bytes": 3434,
+      "http_calls": 9,
+      "model_calls": 1,
+      "read": 8,
+      "has_more": false,
+      "model_context_chars": 19977,
+      "model_request_bytes": 22448,
+      "reply_chars": 3679,
+      "reply_parts": 2,
+      "not_shown": false,
+      "local_processing_ms_median": 6.95,
+      "local_processing_ms_max": 7.9
+    },
+    {
+      "batch": "html_newsletters_x8",
+      "action": "liste",
+      "messages_in_inbox": 8,
+      "message_json_bytes": {
+        "min": 9966,
+        "max": 9966,
+        "median": 9966.0
+      },
+      "list_response_bytes": 3434,
+      "http_calls": 9,
+      "model_calls": 0,
+      "read": 8,
+      "has_more": false,
+      "model_context_chars": 0,
+      "model_request_bytes": 0,
+      "reply_chars": 4117,
+      "reply_parts": 2,
+      "not_shown": false,
+      "local_processing_ms_median": 6.6,
+      "local_processing_ms_max": 7.14
+    }
+  ],
+  "note": "Offline, fake backend: network and model latency are NOT measured here; see runbook for live timing."
+}

@@ -1,12 +1,12 @@
 # Report — homelab/2026-11-20-scout-agentmail-readonly (SCOUT-MAIL-01)
 
 Verdict: PARTIAL
-Version: 78ee2eee3593f25f792793d855dd30cdbc0e6efb
+Version: edcd9fe70508f51ad2d06bc84ea3322f11ad5c12
 
 The verdict is PARTIAL because three required items are not verified:
 - the live behavioral evaluation (AC10: no model credential was legitimately available);
 - the AgentMail provider-side key scope and the read smoke test (inbox id, key scope and key provisioning are owner inputs, see `owner-questions.md`);
-- the independent review, which pilotage routes after this report.
+- the independent review: review 1 (Codex, on 78ee2ee) returned CHANGES_REQUESTED with F1–F3; all three are fixed in the Version above (§K) and await re-review.
 
 Everything else is implemented and verified offline, including on the real Hermes v0.22.5 image. Production is unchanged.
 
@@ -18,7 +18,7 @@ Delivered on branch `feat/scout-agentmail-readonly` (draft MR, see §F):
 - a Hermes user plugin `scout_mail`, deployed and enabled in Scout's profile only, disabled by default. It provides one gateway command, `/courriels [liste|suite|aide]`, and four guard hooks, and registers no tool;
 - Ansible wiring (`tasks/scout_mail.yml`, kill switch, key handling, post-restart check `hermes_checks.py scout-mail`);
 - ADR-002, threat model and enforcement matrix, operator runbook;
-- 90 new tests: 74 deterministic plugin tests, 5 in the real Hermes v0.22.5 image, and 11 Ansible-wiring tests (parameter cases included).
+- 105 new tests: 89 deterministic plugin tests (15 added after review 1), 5 in the real Hermes v0.22.5 image, and 11 Ansible-wiring tests (parameter cases included).
 
 Not achieved in this mission: live model evaluation, provider-side key scope verification, read smoke test, independent review, deployment (out of scope by design).
 
@@ -53,7 +53,7 @@ The owner can still carry it over. Discovery found that a Telegram reply injects
 - `transform_tool_result`: a tool result containing such text (for example `session_search`) is replaced and the session tainted;
 - `pre_tool_call`: every tool is vetoed in a tainted session, for good. `/new` starts clean.
 
-The ledger stores message ids, 8-byte hashes and tainted session ids, never text (0600, 30-day retention). On any internal error the hooks fail closed.
+The ledger stores message ids, 8-byte hashes and tainted session ids, never text (0600). It never expires or evicts an entry; it has hard capacities (20,000 results, 300,000 fingerprints, 100,000 sessions) and fails closed when one is reached: no new digest is delivered, an unrecordable session restriction is kept in memory, and all Scout messages are refused at session capacity. On any internal error the hooks fail closed.
 
 No global registry mutation: the plugin is discovered per profile home and enabled in Scout's `plugins.enabled` only. Verified on the image: present for job-search, absent for default and cafe-ia, no toolset added, 400 concurrent decisions across 3 homes with 0 under-blocks and 0 over-blocks.
 
@@ -73,7 +73,7 @@ ENFORCED, in code:
 - AgentMail GET only, on a fixed host and one inbox (settings, never chat or model);
 - message ids only from that inbox's list, ownership re-checked on get, path/traversal/control characters refused;
 - redirects refused, TLS verified, `trust_env=False`; no link, image, attachment or raw fetch;
-- byte, char, page, call, retry and deadline ceilings; one model call;
+- byte, char, page, call, retry and deadline ceilings; the deadline holds during HTTP streaming (socket watchdog plus per-chunk check); the context cap covers system prompt, prefix and data; one model call;
 - neutralized rendering; caller authorization;
 - reply/paste refusal; session taint and tool veto; tool-result scrubbing;
 - secrets per host only; fixed French errors; logs are counts only;
@@ -102,8 +102,9 @@ OWNER PROCEDURE (not code):
 | 6 Cross-inbox ids, unknown tools, unexpected fields, readOnlyHint drift | `test_c6_01`..`test_c6_06` |
 | 7 Oversized, malformed, pages, rate limits, retry loops; explicit partial results | `test_c7_01`..`test_c7_12` |
 | 8 Concurrency, cancellation, exception then retry, Scout/Nora/Kaféine | `test_c8_01`..`test_c8_05`; image: `test_c8_06_concurrent_multi_profile_decisions_never_leak`, `test_c8_07_command_absent_elsewhere_and_fail_closed_in_scout`, `test_i01_plugin_loads_for_scout_only`, `test_i02_no_tool_added_to_the_global_registry` |
-| 9 Secret redaction, log retention, sentinels | `test_c9_01`..`test_c9_04`, `test_r05_retention_prunes_old_results`, `test_role_02_enabled_requires_inbox_and_key_and_never_prints_the_key` |
+| 9 Secret redaction, log retention, sentinels | `test_c9_01`..`test_c9_04`, `test_r05_nothing_expires_with_time`, `test_role_02_enabled_requires_inbox_and_key_and_never_prints_the_key` |
 | 10 Existing tests and repo checks | full suite, see below |
+| Review 1 regressions | `test_f1_01`..`test_f1_05` (F1), `test_f2_01`..`test_f2_03` (F2), `test_f3_01`..`test_f3_03` (F3), see §K |
 
 Ansible wiring: `test_role_01` … `test_role_06` (including `test_role_02b_switch_out_of_sync_with_declaration_is_refused`).
 
@@ -111,14 +112,15 @@ Ansible wiring: `test_role_01` … `test_role_06` (including `test_role_02b_swit
 
 | Check | Command / location | Result | Status |
 |---|---|---|---|
-| New plugin tests (deterministic) | `.venv/bin/python -m pytest hermes/tests/test_scout_mail.py` | 74 passed | VERIFIED |
+| New plugin tests (deterministic) | `.venv/bin/python -m pytest hermes/tests/test_scout_mail.py` | 89 passed (74 before review 1) | VERIFIED |
 | Real image tests (Hermes v0.22.5, `--network none`) | `hermes/tests/test_scout_mail_image.py` | 5 passed | VERIFIED |
 | Ansible wiring tests (real `tasks/scout_mail.yml` on localhost, fake key) | `hermes/tests/test_scout_mail_role.py` | 11 passed | VERIFIED |
 | Deploy-time check in the image (disabled / enabled / mismatch) | `hermes_checks.py scout-mail` run inside the image | "inactive everywhere" rc 0 / "active for job-search only" rc 0 / mismatch rc 1 | VERIFIED |
 | Baseline, before any change (HEAD 3d7bf18) | `evidence/m3-baseline-tests.md` | 711 of 749 reported before the 25-min cap; 1 failure (`test_m5_recovery.py::test_r10_…`), not reproduced in isolation (intermittent) | PARTIAL (38 not executed) |
 | Full suite after change, run 1 | `evidence/m3-post-change-tests.md` | 10 regressions from the first wiring (all reproduced), fixed (see §F) | superseded |
-| Full suite after change, run 2 (code = 78ee2ee), per file | `evidence/m3-post-change-tests-2.md` | 839 collected: 809 passed, 0 failed, 30 skipped, 0 errors | VERIFIED |
-| Skips | same | 27 need image `v2026.8.18` (not local), 3 need the vault password (`test_m63_multiplex.py` effective-inventory tests). Those 3 passed in an earlier targeted executor run where vault access was available | NOT_APPLICABLE |
+| Full suite after change, run 2 (code = 78ee2ee), per file | `evidence/m3-post-change-tests-2.md` | 839 collected: 809 passed, 0 failed, 30 skipped, 0 errors | superseded |
+| Full suite after review 1 fixes (code = edcd9fe), per file | `evidence/m6-post-review-1-tests.md` | 854 collected: 827 passed, 0 failed, 27 skipped, 0 errors | VERIFIED |
+| Skips | same | 27 need image `v2026.8.18` (not local). The 3 vault-dependent tests skipped in run 2 ran and passed in this run | NOT_APPLICABLE |
 | ansible-lint (production profile) | `.venv/bin/ansible-lint` on role tasks, defaults, group_vars | 0 failures, 0 warnings | VERIFIED |
 | Syntax check | `ansible-playbook ansible/deploy.yml --syntax-check` | pass | VERIFIED |
 | `--check --diff` against hermes-31 | — | not run: it would decrypt the vault and contact the host | NOT_VERIFIED |
@@ -142,14 +144,14 @@ Defaults (`files/plugins/scout_mail/config.py` `Limits`; every override is bound
 | Bytes per AgentMail response | 256 KiB |
 | HTML input per message | 200,000 chars |
 | Field length | subject 160, sender 120, body 3,000 chars |
-| Total model context | 20,000 chars |
+| Total model context | 20,000 chars: system prompt + prefix + data (minimum setting 4,000) |
 | Model calls per request | 1 |
 | Model output | 1,200 tokens |
 | Retries | 1, only on 429 or 5xx, Retry-After at most 2 s |
-| Timeouts | HTTP 10 s, model 40 s, wall clock 75 s |
+| Timeouts | HTTP 10 s, model 40 s per network operation; wall clock 75 s, enforced during streaming (residual: DNS resolution, bounded by the system resolver) |
 | Reply | 3 parts of 3,500 chars |
 
-Fixture run (`hermes/tests/scout_mail_fixture_run.py`, `evidence/m3-fixture-run.json`; offline, so network and model latency are not included):
+Fixture run (`hermes/tests/scout_mail_fixture_run.py`, `evidence/m3-fixture-run.json`; offline, so network and model latency are not included). The model-context column below is data only (pre-review); after F3 the TOTAL context is 4,460 / 17,201 / 19,977 chars and request bytes 5,028 / 18,821 / 22,448 (`evidence/m6-fixture-run-r1.json`):
 
 | Batch (8 read) | Model context (chars) | Model request (bytes) | Reply (chars) | Parts | All shown | Local CPU (ms, median) |
 |---|---|---|---|---|---|---|
@@ -181,13 +183,16 @@ NOT_VERIFIED: 0 of 40 calls used. Reason and owner command: `evidence/m4-live-ev
 ## F. Deviations, risks and limitations
 
 - Residual: if the owner paraphrases or retypes mail content (fewer than about 55 contiguous letters/digits, or reworded) into an ordinary Scout message, it is not detected. That is owner-authored input, not mail authority (`test_c4_detector_miss_does_not_restore_privileges`).
-- Residual: a cancelled `/courriels` lets its worker thread finish in-flight HTTP calls (bounded by 75 s). It delivers and records nothing.
+- Residual: a cancelled `/courriels` lets its worker thread finish in-flight HTTP calls (bounded by the 75 s deadline, now enforced during streaming). It delivers and records nothing.
+- Residual: name resolution of the two fixed hosts happens before a socket exists and is bounded by the system resolver, not by the deadline watchdog.
+- Operations: the ledger grows without expiry; at capacity `/courriels` stops delivering until the operator archives it together with `/new` (runbook §8). Archiving re-opens quoting of archived digests only where the marker is absent.
 - Residual: the summary can be wrong or influenced by the mail. It is labeled "IA, non vérifiée" and is inert.
 - Data flow: requested mail text goes to DeepSeek (Scout's existing provider). `/courriels liste` makes no model call.
 - Dependency: the isolation relies on Hermes v0.22.5 plugin scoping and dispatch order. The image tests must be re-run before any Hermes upgrade.
 - Busy path: a Telegram reply sent while Scout is mid-turn goes through Hermes' busy handler. That handler was not exercised end to end (no live gateway). Layer 2 (taint plus veto) covers it at unit level (`test_c5_03`).
 - Not verified: the `scout_mail request …` log line landing in `profiles/job-search/logs/agent.log` (Hermes logger routing). The runbook uses it as evidence; confirm on first use.
-- Availability trade-off: a corrupt ledger blocks Scout's tools and messages (fail closed). Runbook §8 covers it.
+- Availability trade-off: a corrupt or full ledger blocks Scout's tools, messages or new digests (fail closed). Runbook §8 covers it.
+- Settings change: `retention_days` was removed from the plugin settings (unused by the role); `model_context_max_chars` minimum raised from 2,000 to 4,000 so the fixed instructions always leave room for data.
 - First deployment after merge (feature off) writes the inert plugin and `plugins.enabled: []`, causing one gateway restart (runbook §1).
 - Known intermittent test: `test_m5_recovery.py::test_r10_closed_database_is_restored_with_its_sidecars_set_aside` failed once in the baseline run and passed in isolation (`evidence/m3-baseline-tests.md`).
 - Process deviations:
@@ -202,9 +207,9 @@ NOT_VERIFIED: 0 of 40 calls used. Reason and owner command: `evidence/m4-live-ev
 | Item | Value |
 |---|---|
 | Branch | `feat/scout-agentmail-readonly`, pushed, tracking `origin` (`git@gitlab.com:tipunchlabs/homelab.git`) |
-| Delivered code commit (Version) | `78ee2eee3593f25f792793d855dd30cdbc0e6efb` feat(hermes): ajouter /courriels, lecture seule AgentMail isolee pour Scout |
+| Delivered code commit (Version) | `edcd9fe70508f51ad2d06bc84ea3322f11ad5c12` fix(hermes): durcir scout_mail apres la revue 1 (registre, delai, contexte), on top of `78ee2ee` feat(hermes): ajouter /courriels |
 | Mission evidence commit | `1b27f9f` docs(missions): consigner la mission SCOUT-MAIL-01 et ses preuves |
-| Report commit | follows this file (docs(missions)) |
+| Report commits | `a9e4a81` (initial); review 1 update follows this file (docs(missions)) |
 | Draft MR | !109 https://gitlab.com/tipunchlabs/homelab/-/merge_requests/109 (draft: true, opened, target main, source branch kept). Created through git push options because `glab api user` returned 401 |
 | CI | Pipeline 3094652113 on 1b27f9f (contains 78ee2ee): success. Jobs: scan-docker-images, gitleaks, security-check, shell-lint, runner-quota-tests, terraform-lint, ansible-lint all succeeded. Read from the public API. The pipeline does not run the hermes pytest suite; that suite was run locally (§E) |
 | Merge | not done (out of scope) |
@@ -231,6 +236,7 @@ Executor session model: Claude Opus 5.5 (`claude-opus-5-5`). Design, security re
 | Baseline test run, attempt 2 (`evidence/m3-baseline-tests.md`) | Haiku |
 | Post-change suite, ansible-lint, syntax-check, pre-commit (`evidence/m3-post-change-tests.md`) | Haiku |
 | Post-change suite after fixes (`evidence/m3-post-change-tests-2.md`) | Haiku |
+| Review 1 fixes, tests and full-suite run (`evidence/m6-post-review-1-tests.md`) | none (executor, Opus) |
 
 ## I. Decisions required (owner)
 
@@ -241,4 +247,27 @@ Executor session model: Claude Opus 5.5 (`claude-opus-5-5`). Design, security re
 
 ## J. Recommended next action
 
-Pilotage routes the independent Codex review of the draft MR. Focus: permission bypass, mail-to-privileged-context handoff, multi-profile concurrency, secrets, unintended writes. In parallel, relay `owner-questions.md` to the owner. No production action is safe or authorized before merge and the owner's answers.
+Pilotage routes Codex review 2 of the draft MR at the Version above (review cap 3). Focus: permission bypass, mail-to-privileged-context handoff, multi-profile concurrency, secrets, unintended writes. In parallel, relay `owner-questions.md` to the owner. No production action is safe or authorized before merge and the owner's answers.
+
+## K. Review 1 (Codex, on 78ee2ee): findings, fixes, tests
+
+Review: `review-1.md`, verdict CHANGES_REQUESTED. Fixes in `edcd9fe70508f51ad2d06bc84ea3322f11ad5c12`.
+
+F1 [blocker] taint/session restriction expiry.
+- Finding: `taint.py` pruned results after 60 records or 30 days and sessions after 30 days or 2,000 entries, so an old digest could be quoted or a restricted session regain tools.
+- Fix: no time-based expiry and no eviction (`taint.py`). Hard capacities raise `LedgerFull`; the command then refuses delivery (`FULL_FR`), an unrecordable session restriction is kept in an in-memory guard checked by `pre_tool_call` and inherited by compressed children (`__init__.py` `_restrict`, `guarded`), and `pre_gateway_dispatch` refuses every message at session capacity. Reads use a stat-keyed cache. `retention_days` removed from settings. ADR-002, threat matrix (T3, T13) and runbook corrected.
+- Tests: `test_f1_01_old_result_is_not_evicted_by_later_results` (the review's R1 with 300 later results: reply rewritten, paste rewritten, tool blocked), `test_f1_02_restriction_outlives_time_and_compression` (400 days, compressed history without marker, compressed child: blocked), `test_f1_03_full_result_capacity_refuses_delivery_and_keeps_old_provenance`, `test_f1_04_unrecordable_restriction_is_kept_in_memory_and_full_ledger_refuses`, `test_f1_05_ledger_write_error_during_taint_still_blocks_tools`, `test_r05_nothing_expires_with_time`. VERIFIED.
+
+F2 [major] wall-clock ceiling during HTTP streaming.
+- Finding: per-operation httpx timeouts allowed a trickling body to run 135 s against a 75 s deadline.
+- Fix: `HttpxBackend.send` takes `remaining` (the request budget). It refuses to start with no time left, sets per-operation timeouts to at most the time left, re-checks after every chunk, and a watchdog timer shuts the TCP socket (captured through the httpx `trace` extension at `connect_tcp.complete`) at the deadline, aborting a blocked connect/write/read. Expiry maps to `BudgetExceeded`. Residual: DNS resolution.
+- Tests: `test_f2_01_trickling_body_cannot_outlast_the_request_deadline` (the review's R2: now raises at ≤ 84 simulated s, the first chunk past 75 s), `test_f2_02_real_httpx_backend_is_cut_at_the_deadline[trickle|stall_body|stall_headers]` (real httpx against a local server, 10 s operation timeout, 1 s deadline: cut in < 2 s), `test_f2_03_real_httpx_backend_fast_response_still_works`. VERIFIED (local loopback, not live network).
+
+F3 [minor] context cap excluded system prompt and prefix.
+- Finding: with a 2,000 cap, 3,184 chars were sent; only the JSON data was measured.
+- Fix: `build_messages` reserves `SYSTEM_PROMPT` + `USER_PREFIX` + wrapper first and returns the total content size; `context_chars` is now total. Minimum cap raised to 4,000 (fixed text is about 1,340 chars).
+- Tests: `test_f3_01_context_cap_includes_system_prompt_and_prefix[4000|8000|20000]` (measured == sum of message contents ≤ cap), `test_f3_02_model_request_content_respects_the_configured_total` (POSTed body, cap 6,000), `test_f3_03_context_cap_below_fixed_instructions_is_rejected`. VERIFIED.
+
+Review reservations not turned into code changes in this cycle (no finding raised them):
+- Telegram link previews are not disabled by the plugin; it relies on URL neutralization. To verify on first enablement (runbook).
+- The reviewer's whole-file runs of `test_scout_mail.py` stalled in asyncio executor shutdown inside the review sandbox. In this environment the file completes (89 passed in 19.4 s); the stall was not reproduced here.
