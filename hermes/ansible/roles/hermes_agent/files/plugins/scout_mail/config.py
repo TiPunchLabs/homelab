@@ -61,7 +61,7 @@ class Limits:
         "body_max_chars": (200, 20_000),
         "attachments_listed_max": (0, 20),
         "attachment_name_max_chars": (10, 200),
-        "model_context_max_chars": (2_000, 80_000),
+        "model_context_max_chars": (4_000, 80_000),
         "model_calls_per_request": (0, 2),
         "model_max_output_tokens": (100, 4_000),
         "model_response_max_bytes": (4_096, 262_144),
@@ -96,7 +96,6 @@ class Settings:
     model: str = "deepseek-v4-flash"
     agentmail_key_env: str = "AGENTMAIL_API_KEY"
     model_key_env: str = "DEEPSEEK_API_KEY"
-    retention_days: int = 30
     limits: Limits = field(default_factory=Limits)
 
     @property
@@ -112,7 +111,7 @@ class Settings:
 
 _ALLOWED_KEYS = {
     "enabled", "profile", "inbox_id", "owner_user_ids", "agentmail_host", "model_host", "model",
-    "retention_days", "limits",
+    "limits",
 }
 
 
@@ -145,9 +144,6 @@ def parse_settings(raw: Any) -> Settings:
     model = raw.get("model", "deepseek-v4-flash")
     if not isinstance(model, str) or not MODEL_NAME_RE.fullmatch(model):
         raise SettingsError("invalid model")
-    retention = raw.get("retention_days", 30)
-    if isinstance(retention, bool) or not isinstance(retention, int) or not 1 <= retention <= 90:
-        raise SettingsError("retention_days out of bounds [1, 90]")
     limits_raw = raw.get("limits", {})
     if not isinstance(limits_raw, dict):
         raise SettingsError("limits must be a mapping")
@@ -161,7 +157,7 @@ def parse_settings(raw: Any) -> Settings:
     return Settings(
         enabled=enabled, profile=profile, inbox_id=inbox_id, owner_user_ids=frozenset(owners),
         agentmail_host=agentmail_host, model_host=model_host, model=model,
-        retention_days=retention, limits=limits,
+        limits=limits,
     )
 
 

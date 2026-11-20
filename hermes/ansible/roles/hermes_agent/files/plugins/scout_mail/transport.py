@@ -5,13 +5,16 @@ The only network egress of the plugin goes through ``Transport.request``. It all
 - one POST to the configured model endpoint.
 Hosts are allowlisted, redirects are never followed (a 3xx is an error and the credential is
 not resent), TLS is verified, bodies are read with a byte ceiling, and every call is counted
-against the per-request budget and the wall-clock deadline.
+against the per-request budget; the wall-clock deadline is enforced during the exchange,
+including while a response body is streamed.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import socket
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -69,34 +72,81 @@ class HttpBackend(Protocol):
     """Pluggable wire; the real one is httpx, tests inject a recording fake."""
 
     def send(self, method: str, url: str, headers: dict[str, str], body: bytes | None,
-             timeout: float, max_bytes: int) -> RawResponse: ...
+             timeout: float, max_bytes: int, *, remaining: Callable[[], float]) -> RawResponse: ...
 
 
 class HttpxBackend:
-    """httpx without redirects, with TLS verification and a streamed byte ceiling."""
+    """httpx without redirects, with TLS verification, a streamed byte ceiling and a hard deadline.
+
+    ``timeout`` bounds each network operation; ``remaining`` bounds the whole exchange. A watchdog
+    shuts the TCP socket down when the time left runs out, which aborts a blocked connect, write
+    or read, and the stream loop re-checks the time after every chunk, so a server that trickles
+    bytes cannot hold the worker past the request deadline. Residual: name resolution happens
+    before a socket exists and is bounded by the system resolver, not by the watchdog.
+    """
 
     def send(self, method: str, url: str, headers: dict[str, str], body: bytes | None,
-             timeout: float, max_bytes: int) -> RawResponse:
+             timeout: float, max_bytes: int, *, remaining: Callable[[], float]) -> RawResponse:
         import httpx
 
+        left = remaining()
+        if left <= 0:
+            raise BudgetExceeded()
+        expired = threading.Event()
+        sockets: list[Any] = []
+        guard = threading.Lock()
+
+        def trace(name: str, info: dict[str, Any]) -> None:
+            if name == "connection.connect_tcp.complete":
+                sock = info["return_value"].get_extra_info("socket")
+                with guard:
+                    sockets.append(sock)
+                    if expired.is_set():
+                        _shutdown(sock)
+
+        def fire() -> None:
+            with guard:
+                expired.set()
+                for sock in sockets:
+                    _shutdown(sock)
+
+        watchdog = threading.Timer(left, fire)
+        watchdog.daemon = True
+        watchdog.start()
         try:
-            with httpx.Client(follow_redirects=False, verify=True, timeout=timeout, trust_env=False) as client:
-                with client.stream(method, url, headers=headers, content=body) as resp:
+            with httpx.Client(follow_redirects=False, verify=True, timeout=min(timeout, left),
+                              trust_env=False) as client:
+                with client.stream(method, url, headers=headers, content=body,
+                                   extensions={"trace": trace}) as resp:
                     chunks: list[bytes] = []
                     size = 0
                     for chunk in resp.iter_bytes():
+                        if expired.is_set() or remaining() <= 0:
+                            raise BudgetExceeded()
                         size += len(chunk)
                         if size > max_bytes:
                             raise TooLarge()
                         chunks.append(chunk)
+                    if expired.is_set() or remaining() <= 0:
+                        raise BudgetExceeded()
                     return RawResponse(resp.status_code, {k.lower(): v for k, v in resp.headers.items()},
                                        b"".join(chunks))
-        except TooLarge:
+        except (TooLarge, BudgetExceeded):
             raise
-        except httpx.TimeoutException as exc:
+        except (httpx.HTTPError, OSError) as exc:
+            if expired.is_set():
+                raise BudgetExceeded() from exc
             raise Unavailable() from exc
-        except httpx.HTTPError as exc:
-            raise Unavailable() from exc
+        finally:
+            watchdog.cancel()
+
+
+def _shutdown(sock: Any) -> None:
+    """Abort any blocked I/O on the socket; errors (already closed) are irrelevant."""
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except (OSError, AttributeError):
+        pass
 
 
 @dataclass
@@ -162,7 +212,8 @@ class Transport:
             started = self._budget.clock()
             resp = self._backend.send(
                 "GET", url, {"Authorization": f"Bearer {self._agentmail_key()}", "Accept": "application/json"},
-                None, min(limits.http_timeout_s, max(self._budget.remaining(), 0.1)), max_bytes)
+                None, min(limits.http_timeout_s, max(self._budget.remaining(), 0.1)), max_bytes,
+                remaining=self._budget.remaining)
             self._budget.events.append({"op": "agentmail_get", "status": resp.status,
                                         "bytes": len(resp.body), "ms": int((self._budget.clock() - started) * 1000)})
             if resp.status == 429 or resp.status >= 500:
@@ -230,7 +281,8 @@ class Transport:
         resp = self._backend.send(
             "POST", url, {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            min(limits.model_timeout_s, max(self._budget.remaining(), 0.1)), limits.model_response_max_bytes)
+            min(limits.model_timeout_s, max(self._budget.remaining(), 0.1)), limits.model_response_max_bytes,
+            remaining=self._budget.remaining)
         self._budget.events.append({"op": "model_post", "status": resp.status, "bytes": len(resp.body),
                                     "ms": int((self._budget.clock() - started) * 1000)})
         if resp.status in (401, 403):

@@ -19,7 +19,7 @@ from typing import Any
 
 from .config import SettingsError, load_settings
 from .service import Caller, MailService
-from .taint import TaintStore, TaintStoreError
+from .taint import LedgerFull, TaintStore, TaintStoreError
 from .transport import HttpxBackend
 
 logger = logging.getLogger("scout_mail")
@@ -29,6 +29,8 @@ BLOCK_FR = ("Outil bloqué : cette conversation contient du contenu issu de cour
 REMOVED_FR = "[Résultat retiré : il contient du contenu de courriel non fiable. Session restreinte.]"
 REFUSAL_COMMAND = "/courriels refus-reponse"
 LEDGER_COMMAND = "/courriels registre-illisible"
+FULL_FR = ("Registre de sécurité des courriels plein : aucun nouveau résumé n'est livré tant que "
+           "l'opérateur ne l'a pas archivé (runbook, section registre).")
 
 
 def _text_of(value: Any, limit: int = 200_000) -> str:
@@ -67,8 +69,9 @@ class _Plugin:
         except SettingsError as exc:
             self.error = str(exc)
             logger.warning("scout_mail settings invalid: %s", exc)
-        retention = self.settings.retention_days if self.settings else 30
-        self.store = TaintStore(home / "plugin-data" / "scout_mail" / "taint.json", retention)
+        self.store = TaintStore(home / "plugin-data" / "scout_mail" / "taint.json")
+        # Sessions that must stay restricted although the ledger could not record them.
+        self.guarded: set[str] = set()
         self.service = None
         if self.settings is not None:
             from agent.secret_scope import get_secret
@@ -84,8 +87,8 @@ class _Plugin:
             return MESSAGES_FR["config"]
         arg = (raw_args or "").strip().lower()
         if arg == "registre-illisible":
-            return ("Le registre de sécurité des courriels est illisible : Scout refuse les messages "
-                    "jusqu'à intervention de l'opérateur (runbook, section rupture).")
+            return ("Le registre de sécurité des courriels est illisible ou plein : Scout refuse les "
+                    "messages jusqu'à intervention de l'opérateur (runbook, section rupture).")
         caller = Caller(
             profile=self.profile,
             platform=str(getattr(getattr(source, "platform", None), "value", getattr(source, "platform", "")) or ""),
@@ -99,6 +102,8 @@ class _Plugin:
         # Ledger first: if it cannot record the result, nothing mail-derived is delivered.
         try:
             self.store.record_result(caller.chat_id, [], outcome.rendered.parts)
+        except LedgerFull:
+            return FULL_FR
         except TaintStoreError:
             return MESSAGES_FR["delivery"]
         delivered: list[str] = []
@@ -130,6 +135,8 @@ class _Plugin:
             reply_id = getattr(event, "reply_to_message_id", None)
             reply_text = getattr(event, "reply_to_text", None)
             text = getattr(event, "text", None)
+            if self.store.sessions_full():
+                return {"action": "rewrite", "text": LEDGER_COMMAND}
             if reply_id and (self.store.is_result_message(chat_id, str(reply_id))
                              or self.store.text_is_tainted(reply_text)):
                 return {"action": "rewrite", "text": REFUSAL_COMMAND}
@@ -144,22 +151,34 @@ class _Plugin:
 
     def pre_llm_call(self, session_id: str = "", user_message: Any = None, conversation_history: Any = None,
                      parent_session_id: str = "", **_: Any) -> None:
+        if not session_id:
+            return None
         try:
-            if not session_id or self.store.is_session_tainted(session_id):
+            if session_id in self.guarded or self.store.is_session_tainted(session_id):
                 return None
-            if parent_session_id and self.store.is_session_tainted(parent_session_id):
-                self.store.taint_session(session_id)
+            if parent_session_id and (parent_session_id in self.guarded
+                                      or self.store.is_session_tainted(parent_session_id)):
+                self._restrict(session_id)
                 return None
             if self.store.text_is_tainted(_text_of(user_message)) or \
                     self.store.text_is_tainted(_text_of(conversation_history)):
-                self.store.taint_session(session_id)
+                self._restrict(session_id)
         except Exception:
-            logger.warning("scout_mail pre_llm_call could not evaluate taint; tools stay guarded")
+            logger.warning("scout_mail pre_llm_call could not evaluate taint; session guarded in memory")
+            self.guarded.add(session_id)
         return None
+
+    def _restrict(self, session_id: str) -> None:
+        """Persist the restriction; if the ledger refuses, keep it in memory (fail closed)."""
+        try:
+            self.store.taint_session(session_id)
+        except TaintStoreError:
+            logger.warning("scout_mail could not persist a session restriction; guarded in memory")
+            self.guarded.add(session_id)
 
     def pre_tool_call(self, tool_name: str = "", session_id: str = "", **_: Any) -> dict | None:
         try:
-            if self.store.is_session_tainted(session_id):
+            if session_id in self.guarded or self.store.is_session_tainted(session_id):
                 return {"action": "block", "message": BLOCK_FR}
             return None
         except Exception:
@@ -169,10 +188,12 @@ class _Plugin:
                               **_: Any) -> str | None:
         try:
             if self.store.text_is_tainted(_text_of(result)):
-                self.store.taint_session(session_id)
+                self._restrict(session_id)
                 return REMOVED_FR
             return None
         except Exception:
+            if session_id:
+                self.guarded.add(session_id)
             return REMOVED_FR
 
 

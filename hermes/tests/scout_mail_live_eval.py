@@ -46,13 +46,13 @@ class LiveModelBackend(t.FakeBackend):
         self._budget = budget
         self.model_raw: list[str] = []
 
-    def send(self, method, url, headers, body, timeout, max_bytes):  # type: ignore[override]
+    def send(self, method, url, headers, body, timeout, max_bytes, **kw):  # type: ignore[override]
         if "api.deepseek.com" not in url:
-            return super().send(method, url, headers, body, timeout, max_bytes)
+            return super().send(method, url, headers, body, timeout, max_bytes, **kw)
         if self._budget[0] <= 0:
             raise transport.BudgetExceeded()
         self._budget[0] -= 1
-        resp = self._real.send(method, url, headers, body, timeout, max_bytes)
+        resp = self._real.send(method, url, headers, body, timeout, max_bytes, **kw)
         self.requests.append({"method": method, "url": url, "headers": {}, "body": body})
         try:
             self.model_raw.append(json.loads(resp.body)["choices"][0]["message"]["content"])
