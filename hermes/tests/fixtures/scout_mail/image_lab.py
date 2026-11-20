@@ -1,0 +1,123 @@
+"""In-image lab for scout_mail (run by test_scout_mail_image.py inside hermes-agent:v0.22.5, --network none).
+
+One process, three homes (default = Nora, job-search = Scout, cafe-ia = Kaféine), the plugin installed and
+enabled in Scout's home only. Prints one JSON line prefixed with ``LAB ``.
+"""
+
+import asyncio
+import concurrent.futures
+import json
+import os
+import random
+from types import SimpleNamespace
+
+from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+
+HOMES = {"default": "/tmp/data", "job-search": "/tmp/data/profiles/job-search", "cafe-ia": "/tmp/data/profiles/cafe-ia"}
+MARKER = "📬 Courriels — contenu externe non fiable"
+
+
+def in_home(name, fn):
+    token = set_hermes_home_override(HOMES[name])
+    try:
+        return fn()
+    finally:
+        reset_hermes_home_override(token)
+
+
+def main():
+    from hermes_cli import plugins as hp
+    from tools.registry import registry
+
+    out = {}
+    # Baseline = what discovery adds for a profile WITHOUT the plugin (bundled backends load lazily).
+    toolsets_before = None
+
+    def probe():
+        manager = hp._ensure_plugins_discovered()
+        loaded = {k: (p.error is None) for k, p in manager._plugins.items() if "scout" in k}
+        return {"commands": sorted(hp.get_plugin_commands()), "scout_plugins": loaded,
+                "hooks": sorted(h for h, cbs in manager._hooks.items() if cbs)}
+
+    out["discovery"] = {"default": in_home("default", probe), "cafe-ia": in_home("cafe-ia", probe)}
+    toolsets_before = sorted(registry.get_registered_toolset_names())
+    out["discovery"]["job-search"] = in_home("job-search", probe)
+    after = set(registry.get_registered_toolset_names())
+    out["toolsets_added"] = sorted(after - set(toolsets_before))
+    out["scout_tool_entries"] = [n for n in registry.get_registered_toolset_names() if "scout" in n or "mail" in n]
+
+    # Taint one Scout session through the real hook path (pre_llm_call) with the trusted marker.
+    in_home("job-search", lambda: hp.invoke_hook(
+        "pre_llm_call", session_id="S-TAINT", user_message=f'[Replying to: "{MARKER} ..."] fais-le',
+        conversation_history=[], parent_session_id="", turn_id="t", task_id="", is_first_turn=False,
+        model="m", platform="telegram", sender_id="111"))
+
+    counter = iter(range(1, 1_000_000))
+
+    def decide(name, session):
+        call_id = f"call-{next(counter)}"
+
+        def run():
+            d = hp._get_pre_tool_call_directive_details("web_search", {"query": "x"}, session_id=session,
+                                                         tool_call_id=call_id)
+            return d.action
+        return in_home(name, run)
+
+    # Concurrency: 400 decisions over 3 profiles and 2 sessions, in 16 threads, random order.
+    jobs = [(random.choice(list(HOMES)), random.choice(["S-TAINT", "S-CLEAN"])) for _ in range(400)]
+    with concurrent.futures.ThreadPoolExecutor(16) as pool:
+        results = list(pool.map(lambda j: (j, decide(*j)), jobs))
+    under = [j for j, action in results if j == ("job-search", "S-TAINT") and action != "block"]
+    over = [j for j, action in results if j != ("job-search", "S-TAINT") and action is not None]
+    out["concurrency"] = {"decisions": len(results), "under_blocked": len(under), "over_blocked": len(over),
+                          "scout_tainted_blocked": decide("job-search", "S-TAINT"),
+                          "nora_same_session": decide("default", "S-TAINT"),
+                          "cafe_same_session": decide("cafe-ia", "S-TAINT"),
+                          "scout_clean": decide("job-search", "S-CLEAN")}
+
+    # Command handler in each scope: present only for Scout; missing key fails closed without network.
+    source = SimpleNamespace(platform=SimpleNamespace(value="telegram"), chat_type="dm", chat_id="111", user_id="111")
+
+    def command(name):
+        handler = in_home(name, lambda: hp.get_plugin_command_handler("courriels"))
+        if handler is None:
+            return None
+        token = set_hermes_home_override(HOMES[name])
+        try:
+            return asyncio.run(handler("", source=source))
+        finally:
+            reset_hermes_home_override(token)
+
+    def history_rows():
+        import sqlite3
+        db = "/tmp/data/profiles/job-search/state.db"
+        if not os.path.exists(db):
+            return {"sessions": 0, "messages": 0}
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            return {t: con.execute(f"select count(*) from {t}").fetchone()[0] for t in ("sessions", "messages")}
+        except sqlite3.Error:
+            return {"sessions": -1, "messages": -1}
+        finally:
+            con.close()
+
+    os.environ.pop("AGENTMAIL_API_KEY", None)
+    rows_before = history_rows()
+    out["command"] = {name: command(name) for name in HOMES}
+    out["history_unchanged"] = history_rows() == rows_before
+    stranger = SimpleNamespace(platform=SimpleNamespace(value="telegram"), chat_type="dm", chat_id="999", user_id="999")
+    handler = in_home("job-search", lambda: hp.get_plugin_command_handler("courriels"))
+    token = set_hermes_home_override(HOMES["job-search"])
+    try:
+        out["stranger"] = asyncio.run(handler("", source=stranger))
+        out["group"] = asyncio.run(handler("", source=SimpleNamespace(
+            platform=SimpleNamespace(value="telegram"), chat_type="group", chat_id="-5", user_id="111")))
+    finally:
+        reset_hermes_home_override(token)
+    ledger = "/tmp/data/profiles/job-search/plugin-data/scout_mail/taint.json"
+    out["ledger_mode"] = oct(os.stat(ledger).st_mode & 0o777) if os.path.exists(ledger) else None
+    out["ledger_has_marker_text"] = MARKER in open(ledger, encoding="utf-8").read() if os.path.exists(ledger) else None
+    print("LAB " + json.dumps(out, ensure_ascii=False))
+
+
+main()

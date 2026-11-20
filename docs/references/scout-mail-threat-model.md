@@ -1,0 +1,71 @@
+# Scout mail (SCOUT-MAIL-01) — threat model and enforcement matrix
+
+Scope: the `scout_mail` Hermes plugin (`hermes/ansible/roles/hermes_agent/files/plugins/scout_mail/`) that lets the owner ask Scout, in Scout's private Telegram chat, for a read-only digest of ONE AgentMail inbox (`/courriels`). Decision record: `docs/adr/hermes.md`, ADR-002. Operations: `docs/guides/runbook-scout-mail.md`.
+
+This is not an OWASP certification and does not claim complete prevention of prompt injection. Controls are tagged:
+- ENFORCED: holds in code whatever the model does;
+- BEHAVIORAL: relies on the model following instructions. Supplementary only; no permission depends on it.
+
+Test ids are pytest functions in `hermes/tests/test_scout_mail.py` (deterministic, offline) and `hermes/tests/test_scout_mail_image.py` (real Hermes v0.22.5 image, `--network none`).
+
+## 1. Architecture in one picture
+
+```text
+owner (Telegram DM, allowlisted)
+   │ "/courriels [liste|suite|aide]"
+   ▼
+Hermes gateway, Scout profile scope ──► plugin command (BEFORE any agent turn, not in history)
+   │                                        │ trusted code: settings.json (inbox, limits), get_secret()
+   │                                        ├─► AgentMail GET list / GET message (fixed host, one inbox)
+   │                                        ├─► clean + bound (sanitize.py)
+   │                                        ├─► ONE tool-less model call, fresh context (summarize.py)
+   │                                        └─► trusted renderer (render.py) ─► ctx.apost_message ─► owner
+   │
+   ▼ ordinary messages
+Scout agent turn (web, Kandidat, memory, skills…) ◄── guarded by plugin hooks:
+   pre_gateway_dispatch: a reply to / paste of a mail result is replaced by a refusal (agent never runs)
+   pre_llm_call:         mail-derived text in the turn or history → session tainted
+   transform_tool_result: mail-derived text in a tool result → result removed, session tainted
+   pre_tool_call:        tainted session → every tool vetoed (fail closed)
+```
+
+Where untrusted mail is interpreted: only in the summarizer's fresh model context. That context has no tools, no credentials, no SOUL, no memory and no conversation (`test_c2_injection_never_reaches_instructions_and_adds_no_operation`).
+
+What reaches Telegram: the trusted renderer's text. Untrusted strings are neutralized so no link, mention, command or markdown can form (`test_r01_neutralize_kills_every_entity`).
+
+Whether mail text can enter Scout's history: not through the command, whose reply is not an agent turn (`test_c5_07_command_writes_no_session_history_and_ledger_is_private`). Through the owner (Telegram reply, quote or paste) it is either refused before the agent runs, or the session loses all tools for good (`test_c5_01`..`test_c5_05`).
+
+## 2. Assets
+
+- A1: Kandidat records and statuses (read via MCP, writes behind approval).
+- A2: the owner's private professional context (`agent.environment_hint`), memory, session history.
+- A3: credentials: AgentMail key, DeepSeek key, Telegram tokens, Tavily key.
+- A4: the mailbox state (read/unread, labels, drafts, sending capability).
+- A5: HomeLab network and cloud metadata (SSRF targets).
+- A6: Scout's ordinary availability (resource exhaustion, false blocks).
+
+## 3. Enforcement matrix
+
+| # | Threat (OWASP theme) | Attack path | Control | Type | Enforcement location | Test | Residual risk |
+|---|---|---|---|---|---|---|---|
+| T1 | Indirect prompt injection | Instructions in subject, display name, body, quoted history, filename, fake role delimiters, owner/admin claims | Mail text only as JSON data in a fresh tool-less context; fixed system prompt; model never sees ids, inbox or secrets | ENFORCED (context shape) + BEHAVIORAL (model obeys prompt) | `summarize.py` `build_messages`; `transport.py` `complete` (no `tools` key) | `test_c2_injection_never_reaches_instructions_and_adds_no_operation`, `test_c2_fake_role_delimiters_are_data_not_messages` | The summary may be wrong or influenced; it has no capability to act on |
+| T2 | Excessive agency | Mail or model output asks to read/export Kandidat, send mail, run shell, delegate, change inbox | No tool exists in the mail path; transport exposes list/get/complete only; AgentMail GET only, inbox fixed | ENFORCED | `transport.py` class surface, `_guard_url`, `_inbox_path` | `test_c3_transport_has_no_write_or_generic_operation`, `test_c3_hostile_model_output_executes_nothing_and_renders_inert`, `test_i02_no_tool_added_to_the_global_registry` | None identified in code; provider key scope is the second barrier (T9) |
+| T3 | Mail → privileged context handoff | Owner replies to / quotes / pastes a summary; Scout acts on it now or later; `session_search` re-imports it | Reply to a result id, quoted fingerprint or marker: rewritten to a refusal before the agent. Mail text seen by a session: session tainted, every tool vetoed; taint inherited by compressed child sessions; tool results carrying mail text are removed | ENFORCED | `__init__.py` hooks; `taint.py` | `test_c5_01_reply_to_result_is_refused_before_scout`, `test_c5_02_partial_quote_without_id_and_paste_are_refused`, `test_c5_03_busy_path_quote_taints_session_and_blocks_tools`, `test_c5_04_taint_survives_compression_and_new_session_is_clean`, `test_c5_05_session_search_cannot_reimport_mail_text`, `test_c3_tainted_session_cannot_use_any_privileged_tool` | Owner retyping/paraphrasing mail content (< 55 letters/digits contiguous, or reworded) is not detected: `test_c4_detector_miss_does_not_restore_privileges` documents it. That is owner-authored input, not mail authority |
+| T4 | Global registry / cross-profile leakage | Disabling tools by mutating a shared registry, inherited by Nora/Kaféine or a concurrent request | No registry mutation; plugin loaded per profile home; hooks resolved in the routed profile's scope; per-call decisions | ENFORCED (Hermes plugin scoping, verified in image) | Hermes `get_plugin_manager` per home; `plugins.enabled` of Scout only | `test_i01_plugin_loads_for_scout_only`, `test_c8_06_concurrent_multi_profile_decisions_never_leak`, `test_c8_07_command_absent_elsewhere_and_fail_closed_in_scout`, `test_c8_01_concurrent_requests_do_not_share_state` | Relies on Hermes v0.22.5 plugin scoping; re-verify (image tests) on any Hermes upgrade |
+| T5 | Information disclosure | Mail pulls Kandidat/context into the summary; summary sent elsewhere; keys in output/logs | Summarizer has none of that data; output only to the authenticated owner's DM (profile, platform, dm, owner id, chat == user) | ENFORCED | `service.py` `authorize`; Hermes Telegram allowlist | `test_c8_04_wrong_profile_platform_or_chat_is_refused_without_network`, `test_c9_01_keys_only_reach_their_own_host`, `test_c9_02_logs_hold_counts_not_content` | Mail content is sent to DeepSeek (the provider Scout already uses), documented in the runbook |
+| T6 | Memory poisoning / persistence | Mail asks to memorize rules, edit SOUL, criteria, skills | Plugin writes only its ledger (ids + hashes); command reply is not history; tainted sessions cannot call memory/skills tools | ENFORCED | `taint.py`; `pre_tool_call` | `test_c5_06_command_reply_is_not_history_and_ledger_holds_no_text`, `test_c5_07_command_writes_no_session_history_and_ledger_is_private`, `test_c3_tainted_session_cannot_use_any_privileged_tool` | None identified |
+| T7 | Unsafe output rendering | Markdown links, autolinks, bare domains, `@bot`, `/approve` commands, hidden HTML, bidi/zero-width tricks | Neutralization of untrusted text; invisible/control chars removed; HTML hidden blocks dropped; no remote resource fetched; trusted labels only from constants; timestamps reduced to a fixed shape | ENFORCED | `render.py` `neutralize`; `sanitize.py`; `service.py` `_received` | `test_r01_neutralize_kills_every_entity`, `test_r02_neutralize_keeps_french_readable`, `test_r03_invisible_and_control_characters_removed`, `test_c4_malicious_markdown_rendered_inert`, `test_c4_hidden_html_dropped_and_no_resource_fetched`, `test_c1_02_html_newsletter_is_text_only_and_fetches_nothing` | Telegram may auto-detect formats not covered (for example phone numbers): inert, no command or URL |
+| T8 | SSRF | Links, images, tracking pixels, attachments, `169.254.169.254`, LAN addresses, redirects | No content-derived request ever: only two fixed hosts; scheme/host/port/userinfo checked; redirects never followed (3xx = error, credential not resent); `trust_env=False` (no proxy env); attachments never downloaded | ENFORCED | `transport.py` `_guard_url`, `HttpxBackend` | `test_c4_hidden_html_dropped_and_no_resource_fetched`, `test_c7_03_malformed_and_wrong_type_responses` (302), `test_c7_11_settings_reject_out_of_bounds_and_unknown_keys` (hosts) | DNS of `api.agentmail.to` / `api.deepseek.com` is trusted (TLS verified) |
+| T9 | Excessive key privilege | A key named "readonly" with send/delete rights; cross-inbox access | Local: GET only, one inbox, ids only from that inbox's list, ownership re-checked on get, owner arguments never accepted as ids. Provider: inbox-scoped key with `inbox_read` + `message_read` required before enablement | ENFORCED (local) + OWNER PROCEDURE (provider) | `transport.py`, `service.py` `_run`; runbook step 2 | `test_c6_01_foreign_items_in_list_are_never_fetched`, `test_c6_02_get_returning_other_inbox_or_other_id_is_dropped`, `test_c6_03_traversal_or_malformed_ids_denied_before_network`, `test_c6_04_ids_from_owner_arguments_are_never_used` | Provider-side scope NOT_VERIFIED until the owner confirms (owner-questions Q2) |
+| T10 | Unexpected API fields / annotation drift | Extra fields (`tools`, `send_url`, headers with instructions); an MCP server changing `readOnlyHint` | Fields read by explicit name only; no MCP in the mail path, so annotations grant nothing | ENFORCED | `service.py` `_prepare` | `test_c6_05_unexpected_api_fields_ignored`, `test_c6_06_unknown_tool_in_tainted_session_blocked_and_plugin_registers_no_tool` | None identified |
+| T11 | Resource exhaustion | Huge subject/body, malformed MIME/JSON, endless pages, 429 storms, slow provider | Byte ceilings per response; char ceilings per field and total context; one page per request; 1 retry max, Retry-After capped; no retry on 401/403; one model call; wall-clock deadline; explicit partial results | ENFORCED | `config.py` `Limits`; `transport.py` `Budget`; `service.py` | `test_c7_01_huge_subject_and_body_are_bounded_before_the_model` … `test_c7_10_model_failure_falls_back_to_metadata_without_second_call` | A cancelled request finishes its in-flight HTTP calls in a worker thread (bounded by the deadline) without delivering anything (`test_c8_02_cancellation_delivers_nothing_and_records_nothing`) |
+| T12 | Secrets exposure | Keys in prompts, outputs, tracebacks, logs, ledger, Ansible diff, Git | Keys read by name per call, only placed in the Authorization header of their own host; errors mapped to fixed French text; no traceback in chat; logs = counts; Ansible `no_log` + 0600 `.env` | ENFORCED | `transport.py`, `service.py`; role `env_keys.yml` | `test_c9_01_keys_only_reach_their_own_host`, `test_c9_03_missing_or_malformed_key_fails_closed_without_request`, `test_c8_03_exception_then_retry_leaves_no_residue`, `test_c9_04_sentinels_absent_from_git_tracked_content_except_this_file` | Keys live in the gateway process (as for every Hermes credential); Scout has no terminal/file/code tool to read them |
+| T13 | Fail-open on internal faults | Corrupt ledger, settings error, hook exception | Ledger unreadable: tools vetoed, messages refused, results not delivered; invalid settings: command refuses; hook exceptions caught inside callbacks; Hermes vetoes a timed-out `pre_tool_call` | ENFORCED | `__init__.py`, `config.py` | `test_c8_05_unreadable_ledger_fails_closed`, `test_c7_11_settings_reject_out_of_bounds_and_unknown_keys` | A corrupt ledger blocks Scout until the operator acts (availability over safety, runbook "Ledger") |
+
+## 4. Read side effects
+
+The plugin calls only `GET /v0/inboxes/{inbox}/messages` and `GET /v0/inboxes/{inbox}/messages/{id}`. AgentMail documents no side effect for get and no mark-read endpoint; labels change only through `messages.update`, which is never called (`evidence/d1-agentmail-docs.md` §4). Read progress, i.e. the next-page token, is kept in gateway memory per chat with a 1 h TTL, never in the mailbox.
+
+## 5. Out of scope (needs its own permission design)
+
+Sending, replying, drafts, labels and read state, deletion, attachments/OCR, link fetching, webhooks, cron or receipt-triggered processing, and any Kandidat write derived from mail.

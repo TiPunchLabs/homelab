@@ -196,6 +196,16 @@ hermes_profile_cafe_ia:
       - Projets : HomeLab, FlowForge, expérimentations RAG, applications Python, agents IA, IA locale.
       Ces informations servent à contextualiser tes analyses et ta veille ; elles n'ouvrent aucun accès aux machines ni aux projets. Elles peuvent être datées : ne les présente pas comme des mesures actuelles.
 
+# SCOUT-MAIL-01 — /courriels : resume en lecture seule d'UNE boite AgentMail,
+# pour le proprietaire, dans la conversation privee de Scout. DESACTIVE tant
+# que le proprietaire n'a pas fourni la boite et une cle restreinte
+# (inbox_read + message_read, portee boite) au vault :
+# vault_hermes_job_search_agentmail_api_key. Runbook :
+# docs/guides/runbook-scout-mail.md. Activer = true ICI et `plugins.enabled:
+# [scout_mail]` dans la declaration de Scout, dans le meme commit.
+hermes_scout_mail_enabled: false
+hermes_scout_mail_inbox_id: ""
+
 # Scout — recherche d'emploi et accompagnement professionnel. Prepare en M4.2,
 # active en M4.3 (2026-10-24) par son entree dans hermes_profiles.
 #
@@ -266,6 +276,12 @@ hermes_profile_job_search:
       cron: [kandidat]
   config:
     web.backend: tavily
+    # SCOUT-MAIL-01 : plugin /courriels (commande de gateway + hooks, aucun
+    # outil). Valeur litterale, en accord avec hermes_scout_mail_enabled
+    # (tasks/scout_mail.yml refuse un ecart) : [] = coupe, [scout_mail] = actif.
+    # La cle AgentMail n'est PAS dans `env` (validate.yml refuse une valeur
+    # vide) : tasks/scout_mail.yml la pose ou la retire du .env de Scout.
+    plugins.enabled: []
     # Les noms de serveurs MCP listes forment une liste blanche
     # (hermes_cli/tools_config.py, _merge_mcp_servers) : aucun autre serveur,
     # ni plugin MCP portable, ne s'y ajoute.
