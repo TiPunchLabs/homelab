@@ -1,12 +1,12 @@
 # Report — homelab/2026-11-20-scout-agentmail-readonly (SCOUT-MAIL-01)
 
 Verdict: PARTIAL
-Version: edcd9fe70508f51ad2d06bc84ea3322f11ad5c12
+Version: b22ba76472d3884e24a2954e40ec7e2b4793b040
 
 The verdict is PARTIAL because three required items are not verified:
 - the live behavioral evaluation (AC10: no model credential was legitimately available);
-- the AgentMail provider-side key scope and the read smoke test (inbox id, key scope and key provisioning are owner inputs, see `owner-questions.md`);
-- the independent review: review 1 (Codex, on 78ee2ee) returned CHANGES_REQUESTED with F1–F3; all three are fixed in the Version above (§K) and await re-review.
+- the AgentMail read smoke test (runbook step 6), after merge and deployment at the owner's call. Q1–Q3 are answered by the owner (inbox, scoped key, vault); the key scope is the owner's statement, not executor-verified;
+- the independent review: review 1 (Codex, on 78ee2ee) returned F1–F3 (§K); review 2 (on edcd9fe) found F1/F2 partial and F4–F6 (§L). All are fixed in the Version above and await review 3 of 3.
 
 Everything else is implemented and verified offline, including on the real Hermes v0.22.5 image. Production is unchanged.
 
@@ -18,7 +18,7 @@ Delivered on branch `feat/scout-agentmail-readonly` (draft MR, see §F):
 - a Hermes user plugin `scout_mail`, deployed and enabled in Scout's profile only, disabled by default. It provides one gateway command, `/courriels [liste|suite|aide]`, and four guard hooks, and registers no tool;
 - Ansible wiring (`tasks/scout_mail.yml`, kill switch, key handling, post-restart check `hermes_checks.py scout-mail`);
 - ADR-002, threat model and enforcement matrix, operator runbook;
-- 105 new tests: 89 deterministic plugin tests (15 added after review 1), 5 in the real Hermes v0.22.5 image, and 11 Ansible-wiring tests (parameter cases included).
+- 121 new tests: 105 deterministic plugin tests (15 added after review 1, 16 after review 2), 5 in the real Hermes v0.22.5 image, and 11 Ansible-wiring tests (parameter cases included).
 
 Not achieved in this mission: live model evaluation, provider-side key scope verification, read smoke test, independent review, deployment (out of scope by design).
 
@@ -112,15 +112,16 @@ Ansible wiring: `test_role_01` … `test_role_06` (including `test_role_02b_swit
 
 | Check | Command / location | Result | Status |
 |---|---|---|---|
-| New plugin tests (deterministic) | `.venv/bin/python -m pytest hermes/tests/test_scout_mail.py` | 89 passed (74 before review 1) | VERIFIED |
+| New plugin tests (deterministic) | `.venv/bin/python -m pytest hermes/tests/test_scout_mail.py` | 105 passed in 27.7 s (74 before review 1, 89 before review 2) | VERIFIED |
 | Real image tests (Hermes v0.22.5, `--network none`) | `hermes/tests/test_scout_mail_image.py` | 5 passed | VERIFIED |
 | Ansible wiring tests (real `tasks/scout_mail.yml` on localhost, fake key) | `hermes/tests/test_scout_mail_role.py` | 11 passed | VERIFIED |
 | Deploy-time check in the image (disabled / enabled / mismatch) | `hermes_checks.py scout-mail` run inside the image | "inactive everywhere" rc 0 / "active for job-search only" rc 0 / mismatch rc 1 | VERIFIED |
 | Baseline, before any change (HEAD 3d7bf18) | `evidence/m3-baseline-tests.md` | 711 of 749 reported before the 25-min cap; 1 failure (`test_m5_recovery.py::test_r10_…`), not reproduced in isolation (intermittent) | PARTIAL (38 not executed) |
 | Full suite after change, run 1 | `evidence/m3-post-change-tests.md` | 10 regressions from the first wiring (all reproduced), fixed (see §F) | superseded |
 | Full suite after change, run 2 (code = 78ee2ee), per file | `evidence/m3-post-change-tests-2.md` | 839 collected: 809 passed, 0 failed, 30 skipped, 0 errors | superseded |
-| Full suite after review 1 fixes (code = edcd9fe), per file | `evidence/m6-post-review-1-tests.md` | 854 collected: 827 passed, 0 failed, 27 skipped, 0 errors | VERIFIED |
-| Skips | same | 27 need image `v2026.8.18` (not local). The 3 vault-dependent tests skipped in run 2 ran and passed in this run | NOT_APPLICABLE |
+| Full suite after review 1 fixes (code = edcd9fe), per file | `evidence/m6-post-review-1-tests.md` | 854 collected: 827 passed, 0 failed, 27 skipped, 0 errors | superseded |
+| Full suite after review 2 fixes (code = b22ba76) | `evidence/m7-post-review-2-tests.md`; `uv run pytest hermes/tests -q -rs -k "not (test_m7_kafeine and test_lab_)"` | 870 collected: 832 passed, 0 failed, 27 skipped, 11 deselected (hanging `test_m7_kafeine` lab, §F), 1,318 s | VERIFIED |
+| Skips | same | 27 need image `v2026.8.18` (not local). The v0.22.5 image is now local, so its image tests ran (scout_mail image 5 passed; m63 and scout03 labs passed) | NOT_APPLICABLE |
 | ansible-lint (production profile) | `.venv/bin/ansible-lint` on role tasks, defaults, group_vars | 0 failures, 0 warnings | VERIFIED |
 | Syntax check | `ansible-playbook ansible/deploy.yml --syntax-check` | pass | VERIFIED |
 | `--check --diff` against hermes-31 | — | not run: it would decrypt the vault and contact the host | NOT_VERIFIED |
@@ -183,7 +184,7 @@ NOT_VERIFIED: 0 of 40 calls used. Reason and owner command: `evidence/m4-live-ev
 ## F. Deviations, risks and limitations
 
 - Residual: if the owner paraphrases or retypes mail content (fewer than about 55 contiguous letters/digits, or reworded) into an ordinary Scout message, it is not detected. That is owner-authored input, not mail authority (`test_c4_detector_miss_does_not_restore_privileges`).
-- Residual: a cancelled `/courriels` lets its worker thread finish in-flight HTTP calls (bounded by the 75 s deadline, now enforced during streaming). It delivers and records nothing.
+- Residual: a cancelled `/courriels` lets its worker thread finish in-flight HTTP calls, released at the latest at the 75 s deadline by the watchdog on the live (TLS) connection. It delivers and records nothing. A cancellation after a part was posted locks the feature down (§L).
 - Residual: name resolution of the two fixed hosts happens before a socket exists and is bounded by the system resolver, not by the deadline watchdog.
 - Operations: the ledger grows without expiry; at capacity `/courriels` stops delivering until the operator archives it together with `/new` (runbook §8). Archiving re-opens quoting of archived digests only where the marker is absent.
 - Residual: the summary can be wrong or influenced by the mail. It is labeled "IA, non vérifiée" and is inert.
@@ -191,7 +192,9 @@ NOT_VERIFIED: 0 of 40 calls used. Reason and owner command: `evidence/m4-live-ev
 - Dependency: the isolation relies on Hermes v0.22.5 plugin scoping and dispatch order. The image tests must be re-run before any Hermes upgrade.
 - Busy path: a Telegram reply sent while Scout is mid-turn goes through Hermes' busy handler. That handler was not exercised end to end (no live gateway). Layer 2 (taint plus veto) covers it at unit level (`test_c5_03`).
 - Not verified: the `scout_mail request …` log line landing in `profiles/job-search/logs/agent.log` (Hermes logger routing). The runbook uses it as evidence; confirm on first use.
-- Availability trade-off: a corrupt or full ledger blocks Scout's tools, messages or new digests (fail closed). Runbook §8 covers it.
+- Availability trade-off: a corrupt or full ledger, or a lockdown (restriction or delivered id not recordable, uncertain delivery, hook fault, unwritable ledger directory), blocks Scout's tools, messages or new digests (fail closed) until the operator acts. Runbook §8 covers it.
+- Residual (F4): if the ledger directory refuses both creating `taint.lockdown` and renaming the ledger, the lockdown is held in memory; after a restart the start-up probe keeps Scout refused while the directory stays unwritable. A directory that refused every write and recovered before the restart loses that lockdown.
+- Test environment: with `nousresearch/hermes-agent:v0.22.5` now present locally, the 11 `test_m7_kafeine.py` lab tests run and hang in `test_lab_kafeine_config_and_hint_apply` (container up, test never returns). That file is untouched by this MR; the tests were deselected in the review 2 full run and not investigated further. The lab container left by the interrupted run was removed (`docker rm -f hermes-m7-lab-gw`).
 - Settings change: `retention_days` was removed from the plugin settings (unused by the role); `model_context_max_chars` minimum raised from 2,000 to 4,000 so the fixed instructions always leave room for data.
 - First deployment after merge (feature off) writes the inert plugin and `plugins.enabled: []`, causing one gateway restart (runbook §1).
 - Known intermittent test: `test_m5_recovery.py::test_r10_closed_database_is_restored_with_its_sidecars_set_aside` failed once in the baseline run and passed in isolation (`evidence/m3-baseline-tests.md`).
@@ -207,9 +210,10 @@ NOT_VERIFIED: 0 of 40 calls used. Reason and owner command: `evidence/m4-live-ev
 | Item | Value |
 |---|---|
 | Branch | `feat/scout-agentmail-readonly`, pushed, tracking `origin` (`git@gitlab.com:tipunchlabs/homelab.git`) |
-| Delivered code commit (Version) | `edcd9fe70508f51ad2d06bc84ea3322f11ad5c12` fix(hermes): durcir scout_mail apres la revue 1 (registre, delai, contexte), on top of `78ee2ee` feat(hermes): ajouter /courriels |
+| Delivered code commit (Version) | `b22ba76472d3884e24a2954e40ec7e2b4793b040` fix(hermes): verrouiller scout_mail durablement apres la revue 2, on top of `edcd9fe` (review 1 fixes) and `78ee2ee` feat(hermes): ajouter /courriels |
+| Owner-input commits | `53c0f8c` chore(hermes): set the Scout mail inbox id (Q1, `test_role_04` aligned); `225fc3a` chore(hermes): provision the Scout read-only AgentMail key in the vault (Q3, encrypted file only) |
 | Mission evidence commit | `1b27f9f` docs(missions): consigner la mission SCOUT-MAIL-01 et ses preuves |
-| Report commits | `a9e4a81` (initial); review 1 update follows this file (docs(missions)) |
+| Report commits | `a9e4a81` (initial), `2a12a2a` (review 1); review 2 update follows this file (docs(missions)) |
 | Draft MR | !109 https://gitlab.com/tipunchlabs/homelab/-/merge_requests/109 (draft: true, opened, target main, source branch kept). Created through git push options because `glab api user` returned 401 |
 | CI | Pipeline 3094652113 on 1b27f9f (contains 78ee2ee): success. Jobs: scan-docker-images, gitleaks, security-check, shell-lint, runner-quota-tests, terraform-lint, ansible-lint all succeeded. Read from the public API. The pipeline does not run the hermes pytest suite; that suite was run locally (§E) |
 | Merge | not done (out of scope) |
@@ -221,9 +225,9 @@ Production changes: none. Verified read-only on hermes-31 at 2026-11-20T13:40Z:
 - container started 2026-11-20T03:45:34Z with 0 restarts;
 - `profiles/job-search/plugins` is empty and there is no `plugin-data`.
 
-Secret provisioning: no AgentMail variable exists anywhere yet (repo, vault references, host `.env` names). `vault_hermes_job_search_agentmail_api_key` is to be created by the owner (owner-questions Q3).
+Secret provisioning: `vault_hermes_job_search_agentmail_api_key` added by the owner (Q3, 2026-11-21), committed encrypted in `225fc3a`. Nothing deployed: hermes-31 still has no AgentMail variable.
 
-Deployment readiness: ready to merge as an inert feature. Q1 (inbox id) is answered (2026-11-21, see section I). Enabling is blocked on Q2 (scoped key) and Q3 (vault). Then follow runbook §2–§4.
+Deployment readiness: ready to merge as an inert feature after review 3. Q1–Q3 are answered (2026-11-21, section I); `hermes_scout_mail_enabled` stays `false`. Enabling remains an owner decision after merge: runbook §2–§4, then the read smoke test.
 
 ## H. Delegations and models
 
@@ -237,17 +241,19 @@ Executor session model: Claude Opus 5.5 (`claude-opus-5-5`). Design, security re
 | Post-change suite, ansible-lint, syntax-check, pre-commit (`evidence/m3-post-change-tests.md`) | Haiku |
 | Post-change suite after fixes (`evidence/m3-post-change-tests-2.md`) | Haiku |
 | Review 1 fixes, tests and full-suite run (`evidence/m6-post-review-1-tests.md`) | none (executor, Opus) |
+| Review 2 fixes, tests, red/green comparison and full-suite run (`evidence/m7-post-review-2-tests.md`) | none (executor, Opus) |
 
 ## I. Decisions required (owner)
 
 - D1 (Q1): ANSWERED 2026-11-21. Inbox `scout-emploi@agentmail.to`, region `api.agentmail.to` (US), confirmed by the owner's read call (HTTP 200 on `https://api.agentmail.to` for this inbox). Set as `hermes_scout_mail_inbox_id` in `hermes/ansible/group_vars/hermes/all/main.yml`, `hermes_scout_mail_enabled` kept `false`; the role host default is already `api.agentmail.to`. `test_role_04` (`hermes/tests/test_scout_mail_role.py:116`) now asserts this inbox id instead of `""`; the rest of the test is unchanged. Ansible-wiring tests rerun after the change (see owner-questions.md Q1).
-- D2 (Q2): confirm or replace the AgentMail key with an inbox-scoped `inbox_read` + `message_read` key. Recommended: replace it, using the command in owner-questions.md. Blocks enablement only.
+- D2 (Q2): ANSWERED 2026-11-21. Dedicated key, inbox-scoped to `scout-emploi@agentmail.to`, `inbox_read` + `message_read` only, created with the owner-questions command; read call returned 200 (owner statement).
+- D2b (Q3): DONE 2026-11-21. Key stored in the vault by the owner, committed encrypted (`225fc3a`).
 - D3 (Q4, optional): run the live evaluation (40 calls max) before merge.
 - D4: merge the draft MR after independent review; then decide on enablement (runbook §2–§4).
 
 ## J. Recommended next action
 
-Pilotage routes Codex review 2 of the draft MR at the Version above (review cap 3). Focus: permission bypass, mail-to-privileged-context handoff, multi-profile concurrency, secrets, unintended writes. In parallel, relay `owner-questions.md` to the owner. No production action is safe or authorized before merge and the owner's answers.
+Pilotage routes Codex review 3 of 3 at the Version above. Focus: F4–F6 (§L), the lockdown recovery procedure (runbook §8) and the HTTPS deadline tests. No production action is safe or authorized before merge; enabling and the read smoke test are owner decisions after it.
 
 ## K. Review 1 (Codex, on 78ee2ee): findings, fixes, tests
 
@@ -271,3 +277,31 @@ F3 [minor] context cap excluded system prompt and prefix.
 Review reservations not turned into code changes in this cycle (no finding raised them):
 - Telegram link previews are not disabled by the plugin; it relies on URL neutralization. To verify on first enablement (runbook).
 - The reviewer's whole-file runs of `test_scout_mail.py` stalled in asyncio executor shutdown inside the review sandbox. In this environment the file completes (89 passed in 19.4 s); the stall was not reproduced here.
+
+## L. Review 2 (Codex, on edcd9fe): findings, fixes, tests
+
+Review: `review-2.md`, verdict CHANGES_REQUESTED (F1 and F2 partially fixed, F3 fixed, new F4–F6). Fixes in `b22ba76472d3884e24a2954e40ec7e2b4793b040`. Review 2's assessment stands for §K: its in-memory guard (F1) and its watchdog on the pre-TLS socket (F2) were not complete; both are replaced below.
+
+F4 [blocker] restriction lost on restart when the session write fails (completes F1).
+- Finding: `_restrict` kept an unwritable restriction in `self.guarded`, emptied at every plugin start; after compression and restart the session regained every tool (review R4).
+- Fix (`taint.py` `lockdown`, `locked`, `probe_writable`; `__init__.py` `_lockdown`, `_is_locked`): the in-memory set is removed. Any restriction that cannot be written, any hook evaluation fault and any tool-result evaluation fault lock the whole feature down durably: an empty `taint.lockdown` file is created beside the ledger (no data block needed); if that fails, the ledger is renamed to `taint.lockdown`. While it exists, `pre_gateway_dispatch` rewrites every Scout message to the registry refusal and `pre_tool_call` vetoes every tool, across restarts, until the operator follows runbook §8. At start-up the plugin probes the ledger directory; if no file can be created there, Scout is refused from the start.
+- Tests: `test_f4_01_unwritable_restriction_survives_compression_and_restart` (review R4: write failure, compressed history, new plugin instance via the real constructor, compressed child: all blocked, messages refused), `test_f4_02_lockdown_falls_back_to_renaming_the_ledger`, `test_f4_03_unwritable_ledger_directory_keeps_scout_refused_across_restart` (directory 0500, real constructor), `test_f4_04_hook_evaluation_error_locks_down_durably`. Existing `test_f1_04` renamed `test_f1_04_unrecordable_restriction_locks_down_and_full_ledger_refuses`. VERIFIED.
+- Residual: if the directory refuses both creating the lockdown file and renaming the ledger, the lockdown lives in memory; after a restart the start-up probe keeps Scout refused while the directory stays unwritable. Only a directory that refused every write and then recovered before a restart loses the lockdown. Hermes writes that turn's transcript to the same filesystem.
+
+F5 [blocker] last ledger slot: delivered message ids lost (completes F1).
+- Finding: the pre-delivery record took a slot without ids and the ids were written as a second record; with one slot left the second write raised `LedgerFull`, was logged only, and a reply to the delivered id with a short marker-free quote was accepted (review R5).
+- Fix (`taint.py` `record_result` returns a record handle, `attach_ids`; `__init__.py` `command`): the result is reserved (fingerprints, one slot) before delivery; after each posted part its Telegram id is attached to that same record, which needs no new slot. If attaching fails, a posted part has no id, or the delivery is interrupted (exception or cancellation after a post), the plugin locks down durably (F4 mechanism) and re-raises a cancellation.
+- Tests: `test_f5_01_last_result_slot_still_records_the_delivered_ids` (review R5 at the real default `MAX_RESULTS=20000`: id recorded, reply rewritten to the refusal, next `/courriels` refused as full), `test_f5_02_failed_id_write_after_delivery_locks_down_durably` (every write after the reservation fails: reply refused before and after restart, tools vetoed), `test_f5_03_delivery_cancelled_after_posting_locks_down`. `test_f1_03` now uses `MAX_RESULTS=1` since a delivery takes one record. VERIFIED.
+
+F6 [major] deadline watchdog on a detached socket over HTTPS (completes F2).
+- Finding: the watchdog kept the socket object from `connect_tcp.complete`; `ssl` detaches it when wrapping, so the shutdown hit a dead object and trickled headers kept the exchange alive past the deadline (review R6: 0.671 s for a 0.15 s deadline, 0 TLS-socket shutdowns).
+- Fix (`transport.py` `_Watchdog`, `_abort`): the watchdog records the connection's file descriptor and its socket identity (`st_dev`, `st_ino`). The descriptor number is unchanged by the TLS wrap, so the handshake, headers and body are all covered. At the deadline it duplicates the descriptor, re-checks the identity (a number reused after close is never touched), calls `shutdown(SHUT_RDWR)` and closes only the duplicate. It is disarmed in `finally`. The per-operation timeout stays capped by the time left; the per-chunk deadline check stays.
+- Tests: `test_f6_01_https_exchange_is_aborted_at_the_deadline`, 8 cases = {never-answered handshake, trickled headers, trickled body, stalled body} × {loopback TCP, socket pair with `connect_tcp` patched (no network socket, as in the reviewer's sandbox)}. Each case uses real httpx 0.28.1, httpcore 1.0.9 and Python `ssl` with a throwaway certificate verified by the client, a 1 s deadline and a 10 s operation timeout. It asserts `BudgetExceeded` in under 1.8 s and that the server sees the connection closed in under 2.5 s (connection released, no partial response returned). `test_f6_02_https_fast_response_still_works`. VERIFIED.
+- Red before the fix: the two trickled-header cases (the exchange never ended; the test bounds it in a worker thread). The handshake and stalled-body cases already passed on edcd9fe, because the operation timeout was capped by the time left; they are kept as regressions over HTTPS. The trickled-body case also passed (per-chunk check).
+- Residual unchanged: name resolution is outside the watchdog (system resolver).
+
+Red/green evidence (`evidence/m7-post-review-2-tests.md`):
+- edcd9fe plugin code with the new test file (scratch tree from `git archive edcd9fe hermes`; one compatibility line so the helpers also set the removed `guarded` attribute): 9 failed, 7 passed for `-k "f4_ or f5_ or f6_"`. All 9 failures are behavioral (tool allowed after restart, message not refused, delivered id not recorded, exchange outlived the deadline).
+- Fixed code: 16 passed for the same selection; plugin suite 105 passed.
+
+Review 2 limits addressed: the four loopback tests that could not create sockets in the reviewer's sandbox now have socket-pair counterparts for HTTPS. The asynchronous command tests use `asyncio.to_thread`, which stalled in the reviewer's sandbox; they pass here (plugin suite 105 passed in about 28 s).

@@ -17,6 +17,8 @@ Recommendation: put it in clear text in `hermes/ansible/group_vars/hermes/all/ma
 
 ## Q2 — Key scope (decides whether the existing key is acceptable)
 
+Status: ANSWERED 2026-11-21 by the owner (« la clef et le vault sont ok »): a dedicated key was created with the command below, inbox-scoped to `scout-emploi@agentmail.to`, permissions `inbox_read` + `message_read` only; a read call on `https://api.agentmail.to` returned 200. Not independently verified by the executor (no key access).
+
 AgentMail keys are whitelist-scoped. If `permissions` is omitted at creation, the key gets ALL permissions, including `message_send` and `message_delete`. A key named "readonly" proves nothing. Please check in the AgentMail console or API how the existing key was created:
 
 - Scope: is it inbox-scoped to the inbox of Q1? It must not be organization- or pod-scoped.
@@ -40,6 +42,8 @@ unset ORG_KEY
 Then tell pilotage: "key created, inbox-scoped, permissions inbox_read+message_read" (no value).
 
 ## Q3 — Secret provisioning (exact step, owner-run)
+
+Status: DONE 2026-11-21 by the owner: `vault_hermes_job_search_agentmail_api_key` added to `hermes/ansible/group_vars/hermes/vault/config.yml`. Committed encrypted in `225fc3a` (first line `$ANSIBLE_VAULT;1.1;AES256`, never decrypted by the executor). `hermes_scout_mail_enabled` stays `false`. The read smoke test (runbook step 6) stays for after merge and deployment, at the owner's call.
 
 The plugin reads `AGENTMAIL_API_KEY` from Scout's profile `.env` only. Ansible writes that file key by key, mode 0600, `no_log`. The vault variable to add is `vault_hermes_job_search_agentmail_api_key`:
 
