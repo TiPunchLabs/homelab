@@ -204,7 +204,7 @@ hermes_profile_cafe_ia:
 # docs/guides/runbook-scout-mail.md. Activer = true ICI et `plugins.enabled:
 # [scout_mail]` dans la declaration de Scout, dans le meme commit.
 hermes_scout_mail_enabled: false
-hermes_scout_mail_inbox_id: ""
+hermes_scout_mail_inbox_id: "scout-emploi@agentmail.to"
 
 # Scout — recherche d'emploi et accompagnement professionnel. Prepare en M4.2,
 # active en M4.3 (2026-10-24) par son entree dans hermes_profiles.

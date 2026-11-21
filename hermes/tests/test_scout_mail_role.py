@@ -113,7 +113,7 @@ def test_role_03_plugin_settings_are_accepted_by_the_plugin(run_tasks: RunTasks,
 
 def test_role_04_only_scout_declares_the_plugin_and_no_key_in_declarations() -> None:
     gv = yaml.safe_load(GROUP_VARS.read_text())
-    assert gv["hermes_scout_mail_enabled"] is False and gv["hermes_scout_mail_inbox_id"] == ""
+    assert gv["hermes_scout_mail_enabled"] is False and gv["hermes_scout_mail_inbox_id"] == "scout-emploi@agentmail.to"
     scout = gv["hermes_profile_job_search"]
     assert scout["config"]["plugins.enabled"] == []  # literal, in sync with the switch (off)
     assert "AGENTMAIL_API_KEY" not in scout["env"]

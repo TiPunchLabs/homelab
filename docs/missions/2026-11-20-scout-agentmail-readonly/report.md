@@ -223,7 +223,7 @@ Production changes: none. Verified read-only on hermes-31 at 2026-11-20T13:40Z:
 
 Secret provisioning: no AgentMail variable exists anywhere yet (repo, vault references, host `.env` names). `vault_hermes_job_search_agentmail_api_key` is to be created by the owner (owner-questions Q3).
 
-Deployment readiness: ready to merge as an inert feature. Enabling is blocked on Q1 (inbox id), Q2 (scoped key) and Q3 (vault). Then follow runbook §2–§4.
+Deployment readiness: ready to merge as an inert feature. Q1 (inbox id) is answered (2026-11-21, see section I). Enabling is blocked on Q2 (scoped key) and Q3 (vault). Then follow runbook §2–§4.
 
 ## H. Delegations and models
 
@@ -240,7 +240,7 @@ Executor session model: Claude Opus 5.5 (`claude-opus-5-5`). Design, security re
 
 ## I. Decisions required (owner)
 
-- D1 (Q1): which inbox (`inbox_id`, region). Blocks enablement only.
+- D1 (Q1): ANSWERED 2026-11-21. Inbox `scout-emploi@agentmail.to`, region `api.agentmail.to` (US), confirmed by the owner's read call (HTTP 200 on `https://api.agentmail.to` for this inbox). Set as `hermes_scout_mail_inbox_id` in `hermes/ansible/group_vars/hermes/all/main.yml`, `hermes_scout_mail_enabled` kept `false`; the role host default is already `api.agentmail.to`. `test_role_04` (`hermes/tests/test_scout_mail_role.py:116`) now asserts this inbox id instead of `""`; the rest of the test is unchanged. Ansible-wiring tests rerun after the change (see owner-questions.md Q1).
 - D2 (Q2): confirm or replace the AgentMail key with an inbox-scoped `inbox_read` + `message_read` key. Recommended: replace it, using the command in owner-questions.md. Blocks enablement only.
 - D3 (Q4, optional): run the live evaluation (40 calls max) before merge.
 - D4: merge the draft MR after independent review; then decide on enablement (runbook §2–§4).

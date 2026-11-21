@@ -9,6 +9,8 @@ Searched before asking (non-secret discovery, no inference from names):
 
 ## Q1 — Inbox identifier (non-secret)
 
+Status: ANSWERED 2026-11-21 by the owner: `scout-emploi@agentmail.to`, standard region `api.agentmail.to`, confirmed by the owner: a read call on `https://api.agentmail.to` returned 200 for this inbox (US region). Set in clear text as `hermes_scout_mail_inbox_id` in `hermes/ansible/group_vars/hermes/all/main.yml`; `hermes_scout_mail_enabled` stays `false`. The role default `hermes_scout_mail_agentmail_host` is already `api.agentmail.to` (`roles/hermes_agent/defaults/main.yml:246`), so no host override is set.
+
 Which AgentMail inbox must Scout read? Give the exact `inbox_id` (AgentMail uses the inbox email address as its id, for example `name@agentmail.to`) and the region (`api.agentmail.to` or EU `api.agentmail.eu`).
 
 Recommendation: put it in clear text in `hermes/ansible/group_vars/hermes/all/main.yml` as `hermes_scout_mail_inbox_id` (an address is an identifier, like the Telegram allowlist), or tell pilotage and it will be added on the branch. If you consider the address private, put it in the vault instead as `vault_hermes_scout_mail_inbox_id`; the code accepts both.
