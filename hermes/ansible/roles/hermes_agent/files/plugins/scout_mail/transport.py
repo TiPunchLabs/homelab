@@ -12,6 +12,7 @@ including while a response body is streamed.
 from __future__ import annotations
 
 import json
+import os
 import re
 import socket
 import threading
@@ -78,11 +79,15 @@ class HttpBackend(Protocol):
 class HttpxBackend:
     """httpx without redirects, with TLS verification, a streamed byte ceiling and a hard deadline.
 
-    ``timeout`` bounds each network operation; ``remaining`` bounds the whole exchange. A watchdog
-    shuts the TCP socket down when the time left runs out, which aborts a blocked connect, write
-    or read, and the stream loop re-checks the time after every chunk, so a server that trickles
-    bytes cannot hold the worker past the request deadline. Residual: name resolution happens
-    before a socket exists and is bounded by the system resolver, not by the watchdog.
+    ``timeout`` bounds each network operation and is itself capped by the time left; ``remaining``
+    bounds the whole exchange. A watchdog aborts the connection when the time left runs out. It
+    holds the connection's file descriptor, not a socket object: during HTTPS setup Python moves
+    that descriptor from the TCP socket into the TLS socket (``SSLSocket`` detaches the original),
+    so the descriptor is the one handle valid through the handshake, the headers and the body.
+    ``shutdown(SHUT_RDWR)`` on it makes any blocked read or write return at once; the identity of
+    the socket is re-checked first so a descriptor number reused after close is never touched.
+    The stream loop also re-checks the time after every chunk. Residual: name resolution happens
+    before a socket exists and is bounded by the system resolver only.
     """
 
     def send(self, method: str, url: str, headers: dict[str, str], body: bytes | None,
@@ -92,27 +97,15 @@ class HttpxBackend:
         left = remaining()
         if left <= 0:
             raise BudgetExceeded()
-        expired = threading.Event()
-        sockets: list[Any] = []
-        guard = threading.Lock()
+        watchdog = _Watchdog()
 
         def trace(name: str, info: dict[str, Any]) -> None:
             if name == "connection.connect_tcp.complete":
-                sock = info["return_value"].get_extra_info("socket")
-                with guard:
-                    sockets.append(sock)
-                    if expired.is_set():
-                        _shutdown(sock)
+                watchdog.track(info["return_value"].get_extra_info("socket"))
 
-        def fire() -> None:
-            with guard:
-                expired.set()
-                for sock in sockets:
-                    _shutdown(sock)
-
-        watchdog = threading.Timer(left, fire)
-        watchdog.daemon = True
-        watchdog.start()
+        timer = threading.Timer(left, watchdog.fire)
+        timer.daemon = True
+        timer.start()
         try:
             with httpx.Client(follow_redirects=False, verify=True, timeout=min(timeout, left),
                               trust_env=False) as client:
@@ -121,32 +114,83 @@ class HttpxBackend:
                     chunks: list[bytes] = []
                     size = 0
                     for chunk in resp.iter_bytes():
-                        if expired.is_set() or remaining() <= 0:
+                        if watchdog.expired.is_set() or remaining() <= 0:
                             raise BudgetExceeded()
                         size += len(chunk)
                         if size > max_bytes:
                             raise TooLarge()
                         chunks.append(chunk)
-                    if expired.is_set() or remaining() <= 0:
+                    if watchdog.expired.is_set() or remaining() <= 0:
                         raise BudgetExceeded()
                     return RawResponse(resp.status_code, {k.lower(): v for k, v in resp.headers.items()},
                                        b"".join(chunks))
         except (TooLarge, BudgetExceeded):
             raise
         except (httpx.HTTPError, OSError) as exc:
-            if expired.is_set():
+            if watchdog.expired.is_set():
                 raise BudgetExceeded() from exc
             raise Unavailable() from exc
         finally:
-            watchdog.cancel()
+            timer.cancel()
+            watchdog.disarm()
 
 
-def _shutdown(sock: Any) -> None:
-    """Abort any blocked I/O on the socket; errors (already closed) are irrelevant."""
+class _Watchdog:
+    """Aborts the tracked connections once ``fire`` runs; safe against descriptor reuse."""
+
+    def __init__(self) -> None:
+        self.expired = threading.Event()
+        self._lock = threading.Lock()
+        self._targets: list[tuple[int, tuple[int, int]]] = []
+        self._disarmed = False
+
+    def track(self, sock: Any) -> None:
+        try:
+            fd = sock.fileno()
+            st = os.fstat(fd)
+        except (OSError, AttributeError, ValueError):
+            return
+        with self._lock:
+            self._targets.append((fd, (st.st_dev, st.st_ino)))
+            if self.expired.is_set() and not self._disarmed:
+                _abort(fd, (st.st_dev, st.st_ino))
+
+    def fire(self) -> None:
+        with self._lock:
+            if self._disarmed:
+                return
+            self.expired.set()
+            for fd, ident in self._targets:
+                _abort(fd, ident)
+
+    def disarm(self) -> None:
+        with self._lock:
+            self._disarmed = True
+
+
+def _abort(fd: int, ident: tuple[int, int]) -> None:
+    """Shut down the socket behind ``fd`` if it is still the tracked one; never closes it."""
     try:
-        sock.shutdown(socket.SHUT_RDWR)
-    except (OSError, AttributeError):
+        dup = os.dup(fd)
+    except OSError:
+        return
+    try:
+        st = os.fstat(dup)
+        if (st.st_dev, st.st_ino) != ident:
+            return
+        sock = socket.socket(fileno=dup)
+        dup = -1  # owned by ``sock`` now; closing it closes the duplicate only
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        finally:
+            sock.close()
+    except OSError:
         pass
+    finally:
+        if dup >= 0:
+            os.close(dup)
 
 
 @dataclass

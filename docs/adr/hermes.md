@@ -133,7 +133,7 @@ A user plugin `scout_mail`, installed and enabled in Scout's profile only:
 2. Taint hooks keep mail-derived text out of privileged turns:
    - a reply to, or paste of, a result is refused before the agent runs;
    - a session whose turn or history contains such text, or whose tool result does, is tainted, and `pre_tool_call` vetoes every tool in it for good (`/new` starts clean). Sessions compressed from a tainted one inherit the restriction;
-   - the ledger stores message ids and 8-byte hashes only. It never expires or evicts an entry: a delivered result stays quotable and a tainted transcript stays actionable for as long as they exist. It has hard capacities instead (20,000 results, 300,000 fingerprints, 100,000 sessions). At capacity it fails closed: no new result is delivered, a session that cannot be recorded is guarded in memory, and every Scout message is refused once the session capacity is reached. Archiving the ledger is an operator action paired with retiring Scout's sessions (runbook).
+   - the ledger stores message ids and 8-byte hashes only. It never expires or evicts an entry: a delivered result stays quotable and a tainted transcript stays actionable for as long as they exist. It has hard capacities instead (20,000 results, 300,000 fingerprints, 100,000 sessions). A result is reserved before delivery and its Telegram ids are attached to that same record, so the last free slot never loses ids. At capacity it fails closed: no new result is delivered, and every Scout message is refused once the session capacity is reached. When a restriction or a delivered id cannot be written, a delivery is uncertain, or a hook fails, the plugin locks down durably (`taint.lockdown`, created empty or by renaming the ledger): every Scout message and tool is refused, across restarts, until the operator retires Scout's sessions and clears it. Archiving the ledger is an operator action paired with retiring Scout's sessions (runbook).
 3. Disabled by default:
    - `hermes_scout_mail_enabled: false` together with a literal `plugins.enabled: []` in Scout's declaration; the role refuses any mismatch between the two;
    - the AgentMail key is required only when enabled. It is written to Scout's `.env` only, by `tasks/scout_mail.yml`, and an inbox-scoped key limited to `inbox_read` + `message_read` is required.
@@ -153,6 +153,7 @@ Threat model and enforcement matrix: `docs/references/scout-mail-threat-model.md
 ### Consequences
 
 - If the owner retypes or paraphrases mail content into an ordinary Scout message, that input is not detected (it is owner-authored).
-- A corrupt taint ledger blocks Scout's tools and messages until the operator intervenes (fail closed). A full ledger stops new digests until the operator archives it.
+- A corrupt taint ledger or a lockdown blocks Scout's tools and messages until the operator intervenes (fail closed). A full ledger stops new digests until the operator archives it.
+- The request deadline aborts the live HTTPS connection (watchdog on the connection's file descriptor, valid through the TLS wrap); only name resolution is outside it.
 - The isolation relies on the Hermes v0.22.5 plugin scoping and dispatch order. Any Hermes upgrade must re-run `hermes/tests/test_scout_mail_image.py` before enabling.
 - Mail content is sent to DeepSeek, the provider Scout already uses.

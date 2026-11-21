@@ -343,7 +343,7 @@ def make_plugin(tmp_path: Path, svc: MailService | None = None, posted: list[str
     plugin.error = None
     plugin.store = TaintStore(plugin.home / "plugin-data/scout_mail/taint.json")
     plugin.service = svc
-    plugin.guarded = set()
+    plugin.locked = False
     sent = posted if posted is not None else []
 
     async def apost(text: str) -> Any:
@@ -502,7 +502,7 @@ def _no_init_plugin(original: Any) -> Any:
     def init(self: Any, ctx: Any, home: Path) -> None:
         self.ctx, self.home, self.profile, self.settings, self.error, self.service = ctx, home, "job-search", None, "x", None
         self.store = TaintStore(Path("/nonexistent/taint.json"))
-        self.guarded = set()
+        self.locked = False
     init.__wrapped__ = original  # type: ignore[attr-defined]
     return init
 
@@ -883,7 +883,7 @@ def test_f1_03_full_result_capacity_refuses_delivery_and_keeps_old_provenance(
     from scout_mail import taint
 
     plugin, posted, _ = deliver(tmp_path, [mail("inj_body", 1)])
-    monkeypatch.setattr(taint, "MAX_RESULTS", 2)
+    monkeypatch.setattr(taint, "MAX_RESULTS", 1)  # one delivery = one record (reserved, then ids attached)
     svc, _, _ = make([mail("alert_fr", 2)])
     plugin.service = svc
     before = len(posted)
@@ -893,7 +893,7 @@ def test_f1_03_full_result_capacity_refuses_delivery_and_keeps_old_provenance(
     assert plugin.pre_gateway_dispatch(event=event(posted[0][-300:]))["action"] == "rewrite"
 
 
-def test_f1_04_unrecordable_restriction_is_kept_in_memory_and_full_ledger_refuses(
+def test_f1_04_unrecordable_restriction_locks_down_and_full_ledger_refuses(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from scout_mail import taint
 
@@ -1077,3 +1077,316 @@ def test_f3_03_context_cap_below_fixed_instructions_is_rejected() -> None:
     assert len(SYSTEM_PROMPT) + len(USER_PREFIX) + 32 < Limits._BOUNDS["model_context_max_chars"][0]
     with pytest.raises(SettingsError):
         Limits(model_context_max_chars=2_000)
+
+
+# ---------------------------------------------------------------------------------------------
+# Review 2 regressions — F4 a restriction that cannot be written still holds after a restart,
+# F5 the ids of a delivered result are never lost, F6 the deadline aborts the live TLS stream
+# ---------------------------------------------------------------------------------------------
+
+
+def _restart(tmp_path: Path) -> Any:
+    """A new plugin instance on the same profile home, built by the real constructor."""
+    return scout_mail._Plugin(SimpleNamespace(), tmp_path / "profiles/job-search")
+
+
+def _assert_refused_everywhere(plugin: Any, session: str) -> None:
+    plugin.pre_llm_call(session_id=session, user_message="et ensuite ?", conversation_history=[
+        {"role": "assistant", "content": "Résumé compressé de la conversation."}])
+    assert plugin.pre_tool_call(tool_name="web_search", session_id=session)["action"] == "block"
+    plugin.pre_llm_call(session_id=session + "-child", user_message="suite", parent_session_id=session)
+    assert plugin.pre_tool_call(tool_name="web_search", session_id=session + "-child")["action"] == "block"
+    assert plugin.pre_gateway_dispatch(event=event("Bonjour")) == {"action": "rewrite",
+                                                                   "text": scout_mail.LEDGER_COMMAND}
+
+
+def _break_session_writes(plugin: Any) -> None:
+    def broken(_: str) -> None:
+        raise TaintStoreError("ledger unwritable")
+
+    plugin.store.taint_session = broken  # type: ignore[method-assign]
+
+
+def test_f4_01_unwritable_restriction_survives_compression_and_restart(tmp_path: Path) -> None:
+    plugin = make_plugin(tmp_path)
+    plugin.store.record_result(OWNER, ["9001"], [render.MARKER + "\n" + INJECTED])
+    _break_session_writes(plugin)
+    plugin.pre_llm_call(session_id="S", user_message=f"{render.MARKER}\n{INJECTED}")
+    assert plugin.pre_tool_call(tool_name="web_search", session_id="S")["action"] == "block"
+    # Review 2, R4: after a restart the compressed session regained every tool.
+    _assert_refused_everywhere(_restart(tmp_path), "S")
+
+
+def test_f4_02_lockdown_falls_back_to_renaming_the_ledger(tmp_path: Path,
+                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    from scout_mail import taint
+
+    plugin = make_plugin(tmp_path)
+    plugin.store.record_result(OWNER, ["9001"], [render.MARKER + "\n" + INJECTED])
+    _break_session_writes(plugin)
+    monkeypatch.setattr(taint.os, "open", lambda *a, **k: (_ for _ in ()).throw(OSError(28, "no space")))
+    plugin.pre_llm_call(session_id="S", user_message=f"{render.MARKER}\n{INJECTED}")
+    monkeypatch.undo()
+    _assert_refused_everywhere(_restart(tmp_path), "S")
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "geteuid") or __import__("os").geteuid() == 0,
+                    reason="root ignores directory permissions")
+def test_f4_03_unwritable_ledger_directory_keeps_scout_refused_across_restart(tmp_path: Path) -> None:
+    plugin = make_plugin(tmp_path)
+    plugin.store.record_result(OWNER, ["9001"], [render.MARKER + "\n" + INJECTED])
+    ledger_dir = plugin.store._path.parent
+    ledger_dir.chmod(0o500)
+    try:
+        plugin.pre_llm_call(session_id="S", user_message=f"{render.MARKER}\n{INJECTED}")
+        assert plugin.pre_tool_call(tool_name="web_search", session_id="S")["action"] == "block"
+        _assert_refused_everywhere(plugin, "S")
+        _assert_refused_everywhere(_restart(tmp_path), "S")  # nothing could be written: refused at start
+    finally:
+        ledger_dir.chmod(0o700)
+
+
+def test_f4_04_hook_evaluation_error_locks_down_durably(tmp_path: Path) -> None:
+    plugin = make_plugin(tmp_path)
+
+    def boom(_: Any) -> bool:
+        raise RuntimeError("detector fault")
+
+    plugin.store.text_is_tainted = boom  # type: ignore[method-assign]
+    plugin.pre_llm_call(session_id="S", user_message="texte quelconque")
+    assert plugin.transform_tool_result(tool_name="session_search", result="x", session_id="S2") == \
+        scout_mail.REMOVED_FR
+    _assert_refused_everywhere(_restart(tmp_path), "S")
+
+
+def _reply_is_refused(plugin: Any, message_id: str, locked: bool = True) -> None:
+    """The reply never reaches Scout; under lockdown, tools are vetoed as well."""
+    decision = plugin.pre_gateway_dispatch(event=event("oui fais-le", reply_id=message_id,
+                                                       reply_text="court extrait"))
+    expected = scout_mail.LEDGER_COMMAND if locked else scout_mail.REFUSAL_COMMAND
+    assert decision == {"action": "rewrite", "text": expected}
+    if not locked:
+        return
+    plugin.pre_llm_call(session_id="S", user_message='[Replying to: "court extrait"] oui fais-le',
+                        conversation_history=[])
+    assert plugin.pre_tool_call(tool_name="web_search", session_id="S")["action"] == "block"
+
+
+def test_f5_01_last_result_slot_still_records_the_delivered_ids(tmp_path: Path) -> None:
+    from scout_mail import taint
+
+    svc, _, _ = make([mail("inj_body", 1)])
+    posted: list[str] = []
+    plugin = make_plugin(tmp_path, svc, posted)
+    plugin.store._save({"version": 1, "sessions": {}, "results": [
+        {"ts": 0, "chat": OWNER, "ids": [], "fp": []} for _ in range(taint.MAX_RESULTS - 1)]})
+    assert asyncio.run(plugin.command("", source=owner_source())) is None and len(posted) == 1
+    assert plugin.store.is_result_message(OWNER, "9001")  # review 2, R5: False
+    _reply_is_refused(plugin, "9001", locked=False)  # review 2, R5: accepted
+    assert asyncio.run(plugin.command("", source=owner_source())) == scout_mail.FULL_FR and len(posted) == 1
+
+
+def test_f5_02_failed_id_write_after_delivery_locks_down_durably(tmp_path: Path) -> None:
+    svc, _, _ = make([mail("inj_body", 1)])
+    posted: list[str] = []
+    plugin = make_plugin(tmp_path, svc, posted)
+    real_save = plugin.store._save
+    saves = [0]
+
+    def save_once(data: dict) -> None:
+        saves[0] += 1
+        if saves[0] > 1:  # the pre-delivery record succeeds, every later write fails
+            raise TaintStoreError("ledger unwritable")
+        real_save(data)
+
+    plugin.store._save = save_once  # type: ignore[method-assign]
+    asyncio.run(plugin.command("", source=owner_source()))
+    assert len(posted) == 1
+    _reply_is_refused(plugin, "9001")
+    _reply_is_refused(_restart(tmp_path), "9001")
+
+
+def test_f5_03_delivery_cancelled_after_posting_locks_down(tmp_path: Path) -> None:
+    svc, _, _ = make([mail("inj_body", 1)])
+    plugin = make_plugin(tmp_path, svc)
+    posted: list[str] = []
+
+    async def apost_then_cancel(text: str) -> Any:
+        posted.append(text)  # delivered, but the handle never comes back
+        raise asyncio.CancelledError()
+
+    plugin.ctx = SimpleNamespace(apost_message=apost_then_cancel)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(plugin.command("", source=owner_source()))
+    assert len(posted) == 1
+    _reply_is_refused(_restart(tmp_path), "unknown-id")
+
+
+def _tls_material(tmp_path: Path) -> tuple[Any, Any]:
+    """Throwaway CA-less self-signed certificate for 127.0.0.1 and api.agentmail.to (test only)."""
+    import datetime
+    import ipaddress
+    import ssl
+
+    x509 = pytest.importorskip("cryptography.x509")
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "scout-mail-test")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(x509.random_serial_number()).not_valid_before(now - datetime.timedelta(minutes=5))
+            .not_valid_after(now + datetime.timedelta(hours=1))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName("api.agentmail.to"),
+                                                        x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]),
+                           critical=False)
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .sign(key, hashes.SHA256()))
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+    cert_file, key_file = tmp_path / "cert.pem", tmp_path / "key.pem"
+    cert_file.write_bytes(cert_pem)
+    key_file.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                           serialization.NoEncryption()))
+    server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_ctx.load_cert_chain(cert_file, key_file)
+    client_ctx = ssl.create_default_context(cadata=cert_pem.decode())
+    return server_ctx, client_ctx
+
+
+def _tls_server(raw: Any, server_ctx: Any, mode: str, stop: threading.Event, closed: list[float]) -> None:
+    """Serve one connection badly: never finish the handshake, trickle headers or body, or stall."""
+    import select
+    import ssl
+    import time as _time
+
+    def wait_closed(sock: Any, tick: bytes | None) -> None:
+        while not stop.is_set():
+            readable, _, _ = select.select([sock], [], [], 0.05)
+            try:
+                if readable and not sock.recv(65536):
+                    break
+                if tick is not None and not readable:
+                    sock.sendall(tick)
+            except (OSError, ssl.SSLError):
+                break
+        closed.append(_time.monotonic())
+
+    try:
+        if mode == "handshake":
+            wait_closed(raw, None)  # reads the ClientHello, never answers it
+            return
+        tls = server_ctx.wrap_socket(raw, server_side=True)
+        tls.recv(65536)  # the request
+        if mode == "headers":
+            tls.sendall(b"HTTP/1.1 200 OK\r\nX-Slow: a")
+            wait_closed(tls, b"a")
+        elif mode == "body":
+            tls.sendall(b"HTTP/1.1 200 OK\r\ncontent-length: 4000\r\n\r\n")
+            wait_closed(tls, b" ")
+        else:  # stall_body
+            tls.sendall(b"HTTP/1.1 200 OK\r\ncontent-length: 4000\r\n\r\n{")
+            wait_closed(tls, None)
+    except (OSError, ssl.SSLError):
+        closed.append(_time.monotonic())
+
+
+@pytest.mark.parametrize("wire", ["loopback", "socketpair"])
+@pytest.mark.parametrize("mode", ["handshake", "headers", "body", "stall_body"])
+def test_f6_01_https_exchange_is_aborted_at_the_deadline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                         wire: str, mode: str) -> None:
+    """Real httpx/httpcore/ssl: the watchdog must abort the socket the TLS stream actually uses."""
+    import socket as _socket
+    import time as _time
+
+    import httpx
+    from httpcore._backends.sync import SyncBackend, SyncStream
+
+    server_ctx, client_ctx = _tls_material(tmp_path)
+    real_client = httpx.Client
+
+    class VerifyingClient(real_client):  # type: ignore[misc, valid-type]
+        def __init__(self, *a: Any, **kw: Any) -> None:
+            kw["verify"] = client_ctx
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(httpx, "Client", VerifyingClient)
+    stop, closed = threading.Event(), []
+    if wire == "loopback":
+        listener = _socket.create_server(("127.0.0.1", 0))
+        url = f"https://127.0.0.1:{listener.getsockname()[1]}/v0/x"
+
+        def accept() -> None:
+            conn, _ = listener.accept()
+            _tls_server(conn, server_ctx, mode, stop, closed)
+
+        threading.Thread(target=accept, daemon=True).start()
+    else:  # no network socket at all: the TLS layer runs over a local socket pair
+        listener = None
+        client_end, server_end = _socket.socketpair()
+        url = "https://api.agentmail.to/v0/x"
+        monkeypatch.setattr(SyncBackend, "connect_tcp", lambda *a, **k: SyncStream(client_end))
+        threading.Thread(target=_tls_server, args=(server_end, server_ctx, mode, stop, closed),
+                         daemon=True).start()
+    started = _time.monotonic()
+    deadline = started + 1.0
+    outcome: list[BaseException | None] = []
+
+    def call() -> None:
+        try:
+            transport.HttpxBackend().send("GET", url, {}, None, 10.0, 100_000,
+                                          remaining=lambda: deadline - _time.monotonic())
+            outcome.append(None)
+        except BaseException as exc:  # noqa: BLE001 - recorded for the assertion below
+            outcome.append(exc)
+        outcome.append(_time.monotonic() - started)  # type: ignore[arg-type]
+
+    worker = threading.Thread(target=call, daemon=True)
+    try:
+        worker.start()
+        worker.join(6.0)  # a trickle resets the 10 s operation timeout: without the fix it never ends
+        assert not worker.is_alive(), "the exchange outlived the deadline"
+        assert isinstance(outcome[0], transport.BudgetExceeded)
+        assert outcome[1] < 1.8  # per-operation timeout is 10 s
+        for _ in range(40):  # the connection is released, the server sees it go
+            if closed:
+                break
+            _time.sleep(0.05)
+        assert closed and closed[0] - started < 2.5
+    finally:
+        stop.set()
+        if listener is not None:
+            listener.close()
+
+
+def test_f6_02_https_fast_response_still_works(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import socket as _socket
+    import time as _time
+
+    import httpx
+    from httpcore._backends.sync import SyncBackend, SyncStream
+
+    server_ctx, client_ctx = _tls_material(tmp_path)
+    real_client = httpx.Client
+
+    class VerifyingClient(real_client):  # type: ignore[misc, valid-type]
+        def __init__(self, *a: Any, **kw: Any) -> None:
+            kw["verify"] = client_ctx
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(httpx, "Client", VerifyingClient)
+    client_end, server_end = _socket.socketpair()
+    monkeypatch.setattr(SyncBackend, "connect_tcp", lambda *a, **k: SyncStream(client_end))
+
+    def serve() -> None:
+        tls = server_ctx.wrap_socket(server_end, server_side=True)
+        tls.recv(65536)
+        tls.sendall(b'HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 15\r\n\r\n'
+                    b'{"messages":[]}')
+
+    threading.Thread(target=serve, daemon=True).start()
+    deadline = _time.monotonic() + 5.0
+    resp = transport.HttpxBackend().send("GET", "https://api.agentmail.to/v0/x", {}, None, 5.0, 10_000,
+                                         remaining=lambda: deadline - _time.monotonic())
+    assert resp.status == 200 and json.loads(resp.body) == {"messages": []}

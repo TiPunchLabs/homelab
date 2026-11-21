@@ -10,7 +10,7 @@ Read-only digest of ONE AgentMail inbox for the owner, in Scout's private Telegr
 | Settings | `settings.json` in the same directory, rendered by `tasks/scout_mail.yml` (0640): `enabled`, `profile`, `inbox_id`, `owner_user_ids`, `agentmail_host`, `limits` |
 | Scout config key | `plugins.enabled` in Scout's declaration (literal): `[scout_mail]` when enabled, `[]` otherwise. No other profile gets the key |
 | Scout `.env` key | `AGENTMAIL_API_KEY`, written or removed by `tasks/scout_mail.yml` (key by key, 0600, `no_log`). Present only when enabled |
-| Ledger (runtime) | `/opt/hermes/data/profiles/job-search/plugin-data/scout_mail/taint.json` (0600; message ids, 8-byte hashes, tainted session ids; no expiry, hard capacities 20,000 results / 300,000 fingerprints / 100,000 sessions) |
+| Ledger (runtime) | `/opt/hermes/data/profiles/job-search/plugin-data/scout_mail/taint.json` (0600; message ids, 8-byte hashes, tainted session ids; no expiry, hard capacities 20,000 results / 300,000 fingerprints / 100,000 sessions). `taint.lockdown` in the same directory = durable lockdown (§8) |
 | Exposed to the owner | `/courriels`, `/courriels liste`, `/courriels suite`, `/courriels aide` |
 | Exposed to the model | nothing: no tool, no MCP server. Scout's existing tool matrix is unchanged |
 
@@ -101,7 +101,7 @@ Defaults live in `files/plugins/scout_mail/config.py` (`Limits`). Each one is bo
 - 20,000 chars of total model context: system prompt, prefix and data together (minimum setting 4,000).
 - 1 model call, at most 1,200 output tokens.
 - 1 retry, only on 429/5xx, with Retry-After of at most 2 s. No retry on 401/403.
-- Timeouts: HTTP 10 s and model 40 s per network operation. 75 s wall clock in total, enforced during each exchange: a watchdog shuts the socket down at the deadline and a trickling response is cut at the first chunk past it. Name resolution is bounded by the system resolver only.
+- Timeouts: HTTP 10 s and model 40 s per network operation. 75 s wall clock in total, enforced during each exchange: the per-operation timeout is capped by the time left, a watchdog shuts the connection down at the deadline (TLS handshake, headers and body included) and a trickling response is cut at the first chunk past it. Name resolution is bounded by the system resolver only.
 - At most 3 Telegram messages of 3,500 chars each.
 
 Fixture measurements are in the mission report (`evidence/m3-fixture-run.json`). Live network and model latency are not yet measured: watch the `ms=` field of the `scout_mail request` log line on first use.
@@ -115,7 +115,9 @@ Fixture measurements are in the mission report (`evidence/m3-fixture-run.json`).
 | "Résumé IA indisponible (…)" | Model failed or returned invalid JSON; metadata shown | Check DeepSeek status; no second call is made |
 | Every Scout message answered "Le registre de sécurité des courriels est illisible…" | Ledger unreadable or corrupt (fail closed) | Disable the feature (kill switch) or move the ledger aside (`taint.json` → `taint.json.bak`) and restart the gateway; both lose taint state, so run `/new` |
 | "Registre de sécurité des courriels plein…" on `/courriels` | Ledger at capacity (fail closed, nothing forgotten) | Archive: disable the feature, run `/new` in Scout's chat, stop the gateway, move `taint.json` aside, restart. Old results become quotable again only in the marker-free case, so treat archived digests as untrusted |
-| Every Scout message answered "…illisible ou plein…" | Ledger unreadable, corrupt, or session capacity reached | Same archive procedure |
+| Every Scout message answered "…illisible, plein ou verrouillé…" | Ledger unreadable, corrupt, session capacity reached, or lockdown | Same archive procedure |
+| `taint.lockdown` present in `plugin-data/scout_mail/` (log: `scout_mail lockdown (…)`) | A restriction or a delivered message id could not be recorded, a delivery was interrupted, or a hook failed. Scout refuses everything, across restarts | Find the cause (disk full, permissions: `df`, `ls -l`). Disable the feature, run `/new` in Scout's chat, stop the gateway. If `taint.json` is missing, `taint.lockdown` holds the renamed ledger: move it back to `taint.json`, otherwise remove the empty `taint.lockdown`. Restart, re-enable. Treat digests delivered before the lockdown as untrusted |
+| Log `scout_mail ledger directory unwritable` at start, everything refused | The plugin cannot create a file beside the ledger | Repair ownership/space of `plugin-data/scout_mail/` (owner hermes, 0700), restart |
 | "Outil bloqué : cette conversation contient du contenu issu de courriels…" | Session tainted (by design, never expires) | `/new` |
 
 Logs hold counts, statuses and timings only (`scout_mail request action=… result=… http=… model=… retries=… ms=…`). There are no subjects, bodies, addresses or keys.

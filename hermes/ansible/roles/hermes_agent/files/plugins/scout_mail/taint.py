@@ -7,15 +7,23 @@ address. One JSON file per profile (plugin-data), 0600, atomically replaced.
 Nothing is ever forgotten silently: there is no time-based expiry and no eviction, because a
 delivered result stays quotable and a tainted transcript stays actionable for as long as it
 exists. The ledger has hard capacities instead; reaching one raises ``LedgerFull`` and the
-caller fails closed (no new result is delivered, the session is guarded in memory, messages are
-refused). Only an operator may archive the ledger, together with retiring Scout's sessions
-(runbook). An unreadable file raises ``TaintStoreError``; callers fail closed.
+caller fails closed. A result is reserved (fingerprints, one slot) before delivery and its
+Telegram ids are attached to that same record afterwards, so the last slot never loses ids.
+
+When a restriction cannot be written, the caller locks the whole feature down with
+``lockdown()``: an empty ``taint.lockdown`` file next to the ledger (creating it needs no data
+block), or, if even that fails, the ledger renamed to that name. While it exists Scout refuses
+every message and tool, across restarts, until the operator retires Scout's sessions and removes
+it (runbook). ``probe_writable()`` lets the caller refuse everything from start-up when the
+directory accepts no write at all. An unreadable file raises ``TaintStoreError``; callers fail
+closed.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import secrets
 import tempfile
 import threading
 import time
@@ -43,6 +51,7 @@ class TaintStore:
 
     def __init__(self, path: Path, clock: Callable[[], float] = time.time) -> None:
         self._path = path
+        self._lock_path = path.with_name("taint.lockdown")
         self._clock = clock
         self._lock = threading.Lock()
         self._cache_key: tuple[int, int, int, int] | None = None
@@ -101,22 +110,72 @@ class TaintStore:
         except OSError as exc:
             raise TaintStoreError("ledger unwritable") from exc
 
-    def record_result(self, chat_id: str, message_ids: Iterable[str], segments: Iterable[str]) -> None:
-        """Remember a delivered result: its Telegram message ids and its fingerprints.
+    def record_result(self, chat_id: str, message_ids: Iterable[str], segments: Iterable[str]) -> str:
+        """Reserve one record for a result (its fingerprints, and ids if already known).
 
-        Raises ``LedgerFull`` instead of dropping older provenance.
+        Returns the record handle for ``attach_ids``. Raises ``LedgerFull`` instead of dropping
+        older provenance, so a result that cannot be reserved is never delivered.
         """
         fps: set[str] = set()
         for segment in segments:
             fps |= fingerprints(segment)
         ids = sorted({str(m) for m in message_ids if m})
+        rid = secrets.token_hex(8)
         with self._lock:
             data = self._load()
             stored = sum(len(r.get("fp", [])) for r in data["results"] if isinstance(r, dict))
             if len(data["results"]) >= MAX_RESULTS or stored + len(fps) > MAX_FINGERPRINTS:
                 raise LedgerFull("result capacity reached")
-            data["results"].append({"ts": self._clock(), "chat": str(chat_id), "ids": ids, "fp": sorted(fps)})
+            data["results"].append({"ts": self._clock(), "rid": rid, "chat": str(chat_id), "ids": ids,
+                                    "fp": sorted(fps)})
             self._save(data)
+        return rid
+
+    def attach_ids(self, rid: str, message_ids: Iterable[str]) -> None:
+        """Add delivered Telegram ids to the reserved record; takes no new slot."""
+        ids = {str(m) for m in message_ids if m}
+        with self._lock:
+            data = self._load()
+            for record in data["results"]:
+                if isinstance(record, dict) and record.get("rid") == rid:
+                    record["ids"] = sorted(ids | {str(m) for m in record.get("ids", [])})
+                    self._save(data)
+                    return
+        raise TaintStoreError("reserved result missing")
+
+    def lockdown(self) -> None:
+        """Persist a feature-wide refusal; raises ``TaintStoreError`` if nothing could be written."""
+        with self._lock:
+            self._cache = self._cache_key = None
+            try:
+                self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                os.close(os.open(self._lock_path, os.O_WRONLY | os.O_CREAT, 0o600))
+                return
+            except OSError:
+                pass
+            try:
+                os.replace(self._path, self._lock_path)  # a rename needs no new data block
+            except OSError as exc:
+                raise TaintStoreError("lockdown not persisted") from exc
+
+    def locked(self) -> bool:
+        try:
+            self._lock_path.stat()
+        except FileNotFoundError:
+            return False
+        except OSError as exc:
+            raise TaintStoreError("lockdown state unreadable") from exc
+        return True
+
+    def probe_writable(self) -> None:
+        """Raise ``TaintStoreError`` unless a file can be created and removed beside the ledger."""
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            fd, tmp = tempfile.mkstemp(dir=self._path.parent, prefix=".probe-")
+            os.close(fd)
+            os.unlink(tmp)
+        except OSError as exc:
+            raise TaintStoreError("ledger directory unwritable") from exc
 
     def taint_session(self, session_id: str) -> None:
         """Mark a session as restricted for good; raises ``LedgerFull`` rather than evicting one."""

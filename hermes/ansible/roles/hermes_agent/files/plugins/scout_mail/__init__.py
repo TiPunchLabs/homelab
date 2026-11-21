@@ -7,7 +7,9 @@ Registered in Scout's profile only (``plugins.enabled`` of that profile). It add
   ``pre_gateway_dispatch`` refuses a message that replies to (or pastes) a mail result,
   ``pre_llm_call`` and ``transform_tool_result`` taint a session in which such text appears,
   ``pre_tool_call`` vetoes every tool in a tainted session (fail closed).
-No tool is registered and no global registry is touched.
+When a restriction or a delivered result cannot be recorded, the whole feature locks down durably
+(``TaintStore.lockdown``): every Scout message and tool is refused, across restarts, until the
+operator intervenes. No tool is registered and no global registry is touched.
 """
 
 from __future__ import annotations
@@ -70,8 +72,13 @@ class _Plugin:
             self.error = str(exc)
             logger.warning("scout_mail settings invalid: %s", exc)
         self.store = TaintStore(home / "plugin-data" / "scout_mail" / "taint.json")
-        # Sessions that must stay restricted although the ledger could not record them.
-        self.guarded: set[str] = set()
+        # In-process lockdown; the durable one is the ledger's lockdown file.
+        self.locked = False
+        try:
+            self.store.probe_writable()
+        except TaintStoreError:
+            self.locked = True
+            logger.error("scout_mail ledger directory unwritable; Scout refused until it is repaired")
         self.service = None
         if self.settings is not None:
             from agent.secret_scope import get_secret
@@ -86,9 +93,9 @@ class _Plugin:
         if self.service is None:
             return MESSAGES_FR["config"]
         arg = (raw_args or "").strip().lower()
-        if arg == "registre-illisible":
-            return ("Le registre de sécurité des courriels est illisible ou plein : Scout refuse les "
-                    "messages jusqu'à intervention de l'opérateur (runbook, section rupture).")
+        if arg == "registre-illisible" or self._is_locked():
+            return ("Le registre de sécurité des courriels est illisible, plein ou verrouillé : Scout "
+                    "refuse les messages jusqu'à intervention de l'opérateur (runbook, section 8).")
         caller = Caller(
             profile=self.profile,
             platform=str(getattr(getattr(source, "platform", None), "value", getattr(source, "platform", "")) or ""),
@@ -99,27 +106,30 @@ class _Plugin:
         outcome = await asyncio.to_thread(self.service.run, raw_args, caller)
         if not outcome.mail_derived:
             return outcome.rendered.text
-        # Ledger first: if it cannot record the result, nothing mail-derived is delivered.
+        # Reserve first: if the ledger cannot hold the result, nothing mail-derived is delivered.
         try:
-            self.store.record_result(caller.chat_id, [], outcome.rendered.parts)
+            rid = self.store.record_result(caller.chat_id, [], outcome.rendered.parts)
         except LedgerFull:
             return FULL_FR
         except TaintStoreError:
             return MESSAGES_FR["delivery"]
-        delivered: list[str] = []
         posted = 0
-        for part in outcome.rendered.parts:
-            handle = await self.ctx.apost_message(part)
-            if not getattr(handle, "ok", False):
-                break
-            posted += 1
-            if getattr(handle, "message_id", None):
-                delivered.append(str(handle.message_id))
-        if delivered:
-            try:
-                self.store.record_result(caller.chat_id, delivered, [])
-            except TaintStoreError:
-                logger.warning("scout_mail could not record delivered message ids")
+        try:
+            for part in outcome.rendered.parts:
+                handle = await self.ctx.apost_message(part)
+                if not getattr(handle, "ok", False):
+                    break
+                posted += 1
+                message_id = getattr(handle, "message_id", None)
+                if not message_id:
+                    raise TaintStoreError("delivered message id unknown")
+                self.store.attach_ids(rid, [str(message_id)])
+        except BaseException as exc:
+            # A part may be on screen without its id in the ledger: refuse everything durably.
+            self._lockdown("delivered result not recorded")
+            if not isinstance(exc, Exception):
+                raise
+            return None if posted else MESSAGES_FR["delivery"]
         if posted == 0:
             return MESSAGES_FR["delivery"]
         if posted < len(outcome.rendered.parts):
@@ -135,7 +145,7 @@ class _Plugin:
             reply_id = getattr(event, "reply_to_message_id", None)
             reply_text = getattr(event, "reply_to_text", None)
             text = getattr(event, "text", None)
-            if self.store.sessions_full():
+            if self._is_locked() or self.store.sessions_full():
                 return {"action": "rewrite", "text": LEDGER_COMMAND}
             if reply_id and (self.store.is_result_message(chat_id, str(reply_id))
                              or self.store.text_is_tainted(reply_text)):
@@ -154,31 +164,46 @@ class _Plugin:
         if not session_id:
             return None
         try:
-            if session_id in self.guarded or self.store.is_session_tainted(session_id):
+            if self._is_locked() or self.store.is_session_tainted(session_id):
                 return None
-            if parent_session_id and (parent_session_id in self.guarded
-                                      or self.store.is_session_tainted(parent_session_id)):
+            if parent_session_id and self.store.is_session_tainted(parent_session_id):
                 self._restrict(session_id)
                 return None
             if self.store.text_is_tainted(_text_of(user_message)) or \
                     self.store.text_is_tainted(_text_of(conversation_history)):
                 self._restrict(session_id)
         except Exception:
-            logger.warning("scout_mail pre_llm_call could not evaluate taint; session guarded in memory")
-            self.guarded.add(session_id)
+            self._lockdown("taint not evaluable")
         return None
 
+    def _is_locked(self) -> bool:
+        """In-process or durable lockdown; an unreadable lockdown state counts as locked."""
+        try:
+            return self.locked or self.store.locked()
+        except TaintStoreError:
+            return True
+
     def _restrict(self, session_id: str) -> None:
-        """Persist the restriction; if the ledger refuses, keep it in memory (fail closed)."""
+        """Persist the restriction; if the ledger refuses, lock the feature down (fail closed)."""
         try:
             self.store.taint_session(session_id)
         except TaintStoreError:
-            logger.warning("scout_mail could not persist a session restriction; guarded in memory")
-            self.guarded.add(session_id)
+            self._lockdown("session restriction not recorded")
+
+    def _lockdown(self, reason: str) -> None:
+        """Refuse every Scout message and tool from now on, durably when the disk allows it."""
+        self.locked = True
+        try:
+            self.store.lockdown()
+        except Exception:
+            logger.error("scout_mail lockdown (%s) not persisted: refused until restart, then while the "
+                         "ledger directory stays unwritable", reason)
+        else:
+            logger.error("scout_mail lockdown (%s): Scout refused until the operator intervenes", reason)
 
     def pre_tool_call(self, tool_name: str = "", session_id: str = "", **_: Any) -> dict | None:
         try:
-            if session_id in self.guarded or self.store.is_session_tainted(session_id):
+            if self._is_locked() or self.store.is_session_tainted(session_id):
                 return {"action": "block", "message": BLOCK_FR}
             return None
         except Exception:
@@ -192,8 +217,7 @@ class _Plugin:
                 return REMOVED_FR
             return None
         except Exception:
-            if session_id:
-                self.guarded.add(session_id)
+            self._lockdown("tool result not evaluable")
             return REMOVED_FR
 
 
