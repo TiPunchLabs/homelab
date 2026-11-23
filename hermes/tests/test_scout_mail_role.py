@@ -49,8 +49,8 @@ def test_role_01_disabled_by_default_deploys_inert_code_and_disabled_settings(ru
     assert settings["owner_user_ids"] == ["111", "222"] and settings["limits"] == {}
     assert oct((plugin_dir(tmp_path) / "settings.json").stat().st_mode & 0o777) == "0o640"
     files = sorted(p.name for p in plugin_dir(tmp_path).iterdir())
-    assert files == ["__init__.py", "config.py", "plugin.yaml", "render.py", "sanitize.py", "service.py",
-                     "settings.json", "summarize.py", "taint.py", "transport.py"]
+    assert files == ["__init__.py", "config.py", "plugin.yaml", "render.py", "retire.py", "sanitize.py",
+                     "service.py", "settings.json", "summarize.py", "taint.py", "transport.py"]
     assert (tmp_path / "install/.multiplex-restart-pending").read_text() == "pending\n"
     assert not env_file(tmp_path).exists() or "AGENTMAIL_API_KEY" not in env_file(tmp_path).read_text()
     second = run_tasks("scout_mail.yml", variables(tmp_path))

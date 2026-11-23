@@ -7,7 +7,9 @@ Proves on Hermes' own code, in one process serving three homes like the multiple
   every other (profile, session) pair is never blocked (no capability leaks either way);
 - the command fails closed without credential, for a stranger and in a group, and writes no session history;
 - review 3 (F7): with Hermes' own SessionDB, a transcript written while the ledger directory was unwritable
-  does not regain tools after the directory is repaired and the plugin rebuilt.
+  does not regain tools after the directory is repaired and the plugin rebuilt;
+- review 5 (F11): with Hermes' own CLI, retire.py finds and deletes every Scout session that ``sessions list``
+  hides, refuses (never bypasses) a guarded one while the lockdown stays, and only then may markers be cleared.
 """
 
 from __future__ import annotations
@@ -100,3 +102,16 @@ def test_f9_05_real_session_db_short_state_write_keeps_tools_refused(lab: dict[s
     assert r["state_locked"] is True and r["transcript_rows"] == 1
     assert r["tool_after_restart"]["action"] == "block"
     assert r["child_tool_after_restart"]["action"] == "block"
+
+
+def test_f11_06_real_cli_retires_hidden_archived_tool_and_compressed_sessions(lab: dict[str, Any]) -> None:
+    r = lab["retire"]
+    assert r["durable_lockdown"] is True and r["blocked_before"]["action"] == "block"
+    assert {"S-HIDDEN", "S-ARCHIVED", "S-TOOL"} <= set(r["list_hides"]) and len(r["list_hides"]) >= 9
+    assert r["retire_script"] is True, "scout_mail/retire.py missing"
+    assert r["inventory_exit"] == 3 and len(r["inventory_ids"]) == r["sessions"] == 29
+    assert r["guarded_exit"] == 2 and r["guarded_remaining"] == ["S-HIDDEN"]
+    assert r["locked_after_refusal"] is True and r["guarded_still_blocked"]["action"] == "block"
+    assert r["final_exit"] == 0 and r["remaining_sessions"] == 0 and r["remaining_messages"] == 0
+    assert r["final_inventory_exit"] == 0 and r["printed_mail_text"] is False
+    assert r["fresh_session_tool"] is None

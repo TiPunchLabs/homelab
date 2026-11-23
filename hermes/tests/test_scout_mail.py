@@ -1516,41 +1516,76 @@ def _recovery_steps() -> list[str]:
     return re.findall(r"^\d+\. (\w+):", section, re.M)
 
 
-def _sessions_in_transcripts(home: Path) -> set[str]:
-    import sqlite3
+FAKE_HERMES = Path(__file__).parent / "fixtures/scout_mail/fake_hermes_sessions.py"
 
-    con = sqlite3.connect(home / "state.db")
-    try:
-        return {row[0] for row in con.execute("select session_id from messages")}
-    finally:
-        con.close()
+
+def _fake_hermes(tmp_path: Path, sessions: dict[str, dict[str, Any]] | None,
+                 monkeypatch: pytest.MonkeyPatch | None = None, export: str = "") -> str:
+    """A ``hermes`` executable whose ``sessions`` subcommands behave like the pinned CLI (fixture)."""
+    store = tmp_path / "fake-state.json"
+    if sessions is not None:
+        store.write_text(json.dumps({"sessions": sessions}))
+    exe = tmp_path / "hermes"
+    exe.write_text(f"#!/bin/sh\nFAKE_HERMES_STORE='{store}' FAKE_HERMES_EXPORT='{export}' "
+                   f"exec '{sys.executable}' '{FAKE_HERMES}' \"$@\"\n")
+    exe.chmod(0o755)
+    return str(exe)
+
+
+def _fake_sessions(tmp_path: Path) -> set[str]:
+    store = tmp_path / "fake-state.json"
+    return set(json.loads(store.read_text())["sessions"]) if store.exists() else set()
+
+
+def _scout_store(extra: int = 24) -> dict[str, dict[str, Any]]:
+    """Mail-derived Scout sessions the default ``sessions list`` does not show, plus more than 20 others."""
+    derived = [{"role": "user", "content": f"{render.MARKER}\n{INJECTED}"}]
+    rows: dict[str, dict[str, Any]] = {f"S{i:02d}": {"messages": [{"role": "user", "content": "Bonjour"}]}
+                                       for i in range(extra)}
+    rows.update({
+        "S-HIDDEN": {"hidden": True, "messages": derived},
+        "S-ARCHIVED": {"archived": True, "messages": derived},
+        "S-TOOL": {"source": "tool", "messages": derived},
+        "P": {"messages": derived},
+        "P-C": {"compressed_from": "P", "messages": [{"role": "assistant", "content": "Résumé compressé."}]},
+    })
+    return rows
 
 
 def test_f7_05_operator_recovery_in_runbook_order_never_hands_tools_to_an_old_session(tmp_path: Path) -> None:
-    """Review 4, F10: execute runbook section 8.1 in its own order. At every step, a session that
-    may hold mail-derived text either still exists under a loaded, refusing plugin, or is gone."""
+    """Review 4, F10 and review 5, F11: execute runbook section 8.1 in its own order, Retire through
+    retire.py and the Hermes CLI (fake with the pinned filters: hidden, archived, tool rows and rows
+    past 20 are invisible to ``sessions list``). At every step, a session that may hold mail-derived
+    text either still exists under a loaded, refusing plugin, or is gone."""
+    import subprocess
+
+    from scout_mail import retire
+
     plugin = _restart(tmp_path)
-    home = plugin.home
-    _persist_transcript(home, "S", f"{render.MARKER}\n{INJECTED}")  # restriction never recorded
-    _persist_transcript(home, "S-clean", "Bonjour")
+    hermes = _fake_hermes(tmp_path, _scout_store())
     plugin._lockdown("test")
     hooks_loaded, retired = True, False
 
     def check_invariant(step: str) -> None:
-        for session in _sessions_in_transcripts(home):
+        for session in _fake_sessions(tmp_path):
             refused = hooks_loaded and plugin.pre_tool_call(tool_name="web_search", session_id=session) is not None
             assert refused, f"step {step}: old session {session} would get tools"
 
     steps = _recovery_steps()
     assert sorted(steps) == sorted(_RECOVERY_STEPS), steps
+    section = RUNBOOK.read_text(encoding="utf-8").split("### 8.1 ", 1)[1].split("\n#", 1)[0]
+    retire_step = dict(re.findall(r"^\d+\. (\w+): (.*)$", section, re.M))["Retire"]
     for step in steps:
-        if step == "Retire":
-            import sqlite3
-
-            con = sqlite3.connect(home / "state.db")
-            con.execute("delete from messages")  # hermes -p job-search sessions delete <id> --yes, each
-            con.commit()
-            con.close()
+        if step == "Retire":  # whatever the runbook prescribes, through the CLI
+            if "retire.py --delete" in retire_step:
+                assert retire.main(["--hermes", hermes, "--delete"]) == retire.EMPTY
+            else:  # 4b7f403: delete what ``sessions list`` shows until it prints "No sessions found."
+                assert "sessions list" in retire_step, retire_step
+                listing = [hermes, "-p", "job-search", "sessions", "list"]
+                while (shown := subprocess.run(listing, capture_output=True, text=True).stdout.split()) != [
+                        "No", "sessions", "found."]:
+                    for session in shown:
+                        subprocess.run([hermes, "-p", "job-search", "sessions", "delete", session, "--yes"])
             retired = True
         elif step == "Clear":
             assert retired, "markers cleared before the sessions were retired"
@@ -1561,7 +1596,7 @@ def test_f7_05_operator_recovery_in_runbook_order_never_hands_tools_to_an_old_se
             plugin = _restart(tmp_path)  # restart; with a staged kill switch the hooks would be gone
             hooks_loaded = False
         check_invariant(step)
-    assert retired and _sessions_in_transcripts(home) == set()
+    assert retired and _fake_sessions(tmp_path) == set()
     restarted = _restart(tmp_path)
     assert restarted.locked is False
     assert restarted.pre_tool_call(tool_name="web_search", session_id="S-new") is None
@@ -1577,13 +1612,99 @@ def test_f10_01_runbook_recovery_retires_sessions_before_unloading_or_restarting
     for name in _RECOVERY_STEPS[:_RECOVERY_STEPS.index("Apply")]:
         assert not any(marker in body[name] for marker in restarting), name
     assert all(marker in body["Apply"] for marker in restarting[:2])
-    assert "sessions delete" in body["Retire"] and "taint.state" in body["Clear"]
+    assert "retire.py --delete" in body["Retire"] and "exit" in body["Retire"] and "taint.state" in body["Clear"]
+    assert "sessions list" not in body["Retire"], "sessions list hides hidden/archived/tool rows and stops at 20"
     assert "gateway stop" in body["Hold"] and "no deployment" in body["Hold"]
     kill_switch = next(line for line in text.splitlines() if line.startswith("- Kill switch"))
     assert "Staging" in kill_switch and "Applying" in kill_switch and "§8.1" in kill_switch
     for row in (line for line in text.splitlines() if line.startswith("| ") and (
             line.startswith("| Lockdown") or "NOT persisted" in line or "ledger not usable" in line)):
         assert "§8.1" in row and "steps 1–3" not in row and "Disable the feature" not in row
+
+
+# ---------------------------------------------------------------------------------------------
+# Review 5 regressions — F11 the Retire step inventories every row of Scout's store through the
+# Hermes CLI (hidden, archived, tool, compressed, past 20), deletes through guarded CLI calls and
+# succeeds only on an authoritative empty inventory
+# ---------------------------------------------------------------------------------------------
+
+
+def test_f11_01_inventory_sees_what_sessions_list_hides(tmp_path: Path,
+                                                        capsys: pytest.CaptureFixture[str]) -> None:
+    import subprocess
+
+    from scout_mail import retire
+
+    rows = _scout_store()
+    hermes = _fake_hermes(tmp_path, rows)
+    listed = subprocess.run([hermes, "-p", "job-search", "sessions", "list"], capture_output=True, text=True,
+                            check=True).stdout.split()
+    assert len(listed) == 20 and not {"S-HIDDEN", "S-ARCHIVED", "S-TOOL"} & set(listed)
+    assert sorted(retire.inventory(hermes, "job-search")) == sorted(rows)
+    assert retire.main(["--hermes", hermes]) == retire.REMAINING
+    out = capsys.readouterr().out
+    assert f"inventory: {len(rows)} session(s)" in out and "S-HIDDEN" in out and INJECTED not in out
+    assert _fake_sessions(tmp_path) == set(rows), "inventory mode deleted something"
+
+
+def test_f11_02_delete_retires_every_row_and_proves_the_store_empty(tmp_path: Path,
+                                                                    capsys: pytest.CaptureFixture[str]) -> None:
+    from scout_mail import retire
+
+    hermes = _fake_hermes(tmp_path, _scout_store(extra=45))
+    assert retire.main(["--hermes", hermes, "--delete"]) == retire.EMPTY
+    assert _fake_sessions(tmp_path) == set()
+    out = capsys.readouterr().out
+    assert "inventory empty: 0 sessions" in out and INJECTED not in out and render.MARKER not in out
+    assert retire.main(["--hermes", hermes]) == retire.EMPTY
+
+
+def test_f11_03_guarded_session_is_refused_not_bypassed_and_protection_kept(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from scout_mail import retire
+
+    plugin = _restart(tmp_path)
+    plugin._lockdown("test")
+    rows = _scout_store()
+    rows["S-HIDDEN"]["guarded"] = True
+    hermes = _fake_hermes(tmp_path, rows)
+    assert retire.main(["--hermes", hermes, "--delete"]) == retire.UNSAFE
+    assert _fake_sessions(tmp_path) == {"S-HIDDEN"}
+    out = capsys.readouterr().out
+    assert "refused S-HIDDEN: Cannot delete active session" in out and "do not run Clear or Apply" in out
+    assert plugin.store.locked() and _restart(tmp_path).store.locked()
+    assert _restart(tmp_path).pre_tool_call(tool_name="web_search", session_id="S-HIDDEN")["action"] == "block"
+
+
+@pytest.mark.parametrize("export, stats_only", [("error", False), ("drop", False), ("", True)],
+                         ids=["export_refused", "export_misses_a_row", "messages_without_sessions"])
+def test_f11_04_non_authoritative_inventory_fails_closed_before_any_delete(
+        tmp_path: Path, export: str, stats_only: bool, capsys: pytest.CaptureFixture[str]) -> None:
+    from scout_mail import retire
+
+    rows = _scout_store()
+    if stats_only:  # stats still counts messages, the export (e.g. a future filter) shows no session
+        rows = {"S-ARCHIVED": rows["S-ARCHIVED"]}
+    hermes = _fake_hermes(tmp_path, rows, export=export)
+    if stats_only:
+        store = tmp_path / "fake-state.json"
+        data = json.loads(store.read_text())
+        data["sessions"]["S-ARCHIVED"]["messages"] *= 2
+        store.write_text(json.dumps(data))
+        (tmp_path / "hermes").write_text((tmp_path / "hermes").read_text().replace(
+            "FAKE_HERMES_EXPORT=''", "FAKE_HERMES_EXPORT='drop'"))
+    before = _fake_sessions(tmp_path)
+    assert retire.main(["--hermes", hermes, "--delete"]) == retire.UNSAFE
+    assert _fake_sessions(tmp_path) == before, "a non-authoritative inventory led to deletions"
+    assert "inventory not authoritative" in capsys.readouterr().out
+
+
+def test_f11_05_profile_without_store_is_an_empty_inventory(tmp_path: Path) -> None:
+    from scout_mail import retire
+
+    hermes = _fake_hermes(tmp_path, None)
+    assert retire.main(["--hermes", hermes, "--delete"]) == retire.EMPTY
+    assert retire.main(["--hermes", hermes]) == retire.EMPTY
 
 
 # ---------------------------------------------------------------------------------------------

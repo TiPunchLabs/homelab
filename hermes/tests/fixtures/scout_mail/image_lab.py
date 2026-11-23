@@ -119,6 +119,7 @@ def main():
     out["ledger_has_marker_text"] = MARKER in open(ledger, encoding="utf-8").read() if os.path.exists(ledger) else None
     out["recovery"] = recovery()
     out["short_write"] = recovery(short_write=True)
+    out["retire"] = retire_lab()
     print("LAB " + json.dumps(out, ensure_ascii=False))
 
 
@@ -166,6 +167,82 @@ def recovery(short_write=False):
     res["tool_after_restart"] = plugin.pre_tool_call(tool_name="web_search", session_id="S")
     plugin.pre_llm_call(session_id="S-child", parent_session_id="S", user_message="suite")
     res["child_tool_after_restart"] = plugin.pre_tool_call(tool_name="web_search", session_id="S-child")
+    return res
+
+
+def retire_lab():
+    """Review 5, R11/F11 on Hermes' own CLI and SessionDB, in a separate HERMES_HOME: a fully persisted
+    lockdown, Scout sessions that ``sessions list`` does not show (hidden, archived, tool, compressed
+    child, rows past 20), then runbook 8.1 Retire with retire.py (one session held by a live compression
+    lock first), Clear and Apply."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from hermes_state import SessionDB
+
+    sys.path.insert(0, "/tmp/data/profiles/job-search/plugins")
+    import scout_mail
+
+    root = "/tmp/retire-data"
+    env = dict(os.environ, HERMES_HOME=root)
+    subprocess.run(["hermes", "profile", "create", "job-search", "--no-alias"], env=env, capture_output=True,
+                   check=True)
+    home = Path(root) / "profiles/job-search"
+    plugin = scout_mail._Plugin(SimpleNamespace(), home)
+    db = SessionDB(db_path=home / "state.db")
+    derived = MARKER + " synthetic mail-derived instruction"
+    ids = [f"S{i:02d}" for i in range(24)]
+    for sid in ids:
+        db.create_session(sid, source="telegram")
+        db.append_message(sid, "user", "Bonjour")
+    for sid, source in (("S-HIDDEN", "telegram"), ("S-ARCHIVED", "telegram"), ("S-TOOL", "tool"), ("P", "telegram")):
+        db.create_session(sid, source=source)
+        db.append_message(sid, "user", derived)
+        ids.append(sid)
+    db.set_session_hidden("S-HIDDEN", True)
+    db.set_session_archived("S-ARCHIVED", True)
+    db.end_session("P", "compression")
+    db.create_session("P-C", source="telegram", parent_session_id="P")
+    db.append_message("P-C", "assistant", "Résumé compressé synthétique.")
+    ids.append("P-C")
+    plugin._lockdown("synthetic recovery test")
+    res = {"sessions": len(ids), "durable_lockdown": plugin.store.locked(),
+           "blocked_before": plugin.pre_tool_call(tool_name="web_search", session_id="S-HIDDEN")}
+
+    def cli(*args):
+        return subprocess.run(args, env=env, capture_output=True, text=True, timeout=600, check=False)
+
+    listed = cli("hermes", "-p", "job-search", "sessions", "list").stdout.split()
+    res["list_hides"] = sorted(sid for sid in ids if sid not in listed)
+    script = [sys.executable, "/tmp/data/profiles/job-search/plugins/scout_mail/retire.py"]
+    if not os.path.exists(script[1]):
+        res["retire_script"] = False
+        return res
+    res["retire_script"] = True
+    inventory = cli(*script)
+    res["inventory_exit"] = inventory.returncode
+    res["inventory_ids"] = sorted(inventory.stdout.split()[3:])
+    printed = inventory.stdout
+    db.try_acquire_compression_lock("S-HIDDEN", "lab-holder", 300)
+    guarded = cli(*script, "--delete")
+    printed += guarded.stdout
+    res["guarded_exit"] = guarded.returncode
+    res["guarded_remaining"] = sorted(sid for sid in ids if db.get_session(sid) is not None)
+    res["locked_after_refusal"] = plugin.store.locked()
+    res["guarded_still_blocked"] = plugin.pre_tool_call(tool_name="web_search", session_id="S-HIDDEN")
+    db.release_compression_lock("S-HIDDEN", "lab-holder")
+    final = cli(*script, "--delete")
+    printed += final.stdout
+    res["final_exit"] = final.returncode
+    res["remaining_sessions"] = sum(db.get_session(sid) is not None for sid in ids)
+    res["remaining_messages"] = db.message_count()
+    res["final_inventory_exit"] = cli(*script).returncode
+    res["printed_mail_text"] = MARKER in printed or "instruction" in printed
+    for name in ("taint.lockdown", "taint.state"):  # Clear
+        (plugin.store._path.parent / name).unlink(missing_ok=True)
+    plugin = scout_mail._Plugin(SimpleNamespace(), home)  # Apply
+    res["fresh_session_tool"] = plugin.pre_tool_call(tool_name="web_search", session_id="S-NEW")
     return res
 
 
