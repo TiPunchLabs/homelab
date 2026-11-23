@@ -70,3 +70,4 @@ M1→M5 without waiting, except for real owner questions (§3), which do not blo
 
 - 2026-11-20 — Owner brief SCOUT-MAIL-01 received (verbatim `owner-brief.md`). Authorizes development, push of the scoped branch and a draft MR; excludes merge, production deploy, email sending, subscriptions.
 - 2026-11-20 — Pilot framing: worktree `homelab-mail01` / branch `feat/scout-agentmail-readonly` from `origin/main` 3d7bf18; live model eval capped at 40 calls, synthetic fixtures, local harness only; Codex review routed by pilotage (cap 3).
+- 2026-11-23 — Owner decision after review-3 (CHANGES_REQUESTED on b22ba76, cap 3/3 reached): « faire f7 f8 et finaliser la mission ». Authorizes one extra correction cycle (4, beyond the cap) scoped to F7 and F8 of `review-3.md`, their documentation (runbook §8, ADR/matrix, report §F/§L claims), and a 4th Codex review. Merge of MR !109, deployment and enabling stay owner decisions.
