@@ -11,22 +11,28 @@ caller fails closed. A result is reserved (fingerprints, one slot) before delive
 Telegram ids are attached to that same record afterwards, so the last slot never loses ids.
 
 When a restriction cannot be written, the caller locks the whole feature down with
-``lockdown()``. At start-up, while the directory is proven writable, ``arm()`` creates
-``taint.state`` (one preallocated block) and keeps it open for the life of the process.
-Lockdown first overwrites that block through the open descriptor: no permission check on the
-directory or the file, no new name and no new block are needed, so the refusal survives a
-directory whose permissions were later removed, or a full disk. It then also creates an empty
-``taint.lockdown`` (or, if that fails and the state block could not be written either, renames
-the ledger to that name). While either marker says locked, Scout refuses every message and tool,
-across restarts, until the operator retires Scout's sessions and removes both markers (runbook,
-section 8). ``arm()`` refuses when the ledger directory accepts no write, or lies on another
-filesystem than the profile home (where Hermes keeps the transcripts): the open-descriptor
-guarantee assumes the transcript cannot be written where the state block cannot. An unreadable
-file raises ``TaintStoreError``; callers fail closed.
+``lockdown()``. At start-up, while the directory is proven writable, ``arm()`` makes sure
+``taint.state`` (one preallocated block) exists and keeps it open for the life of the process.
+A new state block is written in full to a temporary file and linked into place, so it never
+exists half written; an existing one is never overwritten at start-up. Lockdown first overwrites
+the block through the open descriptor: no permission check on the directory or the file, no new
+name and no new block are needed, so the refusal survives a directory whose permissions were
+later removed, or a full disk. Every byte of the write is accounted for (short writes are
+completed, a stalled or over-reported write is an error) and the block is read back after
+``fsync``; only then does it count as persisted. Lockdown then also creates an empty
+``taint.lockdown`` (or, if that fails and the state block was not persisted, renames the ledger
+to that name). Scout refuses every message and tool, across restarts, while ``taint.lockdown``
+exists or ``taint.state`` holds anything other than the exact armed block (locked, short,
+malformed or unreadable all count as restricted), until the operator retires Scout's sessions
+and removes both markers (runbook, section 8.1). ``arm()`` refuses when the ledger directory
+accepts no write, or lies on another filesystem than the profile home (where Hermes keeps the
+transcripts): the open-descriptor guarantee assumes the transcript cannot be written where the
+state block cannot. An unreadable file raises ``TaintStoreError``; callers fail closed.
 """
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import secrets
@@ -157,20 +163,21 @@ class TaintStore:
     def arm(self, home: Path) -> None:
         """Probe the directory and open the lockdown state block for the life of the process.
 
-        Raises ``TaintStoreError`` when the directory accepts no write or is not on the same
-        filesystem as ``home``; the caller then refuses everything from start-up.
+        Creates the block (armed) only when it does not exist; existing contents are kept as they
+        are, so a locked or ambiguous block stays restrictive (see ``locked``). Raises
+        ``TaintStoreError`` when the directory accepts no write or is not on the same filesystem
+        as ``home``; the caller then refuses everything from start-up.
         """
         self.probe_writable()
         try:
             if os.stat(home).st_dev != os.stat(self._path.parent).st_dev:
                 raise TaintStoreError("ledger and transcripts on different filesystems")
-            fd = os.open(self._state_path, os.O_RDWR | os.O_CREAT, 0o600)
+            if not os.path.lexists(self._state_path):
+                self._create_state()
+            fd = os.open(self._state_path, os.O_RDWR)
         except OSError as exc:
             raise TaintStoreError("lockdown state unwritable") from exc
         try:
-            if os.pread(fd, len(_LOCKED), 0) != _LOCKED:
-                os.pwrite(fd, _ARMED, 0)
-                os.fsync(fd)
             dir_fd = os.open(self._path.parent, os.O_RDONLY)
             try:
                 os.fsync(dir_fd)
@@ -184,6 +191,19 @@ class TaintStore:
                 os.close(self._state_fd)
             self._state_fd = fd
 
+    def _create_state(self) -> None:
+        """Write a complete armed block to a temporary file, then link it in (never replaces)."""
+        fd, tmp = tempfile.mkstemp(dir=self._path.parent, prefix=".state-")
+        try:
+            _write_block(fd, _ARMED)
+            try:
+                os.link(tmp, self._state_path)
+            except FileExistsError:
+                pass  # created meanwhile: keep whatever is there
+        finally:
+            os.close(fd)
+            os.unlink(tmp)
+
     def lockdown(self) -> None:
         """Persist a feature-wide refusal; raises ``TaintStoreError`` if nothing could be written."""
         with self._lock:
@@ -191,8 +211,7 @@ class TaintStore:
             persisted = False
             if self._state_fd is not None:
                 try:
-                    os.pwrite(self._state_fd, _LOCKED, 0)  # preallocated block, open descriptor
-                    os.fsync(self._state_fd)
+                    _write_block(self._state_fd, _LOCKED)  # preallocated block, open descriptor
                     persisted = os.fstat(self._state_fd).st_nlink > 0
                 except OSError:
                     pass
@@ -210,7 +229,7 @@ class TaintStore:
                 raise TaintStoreError("lockdown not persisted") from exc
 
     def locked(self) -> bool:
-        """True while ``taint.lockdown`` exists or ``taint.state`` says locked."""
+        """True while ``taint.lockdown`` exists or ``taint.state`` is anything but the armed block."""
         try:
             self._lock_path.stat()
             return True
@@ -220,7 +239,7 @@ class TaintStore:
             raise TaintStoreError("lockdown state unreadable") from exc
         try:
             with open(self._state_path, "rb") as fh:
-                return fh.read(len(_LOCKED)) == _LOCKED
+                return fh.read(STATE_SIZE + 1) != _ARMED
         except FileNotFoundError:
             return False
         except OSError as exc:
@@ -281,6 +300,19 @@ class TaintStore:
         if not known:
             return False
         return bool(fingerprints(text[:200_000], stride=1) & known)
+
+
+def _write_block(fd: int, data: bytes) -> None:
+    """Write ``data`` at offset 0 completely, fsync, and read it back; raise ``OSError`` otherwise."""
+    done = 0
+    while done < len(data):
+        count = os.pwrite(fd, data[done:], done)
+        if not isinstance(count, int) or count <= 0 or count > len(data) - done:
+            raise OSError(errno.EIO, "state block write incomplete")
+        done += count
+    os.fsync(fd)
+    if os.pread(fd, len(data) + 1, 0) != data:
+        raise OSError(errno.EIO, "state block differs from what was written")
 
 
 class _suppress:

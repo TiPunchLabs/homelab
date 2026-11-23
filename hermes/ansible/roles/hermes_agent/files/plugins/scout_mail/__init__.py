@@ -9,7 +9,8 @@ Registered in Scout's profile only (``plugins.enabled`` of that profile). It add
   ``pre_tool_call`` vetoes every tool in a tainted session (fail closed).
 When a restriction or a delivered result cannot be recorded, the whole feature locks down durably
 (``TaintStore.lockdown``, through a state block opened at start-up): every Scout message and tool
-is refused, across restarts, until the operator retires Scout's sessions and lifts it.
+is refused, across restarts, until the operator retires Scout's sessions and lifts it
+(runbook, section 8.1, in that order).
 No tool is registered and no global registry is touched.
 """
 
@@ -80,7 +81,11 @@ class _Plugin:
         except TaintStoreError as exc:
             self.locked = True
             logger.error("scout_mail ledger not usable (%s); Scout refused until the operator "
-                         "intervenes (runbook, section 8)", exc)
+                         "intervenes (runbook, section 8.1)", exc)
+        else:
+            if self._is_locked():
+                logger.error("scout_mail lockdown state present or unrecognized at start; Scout refused "
+                             "until the operator intervenes (runbook, section 8.1)")
         self.service = None
         if self.settings is not None:
             from agent.secret_scope import get_secret
@@ -199,7 +204,7 @@ class _Plugin:
             self.store.lockdown()
         except Exception:
             logger.error("scout_mail lockdown (%s) NOT persisted: retire Scout's sessions before any "
-                         "restart (runbook, section 8)", reason)
+                         "restart (runbook, section 8.1)", reason)
         else:
             logger.error("scout_mail lockdown (%s): Scout refused until the operator intervenes", reason)
 

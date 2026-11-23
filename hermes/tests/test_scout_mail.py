@@ -1504,15 +1504,186 @@ def test_f7_04_unpersisted_lockdown_refuses_in_process_and_names_the_recovery(
                for r in caplog.records)
 
 
-def test_f7_05_operator_recovery_lifts_the_lockdown(tmp_path: Path) -> None:
+RUNBOOK = Path(__file__).resolve().parents[2] / "docs/guides/runbook-scout-mail.md"
+_RECOVERY_STEPS = ("Hold", "Repair", "Stage", "Retire", "Clear", "Apply", "Verify")
+
+
+def _recovery_steps() -> list[str]:
+    """Names of the numbered steps of runbook section 8.1, in document order."""
+    text = RUNBOOK.read_text(encoding="utf-8")
+    assert "### 8.1 " in text, "runbook section 8.1 (recovery order) missing"
+    section = text.split("### 8.1 ", 1)[1].split("\n#", 1)[0]
+    return re.findall(r"^\d+\. (\w+):", section, re.M)
+
+
+def _sessions_in_transcripts(home: Path) -> set[str]:
+    import sqlite3
+
+    con = sqlite3.connect(home / "state.db")
+    try:
+        return {row[0] for row in con.execute("select session_id from messages")}
+    finally:
+        con.close()
+
+
+def test_f7_05_operator_recovery_in_runbook_order_never_hands_tools_to_an_old_session(tmp_path: Path) -> None:
+    """Review 4, F10: execute runbook section 8.1 in its own order. At every step, a session that
+    may hold mail-derived text either still exists under a loaded, refusing plugin, or is gone."""
     plugin = _restart(tmp_path)
+    home = plugin.home
+    _persist_transcript(home, "S", f"{render.MARKER}\n{INJECTED}")  # restriction never recorded
+    _persist_transcript(home, "S-clean", "Bonjour")
     plugin._lockdown("test")
-    assert _restart(tmp_path).pre_tool_call(tool_name="web_search", session_id="S2")["action"] == "block"
-    for name in ("taint.lockdown", "taint.state"):  # after retiring Scout's sessions (runbook, section 8)
-        (plugin.store._path.parent / name).unlink(missing_ok=True)
+    hooks_loaded, retired = True, False
+
+    def check_invariant(step: str) -> None:
+        for session in _sessions_in_transcripts(home):
+            refused = hooks_loaded and plugin.pre_tool_call(tool_name="web_search", session_id=session) is not None
+            assert refused, f"step {step}: old session {session} would get tools"
+
+    steps = _recovery_steps()
+    assert sorted(steps) == sorted(_RECOVERY_STEPS), steps
+    for step in steps:
+        if step == "Retire":
+            import sqlite3
+
+            con = sqlite3.connect(home / "state.db")
+            con.execute("delete from messages")  # hermes -p job-search sessions delete <id> --yes, each
+            con.commit()
+            con.close()
+            retired = True
+        elif step == "Clear":
+            assert retired, "markers cleared before the sessions were retired"
+            for name in ("taint.lockdown", "taint.state"):
+                (plugin.store._path.parent / name).unlink(missing_ok=True)
+        elif step == "Apply":
+            assert retired, "restarting deployment applied before the sessions were retired"
+            plugin = _restart(tmp_path)  # restart; with a staged kill switch the hooks would be gone
+            hooks_loaded = False
+        check_invariant(step)
+    assert retired and _sessions_in_transcripts(home) == set()
     restarted = _restart(tmp_path)
     assert restarted.locked is False
-    assert restarted.pre_tool_call(tool_name="web_search", session_id="S2") is None
+    assert restarted.pre_tool_call(tool_name="web_search", session_id="S-new") is None
+
+
+def test_f10_01_runbook_recovery_retires_sessions_before_unloading_or_restarting() -> None:
+    steps = _recovery_steps()
+    assert steps == list(_RECOVERY_STEPS)
+    text = RUNBOOK.read_text(encoding="utf-8")
+    section = text.split("### 8.1 ", 1)[1].split("\n#", 1)[0]
+    body = dict(re.findall(r"^\d+\. (\w+): (.*)$", section, re.M))
+    restarting = ("replay `--tags hermes`", "restart the gateway", "docker restart", "unpark")
+    for name in _RECOVERY_STEPS[:_RECOVERY_STEPS.index("Apply")]:
+        assert not any(marker in body[name] for marker in restarting), name
+    assert all(marker in body["Apply"] for marker in restarting[:2])
+    assert "sessions delete" in body["Retire"] and "taint.state" in body["Clear"]
+    assert "gateway stop" in body["Hold"] and "no deployment" in body["Hold"]
+    kill_switch = next(line for line in text.splitlines() if line.startswith("- Kill switch"))
+    assert "Staging" in kill_switch and "Applying" in kill_switch and "§8.1" in kill_switch
+    for row in (line for line in text.splitlines() if line.startswith("| ") and (
+            line.startswith("| Lockdown") or "NOT persisted" in line or "ledger not usable" in line)):
+        assert "§8.1" in row and "steps 1–3" not in row and "Disable the feature" not in row
+
+
+# ---------------------------------------------------------------------------------------------
+# Review 4 regressions — F9 a state block write counts only when every byte is written and read
+# back; a short, malformed or unknown block is restrictive and never overwritten at start-up
+# ---------------------------------------------------------------------------------------------
+
+
+def _lock_with_pwrite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pwrite: Any) -> Any:
+    """Healthy start, then directory 0500 and a faulty ``pwrite``; transcript written meanwhile."""
+    from scout_mail import taint
+
+    plugin = _restart(tmp_path)
+    plugin.store.record_result(OWNER, ["9001"], [render.MARKER + "\n" + INJECTED])
+    ledger_dir = plugin.store._path.parent
+    ledger_dir.chmod(0o500)
+    try:
+        monkeypatch.setattr(taint.os, "pwrite", pwrite)
+        plugin.pre_llm_call(session_id="S", user_message=f"{render.MARKER}\n{INJECTED}")
+        monkeypatch.undo()
+        assert plugin.pre_tool_call(tool_name="web_search", session_id="S")["action"] == "block"
+        assert not plugin.store._lock_path.exists()
+        assert _persist_transcript(plugin.home, "S", f"{render.MARKER}\n{INJECTED}") == 1
+    finally:
+        monkeypatch.undo()
+        ledger_dir.chmod(0o700)  # repaired, then the gateway restarts
+    return plugin
+
+
+@_NOT_ROOT
+def test_f9_01_short_state_writes_are_completed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                caplog: pytest.LogCaptureFixture) -> None:
+    """Review 4, R9: every pwrite writes 3 bytes and says so; the write is completed."""
+    import os as _os
+
+    real = _os.pwrite
+    with caplog.at_level(logging.ERROR, logger="scout_mail"):
+        plugin = _lock_with_pwrite(tmp_path, monkeypatch, lambda fd, data, off: real(fd, data[:3], off))
+    assert plugin.store.locked() is True
+    assert (plugin.store._state_path.read_bytes()).startswith(b"LOCKED\n")
+    assert not any("NOT persisted" in r.getMessage() for r in caplog.records)
+    _assert_refused_everywhere(_restart(tmp_path), "S")
+
+
+@_NOT_ROOT
+@pytest.mark.parametrize("fault", ["stalls", "over_reports", "raises_midway"])
+def test_f9_02_incomplete_state_write_is_not_persisted_and_stays_restrictive(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, fault: str) -> None:
+    """A write that stops short, or claims more than it wrote, takes the NOT-persisted path; the
+    half-written block it leaves is still read as restricted after repair and restart."""
+    import os as _os
+
+    real = _os.pwrite
+    calls: list[int] = []
+
+    def pwrite(fd: int, data: bytes, off: int) -> int:
+        calls.append(off)
+        if fault == "over_reports":
+            real(fd, data[:3], off)
+            return len(data)
+        if len(calls) > 1:
+            if fault == "raises_midway":
+                raise OSError(5, "input/output error")
+            return 0
+        return real(fd, data[:3], off)
+
+    with caplog.at_level(logging.ERROR, logger="scout_mail"):
+        plugin = _lock_with_pwrite(tmp_path, monkeypatch, pwrite)
+    assert any("NOT persisted" in r.getMessage() and "retire Scout's sessions" in r.getMessage()
+               for r in caplog.records)
+    assert plugin.store._state_path.read_bytes()[:3] == b"LOC"
+    _assert_refused_everywhere(_restart(tmp_path), "S")
+
+
+@pytest.mark.parametrize("content", [b"", b"LOC", b"armed\n", b"LOCKED\n", b"\xff" * 512,
+                                     b"armed\n".ljust(512, b"\0") + b"x"],
+                         ids=["empty", "short-locked", "short-armed", "unpadded-locked", "garbage", "armed-plus-tail"])
+def test_f9_03_malformed_existing_state_restricts_and_is_kept_at_restart(
+        tmp_path: Path, caplog: pytest.LogCaptureFixture, content: bytes) -> None:
+    plugin = _restart(tmp_path)
+    assert plugin.pre_tool_call(tool_name="web_search", session_id="S") is None  # healthy baseline
+    state = plugin.store._state_path
+    state.write_bytes(content)
+    _persist_transcript(plugin.home, "S", f"{render.MARKER}\n{INJECTED}")
+    with caplog.at_level(logging.ERROR, logger="scout_mail"):
+        restarted = _restart(tmp_path)
+    _assert_refused_everywhere(restarted, "S")
+    assert state.read_bytes() == content  # start-up never rewrites ambiguous state as armed
+    assert any("unrecognized at start" in r.getMessage() for r in caplog.records)
+
+
+def test_f9_04_fresh_state_block_is_complete_and_linked_once(tmp_path: Path) -> None:
+    from scout_mail import taint
+
+    plugin = _restart(tmp_path)
+    state = plugin.store._state_path
+    assert state.read_bytes() == taint._ARMED and plugin.store.locked() is False
+    assert [p.name for p in state.parent.iterdir() if p.name.startswith(".state-")] == []
+    _restart(tmp_path)
+    assert state.read_bytes() == taint._ARMED
 
 
 class _Candidate:

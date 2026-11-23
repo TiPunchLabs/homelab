@@ -118,12 +118,14 @@ def main():
     out["ledger_mode"] = oct(os.stat(ledger).st_mode & 0o777) if os.path.exists(ledger) else None
     out["ledger_has_marker_text"] = MARKER in open(ledger, encoding="utf-8").read() if os.path.exists(ledger) else None
     out["recovery"] = recovery()
+    out["short_write"] = recovery(short_write=True)
     print("LAB " + json.dumps(out, ensure_ascii=False))
 
 
-def recovery():
+def recovery(short_write=False):
     """Review 3, R7 on Hermes' own SessionDB: ledger directory unwritable while the transcript is
-    written, then permissions repaired and the plugin rebuilt as by a gateway restart."""
+    written, then permissions repaired and the plugin rebuilt as by a gateway restart.
+    ``short_write`` (review 4, R9): every pwrite of the state block writes 3 bytes and says so."""
     import sys
     from pathlib import Path
 
@@ -131,8 +133,9 @@ def recovery():
 
     sys.path.insert(0, "/tmp/data/profiles/job-search/plugins")
     import scout_mail
+    from scout_mail import taint
 
-    home = Path("/tmp/recovery/profiles/job-search")
+    home = Path("/tmp/recovery-short" if short_write else "/tmp/recovery") / "profiles/job-search"
     home.mkdir(parents=True)
     plugin = scout_mail._Plugin(SimpleNamespace(), home)
     plugin.store.record_result("111", ["9001"], [MARKER + "\n synthetic"])
@@ -141,13 +144,19 @@ def recovery():
     db.create_session("S", source="telegram")
     res = {}
     ledger_dir.chmod(0o500)
+    real_pwrite = os.pwrite
+    if short_write:
+        taint.os.pwrite = lambda fd, data, off: real_pwrite(fd, data[:3], off)
     try:
         plugin.pre_llm_call(session_id="S", user_message=MARKER + " synthetic message")
+        taint.os.pwrite = real_pwrite
         res["blocked_before_restart"] = plugin.pre_tool_call(tool_name="web_search", session_id="S")
         db.append_message("S", "user", MARKER + " synthetic message")
         res["lockdown_file"] = plugin.store._lock_path.exists()
     finally:
+        taint.os.pwrite = real_pwrite
         ledger_dir.chmod(0o700)
+    res["state_locked"] = plugin.store.locked()
     con = __import__("sqlite3").connect(home / "state.db")
     res["transcript_rows"] = con.execute("select count(*) from messages where session_id='S'").fetchone()[0]
     con.close()

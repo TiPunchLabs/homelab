@@ -92,3 +92,11 @@ def test_f7_06_real_session_db_repaired_directory_keeps_tools_refused(lab: dict[
     assert r["transcript_rows"] == 1
     assert r["tool_after_restart"]["action"] == "block"
     assert r["child_tool_after_restart"]["action"] == "block"
+
+
+def test_f9_05_real_session_db_short_state_write_keeps_tools_refused(lab: dict[str, Any]) -> None:
+    r = lab["short_write"]
+    assert r["blocked_before_restart"]["action"] == "block" and r["lockdown_file"] is False
+    assert r["state_locked"] is True and r["transcript_rows"] == 1
+    assert r["tool_after_restart"]["action"] == "block"
+    assert r["child_tool_after_restart"]["action"] == "block"
