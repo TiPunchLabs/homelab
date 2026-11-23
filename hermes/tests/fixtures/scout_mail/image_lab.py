@@ -117,7 +117,47 @@ def main():
     ledger = "/tmp/data/profiles/job-search/plugin-data/scout_mail/taint.json"
     out["ledger_mode"] = oct(os.stat(ledger).st_mode & 0o777) if os.path.exists(ledger) else None
     out["ledger_has_marker_text"] = MARKER in open(ledger, encoding="utf-8").read() if os.path.exists(ledger) else None
+    out["recovery"] = recovery()
     print("LAB " + json.dumps(out, ensure_ascii=False))
+
+
+def recovery():
+    """Review 3, R7 on Hermes' own SessionDB: ledger directory unwritable while the transcript is
+    written, then permissions repaired and the plugin rebuilt as by a gateway restart."""
+    import sys
+    from pathlib import Path
+
+    from hermes_state import SessionDB
+
+    sys.path.insert(0, "/tmp/data/profiles/job-search/plugins")
+    import scout_mail
+
+    home = Path("/tmp/recovery/profiles/job-search")
+    home.mkdir(parents=True)
+    plugin = scout_mail._Plugin(SimpleNamespace(), home)
+    plugin.store.record_result("111", ["9001"], [MARKER + "\n synthetic"])
+    ledger_dir = plugin.store._path.parent
+    db = SessionDB(db_path=home / "state.db")
+    db.create_session("S", source="telegram")
+    res = {}
+    ledger_dir.chmod(0o500)
+    try:
+        plugin.pre_llm_call(session_id="S", user_message=MARKER + " synthetic message")
+        res["blocked_before_restart"] = plugin.pre_tool_call(tool_name="web_search", session_id="S")
+        db.append_message("S", "user", MARKER + " synthetic message")
+        res["lockdown_file"] = plugin.store._lock_path.exists()
+    finally:
+        ledger_dir.chmod(0o700)
+    con = __import__("sqlite3").connect(home / "state.db")
+    res["transcript_rows"] = con.execute("select count(*) from messages where session_id='S'").fetchone()[0]
+    con.close()
+    plugin = scout_mail._Plugin(SimpleNamespace(), home)
+    plugin.pre_llm_call(session_id="S", user_message="suite", conversation_history=[
+        {"role": "assistant", "content": "Résumé compressé synthétique."}])
+    res["tool_after_restart"] = plugin.pre_tool_call(tool_name="web_search", session_id="S")
+    plugin.pre_llm_call(session_id="S-child", parent_session_id="S", user_message="suite")
+    res["child_tool_after_restart"] = plugin.pre_tool_call(tool_name="web_search", session_id="S-child")
+    return res
 
 
 main()

@@ -5,7 +5,9 @@ Proves on Hermes' own code, in one process serving three homes like the multiple
 - it adds no tool and no toolset to the global registry;
 - 400 concurrent pre_tool_call decisions across the three homes: a tainted Scout session is always blocked,
   every other (profile, session) pair is never blocked (no capability leaks either way);
-- the command fails closed without credential, for a stranger and in a group, and writes no session history.
+- the command fails closed without credential, for a stranger and in a group, and writes no session history;
+- review 3 (F7): with Hermes' own SessionDB, a transcript written while the ledger directory was unwritable
+  does not regain tools after the directory is repaired and the plugin rebuilt.
 """
 
 from __future__ import annotations
@@ -82,3 +84,11 @@ def test_c8_07_command_absent_elsewhere_and_fail_closed_in_scout(lab: dict[str, 
 def test_c5_07_command_writes_no_session_history_and_ledger_is_private(lab: dict[str, Any]) -> None:
     assert lab["history_unchanged"] is True
     assert lab["ledger_mode"] == "0o600" and lab["ledger_has_marker_text"] is False
+
+
+def test_f7_06_real_session_db_repaired_directory_keeps_tools_refused(lab: dict[str, Any]) -> None:
+    r = lab["recovery"]
+    assert r["blocked_before_restart"]["action"] == "block" and r["lockdown_file"] is False
+    assert r["transcript_rows"] == 1
+    assert r["tool_after_restart"]["action"] == "block"
+    assert r["child_tool_after_restart"]["action"] == "block"

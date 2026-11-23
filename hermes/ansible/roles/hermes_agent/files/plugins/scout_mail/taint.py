@@ -11,12 +11,18 @@ caller fails closed. A result is reserved (fingerprints, one slot) before delive
 Telegram ids are attached to that same record afterwards, so the last slot never loses ids.
 
 When a restriction cannot be written, the caller locks the whole feature down with
-``lockdown()``: an empty ``taint.lockdown`` file next to the ledger (creating it needs no data
-block), or, if even that fails, the ledger renamed to that name. While it exists Scout refuses
-every message and tool, across restarts, until the operator retires Scout's sessions and removes
-it (runbook). ``probe_writable()`` lets the caller refuse everything from start-up when the
-directory accepts no write at all. An unreadable file raises ``TaintStoreError``; callers fail
-closed.
+``lockdown()``. At start-up, while the directory is proven writable, ``arm()`` creates
+``taint.state`` (one preallocated block) and keeps it open for the life of the process.
+Lockdown first overwrites that block through the open descriptor: no permission check on the
+directory or the file, no new name and no new block are needed, so the refusal survives a
+directory whose permissions were later removed, or a full disk. It then also creates an empty
+``taint.lockdown`` (or, if that fails and the state block could not be written either, renames
+the ledger to that name). While either marker says locked, Scout refuses every message and tool,
+across restarts, until the operator retires Scout's sessions and removes both markers (runbook,
+section 8). ``arm()`` refuses when the ledger directory accepts no write, or lies on another
+filesystem than the profile home (where Hermes keeps the transcripts): the open-descriptor
+guarantee assumes the transcript cannot be written where the state block cannot. An unreadable
+file raises ``TaintStoreError``; callers fail closed.
 """
 
 from __future__ import annotations
@@ -36,6 +42,9 @@ MAX_RESULTS = 20_000
 MAX_FINGERPRINTS = 300_000
 MAX_SESSIONS = 100_000
 _HEX16 = frozenset("0123456789abcdef")
+STATE_SIZE = 512
+_ARMED = b"armed\n".ljust(STATE_SIZE, b"\0")
+_LOCKED = b"LOCKED\n".ljust(STATE_SIZE, b"\0")
 
 
 class TaintStoreError(RuntimeError):
@@ -52,6 +61,8 @@ class TaintStore:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time) -> None:
         self._path = path
         self._lock_path = path.with_name("taint.lockdown")
+        self._state_path = path.with_name("taint.state")
+        self._state_fd: int | None = None
         self._clock = clock
         self._lock = threading.Lock()
         self._cache_key: tuple[int, int, int, int] | None = None
@@ -143,29 +154,77 @@ class TaintStore:
                     return
         raise TaintStoreError("reserved result missing")
 
+    def arm(self, home: Path) -> None:
+        """Probe the directory and open the lockdown state block for the life of the process.
+
+        Raises ``TaintStoreError`` when the directory accepts no write or is not on the same
+        filesystem as ``home``; the caller then refuses everything from start-up.
+        """
+        self.probe_writable()
+        try:
+            if os.stat(home).st_dev != os.stat(self._path.parent).st_dev:
+                raise TaintStoreError("ledger and transcripts on different filesystems")
+            fd = os.open(self._state_path, os.O_RDWR | os.O_CREAT, 0o600)
+        except OSError as exc:
+            raise TaintStoreError("lockdown state unwritable") from exc
+        try:
+            if os.pread(fd, len(_LOCKED), 0) != _LOCKED:
+                os.pwrite(fd, _ARMED, 0)
+                os.fsync(fd)
+            dir_fd = os.open(self._path.parent, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except OSError as exc:
+            os.close(fd)
+            raise TaintStoreError("lockdown state unwritable") from exc
+        with self._lock:
+            if self._state_fd is not None:
+                os.close(self._state_fd)
+            self._state_fd = fd
+
     def lockdown(self) -> None:
         """Persist a feature-wide refusal; raises ``TaintStoreError`` if nothing could be written."""
         with self._lock:
             self._cache = self._cache_key = None
+            persisted = False
+            if self._state_fd is not None:
+                try:
+                    os.pwrite(self._state_fd, _LOCKED, 0)  # preallocated block, open descriptor
+                    os.fsync(self._state_fd)
+                    persisted = os.fstat(self._state_fd).st_nlink > 0
+                except OSError:
+                    pass
             try:
                 self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
                 os.close(os.open(self._lock_path, os.O_WRONLY | os.O_CREAT, 0o600))
                 return
             except OSError:
                 pass
+            if persisted:
+                return
             try:
                 os.replace(self._path, self._lock_path)  # a rename needs no new data block
             except OSError as exc:
                 raise TaintStoreError("lockdown not persisted") from exc
 
     def locked(self) -> bool:
+        """True while ``taint.lockdown`` exists or ``taint.state`` says locked."""
         try:
             self._lock_path.stat()
+            return True
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise TaintStoreError("lockdown state unreadable") from exc
+        try:
+            with open(self._state_path, "rb") as fh:
+                return fh.read(len(_LOCKED)) == _LOCKED
         except FileNotFoundError:
             return False
         except OSError as exc:
             raise TaintStoreError("lockdown state unreadable") from exc
-        return True
 
     def probe_writable(self) -> None:
         """Raise ``TaintStoreError`` unless a file can be created and removed beside the ledger."""

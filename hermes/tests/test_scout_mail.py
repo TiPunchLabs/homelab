@@ -948,7 +948,7 @@ def test_f2_01_trickling_body_cannot_outlast_the_request_deadline(monkeypatch: p
 
     class Client:
         def __init__(self, **kw: Any) -> None:
-            pass
+            self._transport = SimpleNamespace(_pool=SimpleNamespace(_network_backend=None))
 
         def __enter__(self) -> Any:
             return self
@@ -1292,6 +1292,13 @@ def _tls_server(raw: Any, server_ctx: Any, mode: str, stop: threading.Event, clo
         closed.append(_time.monotonic())
 
 
+def _connect_through(monkeypatch: pytest.MonkeyPatch, backend_class: Any, stream: Any) -> None:
+    """Hand httpcore a ready stream instead of a TCP connection (socket-pair cases)."""
+    fake = backend_class()
+    fake.connect_tcp = lambda *a, **k: stream
+    monkeypatch.setattr(transport, "_deadline_backend", lambda *a: fake)
+
+
 @pytest.mark.parametrize("wire", ["loopback", "socketpair"])
 @pytest.mark.parametrize("mode", ["handshake", "headers", "body", "stall_body"])
 def test_f6_01_https_exchange_is_aborted_at_the_deadline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -1326,7 +1333,7 @@ def test_f6_01_https_exchange_is_aborted_at_the_deadline(tmp_path: Path, monkeyp
         listener = None
         client_end, server_end = _socket.socketpair()
         url = "https://api.agentmail.to/v0/x"
-        monkeypatch.setattr(SyncBackend, "connect_tcp", lambda *a, **k: SyncStream(client_end))
+        _connect_through(monkeypatch, SyncBackend, SyncStream(client_end))
         threading.Thread(target=_tls_server, args=(server_end, server_ctx, mode, stop, closed),
                          daemon=True).start()
     started = _time.monotonic()
@@ -1377,7 +1384,7 @@ def test_f6_02_https_fast_response_still_works(tmp_path: Path, monkeypatch: pyte
 
     monkeypatch.setattr(httpx, "Client", VerifyingClient)
     client_end, server_end = _socket.socketpair()
-    monkeypatch.setattr(SyncBackend, "connect_tcp", lambda *a, **k: SyncStream(client_end))
+    _connect_through(monkeypatch, SyncBackend, SyncStream(client_end))
 
     def serve() -> None:
         tls = server_ctx.wrap_socket(server_end, server_side=True)
@@ -1390,3 +1397,240 @@ def test_f6_02_https_fast_response_still_works(tmp_path: Path, monkeypatch: pyte
     resp = transport.HttpxBackend().send("GET", "https://api.agentmail.to/v0/x", {}, None, 5.0, 10_000,
                                          remaining=lambda: deadline - _time.monotonic())
     assert resp.status == 200 and json.loads(resp.body) == {"messages": []}
+
+
+# ---------------------------------------------------------------------------------------------
+# Review 3 regressions — F7 a lockdown that no new file can record survives a repaired
+# directory and a restart, F8 the deadline bounds every TCP address candidate
+# ---------------------------------------------------------------------------------------------
+
+_NOT_ROOT = pytest.mark.skipif(not hasattr(__import__("os"), "geteuid") or __import__("os").geteuid() == 0,
+                               reason="root ignores directory permissions")
+
+
+def _persist_transcript(home: Path, session: str, text: str) -> int:
+    """Hermes keeps transcripts in the profile home (state.db), outside the ledger directory."""
+    import sqlite3
+
+    con = sqlite3.connect(home / "state.db")
+    try:
+        con.execute("create table if not exists messages (session_id text, role text, content text)")
+        con.execute("insert into messages values (?, 'user', ?)", (session, text))
+        con.commit()
+        return con.execute("select count(*) from messages where session_id = ?", (session,)).fetchone()[0]
+    finally:
+        con.close()
+
+
+@_NOT_ROOT
+def test_f7_01_repaired_directory_and_restart_do_not_restore_tools(tmp_path: Path) -> None:
+    """Review 3, R7: real permissions, transcript persisted, directory repaired, compression, restart."""
+    plugin = _restart(tmp_path)  # real constructor: the directory is healthy at start
+    plugin.store.record_result(OWNER, ["9001"], [render.MARKER + "\n" + INJECTED])
+    ledger_dir = plugin.store._path.parent
+    ledger_dir.chmod(0o500)
+    try:
+        plugin.pre_llm_call(session_id="S", user_message=f"{render.MARKER}\n{INJECTED}")
+        assert plugin.pre_tool_call(tool_name="web_search", session_id="S")["action"] == "block"
+        assert not plugin.store._lock_path.exists()  # no new file could be created
+        assert _persist_transcript(plugin.home, "S", f"{render.MARKER}\n{INJECTED}") == 1
+    finally:
+        ledger_dir.chmod(0o700)  # the operator repairs the permissions, then the gateway restarts
+    _assert_refused_everywhere(_restart(tmp_path), "S")
+
+
+def test_f7_02_lockdown_holds_when_no_file_can_be_created_or_renamed(tmp_path: Path,
+                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    from scout_mail import taint
+
+    plugin = _restart(tmp_path)
+    plugin.store.record_result(OWNER, ["9001"], [render.MARKER + "\n" + INJECTED])
+    _break_session_writes(plugin)
+
+    def refuse(*a: Any, **k: Any) -> Any:
+        raise OSError(13, "permission denied")
+
+    monkeypatch.setattr(taint.os, "open", refuse)
+    monkeypatch.setattr(taint.os, "replace", refuse)
+    plugin.pre_llm_call(session_id="S", user_message=f"{render.MARKER}\n{INJECTED}")
+    monkeypatch.undo()
+    assert not plugin.store._lock_path.exists() and plugin.store._path.exists()
+    _assert_refused_everywhere(_restart(tmp_path), "S")
+
+
+def test_f7_03_ledger_on_another_filesystem_than_the_transcripts_is_refused(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os as _os
+
+    from scout_mail import taint
+
+    home = tmp_path / "profiles/job-search"
+    home.mkdir(parents=True)
+    real_stat = _os.stat
+
+    def stat(path: Any, *a: Any, **k: Any) -> Any:
+        result = real_stat(path, *a, **k)
+        if Path(path) == home:
+            fields = list(result)
+            fields[2] += 1  # st_dev
+            return _os.stat_result(fields)
+        return result
+
+    monkeypatch.setattr(taint.os, "stat", stat)
+    plugin = _restart(tmp_path)
+    monkeypatch.undo()
+    _assert_refused_everywhere(plugin, "S")
+
+
+def test_f7_04_unpersisted_lockdown_refuses_in_process_and_names_the_recovery(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """Residual: nothing writable at all (not even the open state block). Refused until restart,
+    and the log tells the operator to retire Scout's sessions before restarting."""
+    from scout_mail import taint
+
+    plugin = _restart(tmp_path)
+    _break_session_writes(plugin)
+
+    def refuse(*a: Any, **k: Any) -> Any:
+        raise OSError(5, "input/output error")
+
+    for name in ("open", "replace", "pwrite"):
+        monkeypatch.setattr(taint.os, name, refuse)
+    with caplog.at_level(logging.ERROR, logger="scout_mail"):
+        plugin.pre_llm_call(session_id="S", user_message=f"{render.MARKER}\n{INJECTED}")
+    monkeypatch.undo()
+    _assert_refused_everywhere(plugin, "S")
+    assert any("NOT persisted" in r.getMessage() and "retire Scout's sessions" in r.getMessage()
+               for r in caplog.records)
+
+
+def test_f7_05_operator_recovery_lifts_the_lockdown(tmp_path: Path) -> None:
+    plugin = _restart(tmp_path)
+    plugin._lockdown("test")
+    assert _restart(tmp_path).pre_tool_call(tool_name="web_search", session_id="S2")["action"] == "block"
+    for name in ("taint.lockdown", "taint.state"):  # after retiring Scout's sessions (runbook, section 8)
+        (plugin.store._path.parent / name).unlink(missing_ok=True)
+    restarted = _restart(tmp_path)
+    assert restarted.locked is False
+    assert restarted.pre_tool_call(tool_name="web_search", session_id="S2") is None
+
+
+class _Candidate:
+    """A TCP socket whose connect honours its timeout and never succeeds (no network involved)."""
+
+    attempts: list[float] = []
+    started: float = 0.0
+
+    def __init__(self, *a: Any, **k: Any) -> None:
+        self.timeout: float | None = None
+
+    def settimeout(self, value: float | None) -> None:
+        self.timeout = value
+
+    def bind(self, address: Any) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+    def connect(self, address: Any) -> None:
+        import time as _time
+
+        assert self.timeout is not None
+        _Candidate.attempts.append(self.timeout)
+        _time.sleep(min(0.25, self.timeout))
+        raise TimeoutError("synthetic connect timeout")
+
+
+def _four_addresses(*a: Any, **k: Any) -> list[Any]:
+    import socket as _socket
+
+    return [(_socket.AF_INET, _socket.SOCK_STREAM, 6, "", (f"192.0.2.{i}", 443)) for i in range(1, 5)]
+
+
+def test_f8_01_tcp_candidates_never_outlive_the_request_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review 3, R8: immediate DNS, four candidates; the 0.6 s left bounds them all together."""
+    import socket as _socket
+    import time as _time
+
+    _Candidate.attempts = []
+    monkeypatch.setattr(_socket, "getaddrinfo", _four_addresses)
+    monkeypatch.setattr(_socket, "socket", _Candidate)
+    started = _time.monotonic()
+    budget = transport.Budget(started + 0.6, 18, 1)
+    with pytest.raises(transport.BudgetExceeded):
+        transport.Transport(settings(), transport.HttpxBackend(), SECRETS.get, budget).list_messages(8, None)
+    elapsed = _time.monotonic() - started
+    assert elapsed < 0.75, elapsed  # was 1.0 s: every candidate reused the full initial timeout
+    assert len(_Candidate.attempts) == 3  # 0.25 + 0.25 + the last 0.1 s; no fourth candidate
+    assert _Candidate.attempts[-1] < 0.2
+    assert budget.http_calls == 1 and budget.model_calls == 0
+
+
+def test_f8_02_a_refused_candidate_falls_back_to_the_next_one(tmp_path: Path,
+                                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    """Behaviour kept: the next address is tried; TLS still verifies the AgentMail host name."""
+    import socket as _socket
+    import time as _time
+
+    import httpx
+
+    server_ctx, client_ctx = _tls_material(tmp_path)
+    real_client = httpx.Client
+
+    class VerifyingClient(real_client):  # type: ignore[misc, valid-type]
+        def __init__(self, *a: Any, **kw: Any) -> None:
+            kw["verify"] = client_ctx
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(httpx, "Client", VerifyingClient)
+    closed_port = _socket.create_server(("127.0.0.1", 0))
+    dead = closed_port.getsockname()[1]
+    closed_port.close()
+    listener = _socket.create_server(("127.0.0.1", 0))
+    live = listener.getsockname()[1]
+    monkeypatch.setattr(_socket, "getaddrinfo", lambda *a, **k: [
+        (_socket.AF_INET, _socket.SOCK_STREAM, 6, "", ("127.0.0.1", dead)),
+        (_socket.AF_INET, _socket.SOCK_STREAM, 6, "", ("127.0.0.1", live))])
+
+    def serve() -> None:
+        conn, _ = listener.accept()
+        tls = server_ctx.wrap_socket(conn, server_side=True)
+        tls.recv(65536)
+        tls.sendall(b'HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 15\r\n\r\n'
+                    b'{"messages":[]}')
+
+    threading.Thread(target=serve, daemon=True).start()
+    deadline = _time.monotonic() + 5.0
+    try:
+        resp = transport.HttpxBackend().send("GET", "https://api.agentmail.to/v0/x", {}, None, 5.0, 10_000,
+                                             remaining=lambda: deadline - _time.monotonic())
+    finally:
+        listener.close()
+    assert resp.status == 200 and json.loads(resp.body) == {"messages": []}
+
+
+def test_f8_03_unknown_httpx_layout_fails_closed_without_connecting(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    opened: list[Any] = []
+
+    class Client:
+        def __init__(self, **kw: Any) -> None:
+            pass
+
+        def __enter__(self) -> Any:
+            return self
+
+        def __exit__(self, *a: Any) -> None:
+            return None
+
+        def stream(self, *a: Any, **kw: Any) -> Any:
+            opened.append(a)
+            raise AssertionError("must not connect")
+
+    monkeypatch.setattr(httpx, "Client", Client)
+    with pytest.raises(transport.Unavailable):
+        transport.HttpxBackend().send("GET", "https://api.agentmail.to/v0/x", {}, None, 5.0, 10_000,
+                                      remaining=lambda: 5.0)
+    assert opened == []

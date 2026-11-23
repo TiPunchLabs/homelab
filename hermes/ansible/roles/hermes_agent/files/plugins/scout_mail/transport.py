@@ -86,8 +86,11 @@ class HttpxBackend:
     so the descriptor is the one handle valid through the handshake, the headers and the body.
     ``shutdown(SHUT_RDWR)`` on it makes any blocked read or write return at once; the identity of
     the socket is re-checked first so a descriptor number reused after close is never touched.
-    The stream loop also re-checks the time after every chunk. Residual: name resolution happens
-    before a socket exists and is bounded by the system resolver only.
+    The stream loop also re-checks the time after every chunk. TCP connection is made by
+    ``_DeadlineBackend``: each address candidate gets at most the time left, its socket is tracked
+    before ``connect``, and no candidate starts once the time is up. Residual: name resolution
+    (``getaddrinfo``) is a blocking libc call before any socket exists; it is bounded by the
+    system resolver only.
     """
 
     def send(self, method: str, url: str, headers: dict[str, str], body: bytes | None,
@@ -109,6 +112,10 @@ class HttpxBackend:
         try:
             with httpx.Client(follow_redirects=False, verify=True, timeout=min(timeout, left),
                               trust_env=False) as client:
+                pool = getattr(getattr(client, "_transport", None), "_pool", None)
+                if not hasattr(pool, "_network_backend"):
+                    raise Unavailable()  # unknown httpx/httpcore layout: never connect unbounded
+                pool._network_backend = _deadline_backend(remaining, watchdog)
                 with client.stream(method, url, headers=headers, content=body,
                                    extensions={"trace": trace}) as resp:
                     chunks: list[bytes] = []
@@ -124,15 +131,59 @@ class HttpxBackend:
                         raise BudgetExceeded()
                     return RawResponse(resp.status_code, {k.lower(): v for k, v in resp.headers.items()},
                                        b"".join(chunks))
-        except (TooLarge, BudgetExceeded):
+        except (TooLarge, BudgetExceeded, Unavailable):
             raise
         except (httpx.HTTPError, OSError) as exc:
-            if watchdog.expired.is_set():
+            if watchdog.expired.is_set() or remaining() <= 0:
                 raise BudgetExceeded() from exc
             raise Unavailable() from exc
         finally:
             timer.cancel()
             watchdog.disarm()
+
+
+def _deadline_backend(remaining: Callable[[], float], watchdog: _Watchdog) -> Any:
+    """httpcore network backend whose TCP connect never outlives the request deadline.
+
+    ``socket.create_connection`` (httpcore's default) gives every address candidate the full
+    initial timeout; here each candidate gets ``min(timeout, time left)`` and none starts after
+    expiry.
+    """
+    import httpcore
+    from httpcore._backends.sync import SyncStream
+
+    class _DeadlineBackend(httpcore.SyncBackend):
+        def connect_tcp(self, host: str, port: int, timeout: float | None = None,
+                        local_address: str | None = None, socket_options: Any = None) -> Any:
+            try:
+                candidates = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+            except OSError as exc:
+                raise httpcore.ConnectError(str(exc)) from exc
+            last: OSError | None = None
+            for family, kind, proto, _, address in candidates:
+                left = remaining()
+                if left <= 0 or watchdog.expired.is_set():
+                    raise httpcore.ConnectTimeout("deadline reached before a connection")
+                sock = socket.socket(family, kind, proto)
+                try:
+                    watchdog.track(sock)
+                    sock.settimeout(left if timeout is None else min(timeout, left))
+                    if local_address is not None:
+                        sock.bind((local_address, 0))
+                    sock.connect(address)
+                    for option in socket_options or ():
+                        sock.setsockopt(*option)
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                except OSError as exc:
+                    sock.close()
+                    last = exc
+                    continue
+                return SyncStream(sock)
+            if isinstance(last, TimeoutError):
+                raise httpcore.ConnectTimeout(str(last)) from last
+            raise httpcore.ConnectError(str(last or "no address")) from last
+
+    return _DeadlineBackend()
 
 
 class _Watchdog:

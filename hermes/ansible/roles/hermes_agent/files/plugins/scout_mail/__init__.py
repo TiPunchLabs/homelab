@@ -8,8 +8,9 @@ Registered in Scout's profile only (``plugins.enabled`` of that profile). It add
   ``pre_llm_call`` and ``transform_tool_result`` taint a session in which such text appears,
   ``pre_tool_call`` vetoes every tool in a tainted session (fail closed).
 When a restriction or a delivered result cannot be recorded, the whole feature locks down durably
-(``TaintStore.lockdown``): every Scout message and tool is refused, across restarts, until the
-operator intervenes. No tool is registered and no global registry is touched.
+(``TaintStore.lockdown``, through a state block opened at start-up): every Scout message and tool
+is refused, across restarts, until the operator retires Scout's sessions and lifts it.
+No tool is registered and no global registry is touched.
 """
 
 from __future__ import annotations
@@ -72,13 +73,14 @@ class _Plugin:
             self.error = str(exc)
             logger.warning("scout_mail settings invalid: %s", exc)
         self.store = TaintStore(home / "plugin-data" / "scout_mail" / "taint.json")
-        # In-process lockdown; the durable one is the ledger's lockdown file.
+        # In-process lockdown; the durable one is the ledger's state block and lockdown file.
         self.locked = False
         try:
-            self.store.probe_writable()
-        except TaintStoreError:
+            self.store.arm(home)
+        except TaintStoreError as exc:
             self.locked = True
-            logger.error("scout_mail ledger directory unwritable; Scout refused until it is repaired")
+            logger.error("scout_mail ledger not usable (%s); Scout refused until the operator "
+                         "intervenes (runbook, section 8)", exc)
         self.service = None
         if self.settings is not None:
             from agent.secret_scope import get_secret
@@ -196,8 +198,8 @@ class _Plugin:
         try:
             self.store.lockdown()
         except Exception:
-            logger.error("scout_mail lockdown (%s) not persisted: refused until restart, then while the "
-                         "ledger directory stays unwritable", reason)
+            logger.error("scout_mail lockdown (%s) NOT persisted: retire Scout's sessions before any "
+                         "restart (runbook, section 8)", reason)
         else:
             logger.error("scout_mail lockdown (%s): Scout refused until the operator intervenes", reason)
 
