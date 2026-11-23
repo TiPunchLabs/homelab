@@ -1,12 +1,12 @@
 # Report — homelab/2026-11-20-scout-agentmail-readonly (SCOUT-MAIL-01)
 
 Verdict: PARTIAL
-Version: 1182fb53e31bb6c26268f3e7fde8bd37f874458a
+Version: 18af8373aca7cf18098ea55748f9f839d1b4189a
 
 The verdict is PARTIAL because three required items are not verified:
 - the live behavioral evaluation (AC10: no model credential was legitimately available);
 - the AgentMail read smoke test (runbook step 6), after merge and deployment at the owner's call. Q1–Q3 are answered by the owner (inbox, scoped key, vault); the key scope is the owner's statement, not executor-verified;
-- the independent review: review 1 (Codex, on 78ee2ee) returned F1–F3 (§K); review 2 (on edcd9fe) found F1/F2 partial and F4–F6 (§L); review 3 (on b22ba76) found F1, F2, F4 and F5 partially fixed, F3 and F6 fixed, and new F7 [blocker] and F8 [major] (§M). The owner authorized one extra cycle for F7/F8 (2026-11-23, mission.md §7). The Version above addresses them with the residuals stated in §F and §M; it awaits review 4.
+- the independent review: review 1 (Codex, on 78ee2ee) returned F1–F3 (§K); review 2 (on edcd9fe) found F1/F2 partial and F4–F6 (§L); review 3 (on b22ba76) found F1, F2, F4 and F5 partially fixed, F3 and F6 fixed, and new F7 [blocker] and F8 [major] (§M). The owner authorized one extra cycle for F7/F8 (2026-11-23, mission.md §7). Review 4 (on 1182fb5) found F8 fixed, F7 partially fixed, and new F9 [major] and F10 [major] (§N). The owner authorized a last cycle for F9/F10 and accepted the D5 residual (2026-11-23). The Version above addresses F9 and F10; it awaits review 5, the last.
 
 Everything else is implemented and verified offline, including on the real Hermes v0.22.5 image. Production is unchanged.
 
@@ -18,7 +18,7 @@ Delivered on branch `feat/scout-agentmail-readonly` (draft MR, see §F):
 - a Hermes user plugin `scout_mail`, deployed and enabled in Scout's profile only, disabled by default. It provides one gateway command, `/courriels [liste|suite|aide]`, and four guard hooks, and registers no tool;
 - Ansible wiring (`tasks/scout_mail.yml`, kill switch, key handling, post-restart check `hermes_checks.py scout-mail`);
 - ADR-002, threat model and enforcement matrix, operator runbook;
-- 130 new tests: 113 deterministic plugin tests (15 added after review 1, 16 after review 2, 8 after review 3), 6 in the real Hermes v0.22.5 image, and 11 Ansible-wiring tests (parameter cases included).
+- 143 new tests: 125 deterministic plugin tests (15 added after review 1, 16 after review 2, 8 after review 3, 12 after review 4), 7 in the real Hermes v0.22.5 image, and 11 Ansible-wiring tests (parameter cases included).
 
 Not achieved in this mission: live model evaluation, provider-side key scope verification, read smoke test, independent review, deployment (out of scope by design).
 
@@ -112,8 +112,8 @@ Ansible wiring: `test_role_01` … `test_role_06` (including `test_role_02b_swit
 
 | Check | Command / location | Result | Status |
 |---|---|---|---|
-| New plugin tests (deterministic) | `.venv/bin/python -m pytest hermes/tests/test_scout_mail.py` | 113 passed in 28.3 s (74 before review 1, 89 before review 2, 105 before review 3) | VERIFIED |
-| Real image tests (Hermes v0.22.5, `--network none`) | `hermes/tests/test_scout_mail_image.py` | 6 passed (F7 recovery with Hermes' own SessionDB added) | VERIFIED |
+| New plugin tests (deterministic) | `.venv/bin/python -m pytest hermes/tests/test_scout_mail.py` | 125 passed in 28.7 s (74 before review 1, 89 before review 2, 105 before review 3, 113 before review 4) | VERIFIED |
+| Real image tests (Hermes v0.22.5, `--network none`) | `hermes/tests/test_scout_mail_image.py` | 7 passed (F7 recovery and F9 short state write with Hermes' own SessionDB) | VERIFIED |
 | Ansible wiring tests (real `tasks/scout_mail.yml` on localhost, fake key) | `hermes/tests/test_scout_mail_role.py` | 11 passed | VERIFIED |
 | Deploy-time check in the image (disabled / enabled / mismatch) | `hermes_checks.py scout-mail` run inside the image | "inactive everywhere" rc 0 / "active for job-search only" rc 0 / mismatch rc 1 | VERIFIED |
 | Baseline, before any change (HEAD 3d7bf18) | `evidence/m3-baseline-tests.md` | 711 of 749 reported before the 25-min cap; 1 failure (`test_m5_recovery.py::test_r10_…`), not reproduced in isolation (intermittent) | PARTIAL (38 not executed) |
@@ -121,7 +121,8 @@ Ansible wiring: `test_role_01` … `test_role_06` (including `test_role_02b_swit
 | Full suite after change, run 2 (code = 78ee2ee), per file | `evidence/m3-post-change-tests-2.md` | 839 collected: 809 passed, 0 failed, 30 skipped, 0 errors | superseded |
 | Full suite after review 1 fixes (code = edcd9fe), per file | `evidence/m6-post-review-1-tests.md` | 854 collected: 827 passed, 0 failed, 27 skipped, 0 errors | superseded |
 | Full suite after review 2 fixes (code = b22ba76) | `evidence/m7-post-review-2-tests.md`; `uv run pytest hermes/tests -q -rs -k "not (test_m7_kafeine and test_lab_)"` | 870 collected: 832 passed, 0 failed, 27 skipped, 11 deselected (hanging `test_m7_kafeine` lab, §F), 1,318 s | superseded |
-| Full suite after review 3 fixes (code = 1182fb5) | `evidence/m8-post-review-3-tests.md`; same command with `ANSIBLE_LOCAL_TEMP`/`ANSIBLE_REMOTE_TEMP` in a writable scratch directory | 879 collected: 841 passed, 0 failed, 27 skipped (all need image `v2026.8.18`), 11 deselected (hanging `test_m7_kafeine` lab), 1,279 s, exit 0 | VERIFIED |
+| Full suite after review 3 fixes (code = 1182fb5) | `evidence/m8-post-review-3-tests.md`; same command with `ANSIBLE_LOCAL_TEMP`/`ANSIBLE_REMOTE_TEMP` in a writable scratch directory | 879 collected: 841 passed, 0 failed, 27 skipped, 11 deselected, 1,279 s, exit 0 | superseded |
+| Full suite after review 4 fixes (code = 18af837) | `evidence/m9-post-review-4-tests.md`; same command and scratch temp directories | 892 collected: 854 passed, 0 failed, 27 skipped (all need image `v2026.8.18`), 11 deselected (hanging `test_m7_kafeine` lab), 1,251 s, exit 0 | VERIFIED |
 | Skips | same | 27 need image `v2026.8.18` (not local). The v0.22.5 image is now local, so its image tests ran (scout_mail image 5 passed; m63 and scout03 labs passed) | NOT_APPLICABLE |
 | ansible-lint (production profile) | `.venv/bin/ansible-lint` on role tasks, defaults, group_vars | 0 failures, 0 warnings | VERIFIED |
 | Syntax check | `ansible-playbook ansible/deploy.yml --syntax-check` | pass | VERIFIED |
@@ -188,14 +189,15 @@ NOT_VERIFIED: 0 of 40 calls used. Reason and owner command: `evidence/m4-live-ev
 - Residual: a cancelled `/courriels` lets its worker thread finish in-flight HTTP calls. Connection (every TCP address candidate, §M F8), TLS handshake, headers and body are bounded by the 75 s deadline; name resolution is not (next item). It delivers and records nothing. A cancellation after a part was posted locks the feature down (§L).
 - Residual: name resolution (`getaddrinfo`) of the two fixed hosts is a blocking libc call made before any socket exists. It is bounded by the system resolver, not by the deadline, so a hung resolver can hold the worker past 75 s. Connection attempts after it are bounded (§M F8).
 - Dependency (F8): the deadline-bounded connect is installed on an httpx/httpcore internal attribute (`_pool._network_backend`), checked against httpx 0.28.1 / httpcore 1.0.9, the versions in the v0.22.5 image. If a Hermes upgrade changes that layout, every request fails closed without connecting (`test_f8_03`); re-run the plugin and image tests before any upgrade.
-- Operations: the ledger grows without expiry; at capacity `/courriels` stops delivering until the operator archives it together with `/new` (runbook §8). Archiving re-opens quoting of archived digests only where the marker is absent.
+- Operations: the ledger grows without expiry; at capacity `/courriels` stops delivering until the operator archives it, in the order of runbook §8.1 (hold, retire every Scout session, then clear and apply). Archiving re-opens quoting of archived digests only where the marker is absent.
 - Residual: the summary can be wrong or influenced by the mail. It is labeled "IA, non vérifiée" and is inert.
 - Data flow: requested mail text goes to DeepSeek (Scout's existing provider). `/courriels liste` makes no model call.
 - Dependency: the isolation relies on Hermes v0.22.5 plugin scoping and dispatch order. The image tests must be re-run before any Hermes upgrade.
 - Busy path: a Telegram reply sent while Scout is mid-turn goes through Hermes' busy handler. That handler was not exercised end to end (no live gateway). Layer 2 (taint plus veto) covers it at unit level (`test_c5_03`).
 - Not verified: the `scout_mail request …` log line landing in `profiles/job-search/logs/agent.log` (Hermes logger routing). The runbook uses it as evidence; confirm on first use.
-- Availability trade-off: a corrupt or full ledger, or a lockdown (restriction or delivered id not recordable, uncertain delivery, hook fault, unwritable ledger directory), blocks Scout's tools, messages or new digests (fail closed) until the operator acts. Runbook §8 covers it.
-- Residual (F4/F7): the lockdown is written first through `taint.state`, opened and preallocated at start-up, so it holds when no file can be created or renamed and after the directory is repaired and the gateway restarted (§M F7). If even that open block cannot be overwritten (I/O error, the whole volume read-only), the lockdown is held in memory only; the log line then tells the operator to retire Scout's sessions before any restart (runbook §8). A restart without that step lifts it. The plugin refuses to start when the ledger is not on the profile home's filesystem, so in that case the transcript store faces the same failure; this is an argument, not a guarantee. Recovery of any lockdown now requires deleting every Scout session (runbook §8), which loses their history unless exported.
+- Availability trade-off: a corrupt or full ledger, or a lockdown (restriction or delivered id not recordable, uncertain delivery, hook fault, unwritable ledger directory), blocks Scout's tools, messages or new digests (fail closed) until the operator acts. Runbook §8 and the ordered recovery §8.1 cover it.
+- Owner-accepted residual (F4/F7, D5, accepted 2026-11-23): the lockdown is written first through `taint.state`, opened and preallocated at start-up, so it holds when no file can be created or renamed and after the directory is repaired and the gateway restarted (§M F7). A state write counts only when every byte is written and read back after `fsync`; a block other than the exact armed one is restrictive and never overwritten at start-up (§N F9). If the open block cannot be written at all (I/O error, the whole volume read-only), the lockdown is held in memory only; the log line then tells the operator to retire Scout's sessions before any restart. A restart without that step lifts it, unless the failed write left the block half written. This branch is not fixed: the owner accepted it as a risk, on condition of the ordered recovery (runbook §8.1, §N F10). The plugin refuses to start when the ledger is not on the profile home's filesystem, so the transcript store would likely face the same failure; this is an argument, not a guarantee. Recovery of any lockdown requires deleting every Scout session while the protection is still in place (runbook §8.1), which loses their history unless exported.
+- Recovery procedure (F10): runbook §8.1 is ordered (Hold, Repair, Stage, Retire, Clear, Apply, Verify). `test_f7_05` executes it in document order against a synthetic transcript store and `test_f10_01` checks the document; neither runs Hermes' CLI, a live gateway or the park/unpark of Scout. Parking (`hermes -p job-search gateway stop`) is documented from the M7 lab; unparking before the apply is an owner check on first use.
 - Test environment: with `nousresearch/hermes-agent:v0.22.5` now present locally, the 11 `test_m7_kafeine.py` lab tests run and hang in `test_lab_kafeine_config_and_hint_apply` (container up, test never returns). That file is untouched by this MR; the tests were deselected in the review 2 full run and not investigated further. The lab container left by the interrupted run was removed (`docker rm -f hermes-m7-lab-gw`).
 - Settings change: `retention_days` was removed from the plugin settings (unused by the role); `model_context_max_chars` minimum raised from 2,000 to 4,000 so the fixed instructions always leave room for data.
 - First deployment after merge (feature off) writes the inert plugin and `plugins.enabled: []`, causing one gateway restart (runbook §1).
@@ -212,10 +214,10 @@ NOT_VERIFIED: 0 of 40 calls used. Reason and owner command: `evidence/m4-live-ev
 | Item | Value |
 |---|---|
 | Branch | `feat/scout-agentmail-readonly`, pushed, tracking `origin` (`git@gitlab.com:tipunchlabs/homelab.git`) |
-| Delivered code commit (Version) | `1182fb53e31bb6c26268f3e7fde8bd37f874458a` fix(hermes): borner scout_mail apres la revue 3 (F7, F8), on top of `b22ba76` (review 2 fixes), `edcd9fe` (review 1 fixes) and `78ee2ee` feat(hermes): ajouter /courriels |
+| Delivered code commit (Version) | `18af8373aca7cf18098ea55748f9f839d1b4189a` fix(hermes): fiabiliser le bloc d'etat scout_mail apres la revue 4 (F9, F10), on top of `1182fb5` (review 3 fixes), `b22ba76` (review 2 fixes), `edcd9fe` (review 1 fixes) and `78ee2ee` feat(hermes): ajouter /courriels |
 | Owner-input commits | `53c0f8c` chore(hermes): set the Scout mail inbox id (Q1, `test_role_04` aligned); `225fc3a` chore(hermes): provision the Scout read-only AgentMail key in the vault (Q3, encrypted file only) |
 | Mission evidence commit | `1b27f9f` docs(missions): consigner la mission SCOUT-MAIL-01 et ses preuves |
-| Report commits | `a9e4a81` (initial), `2a12a2a` (review 1), `97a09c4` (review 2); review 3 update follows the code commit (docs(hermes) for ADR, threat model and runbook; docs(missions) for this file) |
+| Report commits | `a9e4a81` (initial), `2a12a2a` (review 1), `97a09c4` (review 2), `e9c7a72` (review 3); review 4 update follows the code commit (docs(hermes) for ADR, threat model and runbook; docs(missions) for this file) |
 | Draft MR | !109 https://gitlab.com/tipunchlabs/homelab/-/merge_requests/109 (draft: true, opened, target main, source branch kept). Created through git push options because `glab api user` returned 401 |
 | CI | Pipeline 3094652113 on 1b27f9f (contains 78ee2ee): success. Jobs: scan-docker-images, gitleaks, security-check, shell-lint, runner-quota-tests, terraform-lint, ansible-lint all succeeded. Read from the public API. The pipeline does not run the hermes pytest suite; that suite was run locally (§E) |
 | Merge | not done (out of scope) |
@@ -229,7 +231,7 @@ Production changes: none. Verified read-only on hermes-31 at 2026-11-20T13:40Z:
 
 Secret provisioning: `vault_hermes_job_search_agentmail_api_key` added by the owner (Q3, 2026-11-21), committed encrypted in `225fc3a`. Nothing deployed: hermes-31 still has no AgentMail variable.
 
-Deployment readiness: ready to merge as an inert feature only after review 4 and an owner decision. Q1–Q3 are answered (2026-11-21, section I); `hermes_scout_mail_enabled` stays `false`. Enabling remains an owner decision after merge: runbook §2–§4, then the read smoke test.
+Deployment readiness: ready to merge as an inert feature only after review 5 and an owner decision. Q1–Q3 are answered (2026-11-21, section I); `hermes_scout_mail_enabled` stays `false`. Enabling remains an owner decision after merge: runbook §2–§4, then the read smoke test.
 
 ## H. Delegations and models
 
@@ -245,6 +247,7 @@ Executor session model: Claude Opus 5.5 (`claude-opus-5-5`). Design, security re
 | Review 1 fixes, tests and full-suite run (`evidence/m6-post-review-1-tests.md`) | none (executor, Opus) |
 | Review 2 fixes, tests, red/green comparison and full-suite run (`evidence/m7-post-review-2-tests.md`) | none (executor, Opus) |
 | Review 3 fixes (F7, F8), tests, red/green comparison and full-suite run (`evidence/m8-post-review-3-tests.md`) | none (executor, Opus) |
+| Review 4 fixes (F9, F10), tests, red/green comparison and full-suite run (`evidence/m9-post-review-4-tests.md`) | none (executor, Opus) |
 
 ## I. Decisions required (owner)
 
@@ -252,12 +255,12 @@ Executor session model: Claude Opus 5.5 (`claude-opus-5-5`). Design, security re
 - D2 (Q2): ANSWERED 2026-11-21. Dedicated key, inbox-scoped to `scout-emploi@agentmail.to`, `inbox_read` + `message_read` only, created with the owner-questions command; read call returned 200 (owner statement).
 - D2b (Q3): DONE 2026-11-21. Key stored in the vault by the owner, committed encrypted (`225fc3a`).
 - D3 (Q4, optional): run the live evaluation (40 calls max) before merge.
-- D4: merge the draft MR after review 4; then decide on enablement (runbook §2–§4).
-- D5: accept or reject the F7 residual (§F): a lockdown that nothing on the volume could record lives in memory until restart, and the operator must retire Scout's sessions before restarting. Accepting it is a scope/risk decision; the alternative is a Hermes-side change (out of this plugin's reach).
+- D4: merge the draft MR after review 5; then decide on enablement (runbook §2–§4).
+- D5: ACCEPTED by the owner 2026-11-23 (mission.md §7). The all-writes-fail residual (§F: lockdown held in memory until restart when even the open state block cannot be written) is an accepted risk, provided the recovery order is fixed (F10, runbook §8.1). Recorded as owner-accepted, not as fixed.
 
 ## J. Recommended next action
 
-Pilotage routes Codex review 4 (owner-authorized extra cycle) at the Version above. Focus: F7 and F8 (§M), the lockdown recovery procedure (runbook §8, session retirement) and the remaining residuals in §F. No production action is safe or authorized before merge; enabling and the read smoke test are owner decisions after it.
+Pilotage routes Codex review 5 (the last owner-authorized cycle) at the Version above. Focus: F9 and F10 (§N), runbook §8.1 and the residuals in §F. No production action is safe or authorized before merge; enabling and the read smoke test are owner decisions after it.
 
 ## K. Review 1 (Codex, on 78ee2ee): findings, fixes, tests
 
@@ -332,3 +335,26 @@ Changed existing tests: `test_f6_01` (socket-pair cases) and `test_f6_02` inject
 Red/green evidence (`evidence/m8-post-review-3-tests.md`):
 - b22ba76 plugin code with the new tests: 5 failed, 2 passed for `-k "f7_ or f8_"`. f7_01, f7_02, f7_03: tool allowed after restart or at start; f7_04: log line only (the in-process refusal already held); f8_01: 1.04 s, 4 attempts. f7_05 and f8_02 pass on both (behaviour kept). Image: `test_f7_06` fails on b22ba76 (tool after restart None), passes on 1182fb5.
 - 1182fb5: 8 passed for the same selection; plugin suite 113 passed; image tests 6 passed; full suite 841 passed, 0 failed, 27 skipped, 11 deselected.
+
+## N. Review 4 (Codex, on 1182fb5): F9 and F10, fixes, tests
+
+Review: `review-4.md`, verdict CHANGES_REQUESTED. F8 fixed; F7 partially fixed (original permission case repaired; all-writes-fail branch remains, now owner-accepted as D5); F1–F6 without regression. New F9 [major] and F10 [major]. The owner authorized a last cycle scoped to F9/F10 and accepted D5 (2026-11-23, `mission.md` §7). Fixes in `18af8373aca7cf18098ea55748f9f839d1b4189a`. F1–F8 behaviour is kept: all their tests pass; only `test_f7_05` was rewritten (below).
+
+F9 [major] a short state-block write was treated as a persisted lockdown, then cleared on restart.
+- Finding: `lockdown()` ignored `os.pwrite`'s byte count; a three-byte write was fsynced and reported as persisted (no `NOT persisted` warning, no rename fallback). `locked()` did not recognize the malformed block and `arm()` overwrote anything but the exact `LOCKED` block with `armed` at the next start, so after repair and restart the parent and its compressed child regained tools (review R9, locally and in the image).
+- Fix (`taint.py` `_write_block`, `arm`, `_create_state`, `lockdown`, `locked`; `__init__.py` start-up log):
+  - every state write goes through `_write_block`: it loops until all 512 bytes are written, treats a zero, negative or over-reported count as an I/O error, fsyncs, then reads the block back and requires it to equal what was written. Only then does the lockdown count as persisted; otherwise it falls through to `taint.lockdown`, then the ledger rename, then the `NOT persisted` log;
+  - `locked()` is true for anything but the exact armed block: `LOCKED`, empty, short, malformed, longer, or unreadable state all restrict;
+  - `arm()` never writes an existing block. A missing block is created in full in a temporary file, fsynced, read back and linked into place (`os.link`, which never replaces), so a crash cannot leave a half-written new block that would be read as clean;
+  - the constructor logs `lockdown state present or unrecognized at start` when it starts restricted.
+- Tests (plugin): `test_f9_01_short_state_writes_are_completed` (review R9 shape: every `pwrite` writes 3 bytes and says so, directory 0500, transcript row written, repair, restart, parent and compressed child refused, no `NOT persisted`), `test_f9_02_incomplete_state_write_is_not_persisted_and_stays_restrictive` (three faults: a write that stalls at 0 bytes, one that over-reports, one that fails midway; each logs `NOT persisted` and the half-written block stays restrictive after repair and restart), `test_f9_03_malformed_existing_state_restricts_and_is_kept_at_restart` (six contents: empty, `LOC`, `armed\n` unpadded, `LOCKED\n` unpadded, 512 bytes of garbage, armed block plus a trailing byte; parent and compressed child refused, message refused, file unchanged, start-up log), `test_f9_04_fresh_state_block_is_complete_and_linked_once`. Image: `test_f9_05_real_session_db_short_state_write_keeps_tools_refused` (Hermes' own `SessionDB`). VERIFIED.
+- Residual: unchanged from §F (owner-accepted D5): when the block cannot be written at all and is left intact, the refusal lives in memory until restart. A write that partly lands now leaves a restrictive block instead of a clean one.
+
+F10 [major] the recovery procedure unloaded the protection and restarted before retiring sessions.
+- Finding: runbook §8 said "2. Disable (kill switch)" before "3. Retire", and §6 defines the kill switch as a replay with a gateway restart that unloads the hooks; the `NOT persisted` row pointed to the same steps. `test_f7_05` only removed marker files.
+- Fix (`docs/guides/runbook-scout-mail.md`): new §8.1, strictly ordered: 1 Hold (no restart, no deployment, no replay; keep the running gateway with the plugin loaded, or park Scout with `hermes -p job-search gateway stop` if it already restarted after a `NOT persisted` log), 2 Repair, 3 Stage (commit the kill switch or revert only; nothing applied), 4 Retire (list, optional export treated as untrusted, delete every Scout session, check the list is empty), 5 Clear (markers or ledger archive), 6 Apply (the first restart: unpark if parked, then replay `--tags hermes` or restart), 7 Verify. §6 now separates staging a configuration change from the restarting apply and forbids applying before §8.1 step 4; every lockdown, `NOT persisted`, `ledger not usable`, corrupt and full-ledger row points to §8.1. ADR-002 and matrix T13 aligned.
+- Tests: `test_f7_05_operator_recovery_in_runbook_order_never_hands_tools_to_an_old_session` reads §8.1's step names and executes them in document order against a synthetic `state.db`: after each step, every remaining session must be refused by a loaded plugin; Clear and Apply assert that the sessions were already retired; the Apply step models the hooks as gone. Then a fresh session gets tools. `test_f10_01_runbook_recovery_retires_sessions_before_unloading_or_restarting` checks the step order, that no step before Apply contains a replay, restart or unpark, that Retire deletes sessions and Clear removes `taint.state`, the §6 staging/applying split, and that no lockdown row still says "steps 1–3" or "Disable the feature". VERIFIED (document and synthetic execution; not run against a live gateway or Hermes' CLI).
+
+Red/green evidence (`evidence/m9-post-review-4-tests.md`):
+- 1182fb5 plugin code and f55c226 runbook with the new tests, `-k "f7_ or f8_ or f9_ or f10_"`: 12 failed, 8 passed. Failed: `test_f9_01` (block not recognized as locked), the three `test_f9_02` cases (no `NOT persisted` warning), the six `test_f9_03` cases (tools allowed after restart), `test_f7_05` and `test_f10_01` (no ordered §8.1). Passed on both: f7_01–f7_04, f8_01–f8_03, `test_f9_04` (fresh block, behaviour kept). Image: `test_f9_05` fails on 1182fb5 (`state_locked` False), 6 others pass.
+- 18af837: 20 passed for the same selection; plugin suite 125 passed; image tests 7 passed; review R9 script rerun verbatim: `state_recognized_locked= True`, parent and child blocked after restart; full suite 854 passed, 0 failed, 27 skipped, 11 deselected (892 collected).
