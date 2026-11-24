@@ -246,10 +246,10 @@ byte-identical to the stock text (tests: `test_default_soul_is_never_seeded`,
 customised anyway (sha256 `a0a58fb6…`, ≠ stock `2765a846…`); the preflight
 prints it so the post-deploy value can be compared.
 
-## Cron safety (Hermes v0.20.4)
+## Cron safety (Hermes v0.20.4; restart catch-up re-checked on v0.22.5 by SCOUT-CRON)
 
-The role creates, edits, pauses or triggers **no** cron job and sets no
-timezone (D1: target set, timing still open). A gateway restart is the only contact. What
+The role creates, edits, pauses or triggers **no** cron job. Since SCOUT-CRON it sets
+`timezone: America/Guadeloupe` in Scout's profile only (other profiles stay on UTC). A gateway restart is the only contact. What
 `cron/jobs.py` (`_get_due_jobs_locked`) does on the first tick after a restart:
 
 | Job state at restart | Effect |
@@ -1222,61 +1222,37 @@ required only when enabled. `tasks/scout_mail.yml` writes it to Scout's `.env`, 
 `docs/references/scout-mail-threat-model.md`. Operations: `docs/guides/runbook-scout-mail.md`. Tests:
 `hermes/tests/test_scout_mail.py`, `hermes/tests/test_scout_mail_image.py`.
 
-### Cron drafts (M4.4, not created)
+### Scheduled tasks (SCOUT-CRON, replaces the M4.4 plan)
 
-`hermes/cron-drafts/job-search.yml`: `veille-emploi` (`0 7 * * 1` UTC) and
-`prospection-entreprises` (`0 7 * * 3` UTC), default's schedules. Read by
-nothing: no playbook, no `jobs.json`.
+Scout now creates and manages its own scheduled tasks, at the owner's request in his private Telegram
+chat, under the `scout_cron` plugin (`files/plugins/scout_cron/`, switch `hermes_scout_cron_enabled`).
+Operator procedures (enable, owner test, inspect/pause/remove a job, rollback):
+`docs/guides/runbook-scout-cron.md`. Design: `docs/missions/2026-11-24-scout-self-cron/design.md`.
 
-> **2026-10-23:** default's three crons (`ai-coffee-scout`, `veille-emploi`,
-> `prospection-entreprises`) were removed by the operator; their definitions
-> are archived off-repo (private). Since then **no cron runs on hermes-30**.
-> The switch below (pause default's job, then create Scout's) was written
-> while they existed: steps 1–2 no longer apply, and M4.4 is to be re-planned
-> before any cron is created.
+- Scheduling exists on Scout's `telegram` platform only (`cronjob` and `scout_task_record`). It is not
+  available on `api_server` or `cli`, not in cron runs (Hermes strips `cronjob`; the plugin refuses in
+  any cron context), and not for Nora or Kaféine.
+- Create, update, remove, resume and owner feedback need the owner's approval tap. The plugin posts the
+  exact text to be saved first, then Hermes' approval card appears (single-use rule key, 300 s, silence
+  is a refusal). `/yolo` or `approvals.mode: off` makes the plugin refuse.
+- Limits: at most 5 jobs (paused included); one fixed minute and hour (at most one run a day);
+  delivery to the owner's chat only; instructions of at most 6,000 characters; no script, toolsets,
+  skills, workdir or model fields; no immediate run; 40 tool calls and 20 web calls per cron run.
+- Scout's timezone is `America/Guadeloupe` (Scout's profile only): `0 7 * * 1-5` means 07:00 in
+  Guadeloupe, 11:00 UTC.
+- Cron runs get `web`, `skills`, `kandidat` (read-only) and `scout_task_record`. The journal (Hermes
+  notepad, injected at the start of every run) and the per-job ledger of alerted vacancies replace
+  memory and `session_search` in cron.
+- The role creates no job. Restarts follow the table in « Cron safety » above; run the `schedule-window`
+  check for job-search before any deploy once jobs exist (runbook §3).
 
-| Kept | Removed | Added |
-|---|---|---|
-| families A/B/C and keywords, job boards and recruiter/IT-services boards, 30-day freshness, Guadeloupe or 100 % remote, 2–3 offers / 3–8 companies, A > B > C priority, reasons and reserves, never invent a URL | Kandidat (dedup, `create_cible`, `create_candidature`), terminal, scripts, files, browser, sitemap scraping | `web_search` / `web_extract`, the private context (level filters, excluded companies), dedup through `session_search`, « never answer [SILENT] », « do not edit skills », full offer details in the Telegram report |
-
-**Functional differences to accept**: nothing saved in Kandidat; coverage
-probably lower (no XML sitemap, API or script; SPAs and bot-blocked sites);
-languages graded as in the SOUL instead of an automatic reject; the
-first Scout run knows nothing of default's history.
-
-**Why `continuity: false`.** `--continuity` (`context_from: self`) injects
-the **first 8000 characters** of the job's latest output file, and that file
-starts with the whole built prompt (cron guidance, previous injection,
-prompt) and ends with the answer. Measured on the image: run 2 sees run 1's
-answer, but from run 3 on the previous answer is no longer injected, only a
-stale fragment of an older one. The drafts deduplicate with
-`session_search` instead: cron sessions stay searchable (demoted, not
-excluded) across the whole history. Neither is an exact match: the prompt
-says so.
-
-**M4.4 switch, per job (operator, outside the cron windows, after
-`profiles-preflight.yml` GO)** — never both jobs active at once:
-
-```bash
-# 1. Save default's job table (sha256 noted), read-only for the agent.
-sudo cp -p /opt/hermes/data/cron/jobs.json /opt/hermes/data/workspace/backup-crons/jobs-$(date -u +%F).json
-# 2. Pause default's job (veille-emploi = 97fede01ad07, prospection-entreprises = 9f7eba46d2db).
-sudo docker exec -u 1000 hermes hermes cron pause 97fede01ad07
-# 3. Create Scout's job from the draft (prompt passed as one argument).
-sudo docker exec -u 1000 hermes hermes -p job-search cron create "0 7 * * 1" "<prompt>" \
-  --name veille-emploi --deliver telegram:<allowlisted id>
-# 4. Exactly one active job for the function, same next run.
-sudo docker exec -u 1000 hermes hermes cron list
-sudo docker exec -u 1000 hermes hermes -p job-search cron list
-```
-
-Then wait for the real run (or a decided `cron run`), check `cron runs` and
-that the message came from **Scout's** bot. Rollback: `hermes -p job-search
-cron pause <id>`, then `hermes cron resume 97fede01ad07`. Hermes has no
-atomic switch: the pause comes first, so a duplicate is impossible and the
-gap is seconds, days away from the run. Prerequisite: Scout's gateway
-**restart persistence** proven (still unproven for every profile), or a
-missed run goes unnoticed.
+`hermes/cron-drafts/job-search.yml` (`veille-emploi` `0 7 * * 1` UTC, `prospection-entreprises`
+`0 7 * * 3` UTC) is historical and read by nothing. Its operator switch procedure (pause default's job,
+create Scout's from the CLI) no longer applies: default's crons were removed on 2026-10-23, and
+Scout's jobs are now created through Scout under the guards above. Its prompts remain a reference for
+writing job instructions. The `continuity` finding still holds: `--continuity` injects the first 8,000
+characters of the last output file, stale from run 3. Never use it for deduplication; the ledger
+replaces it.
 
 ### Preflight and rollback
 

@@ -1,6 +1,9 @@
 # =============================================================================
 # Brouillons des crons emploi de Scout (profil job-search) — M4.2.
 #
+# HISTORIQUE (SCOUT-CRON, 2026-11-24) : Scout cree desormais ses taches lui-meme, sous le
+# plugin scout_cron (docs/guides/runbook-scout-cron.md). Ce fichier reste une reference.
+#
 # ⚠️ BROUILLONS INACTIFS. Rien ne lit ce fichier : aucun playbook, aucune
 # tache, aucun jobs.json. Les crons `veille-emploi` et `prospection-entreprises`
 # de default restent actifs et inchanges jusqu'a la bascule M4.4, faite par

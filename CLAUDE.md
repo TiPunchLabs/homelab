@@ -284,6 +284,14 @@ ansible-playbook ansible/deploy.yml --limit hermes-31 --tags komodo-periphery
 > `no_mcp`. Controle de deploiement `hermes_checks.py mcp` ; decision
 > `docs/adr/hermes.md` ADR-001 ; procedure et rollback dans le README du role.
 
+> ⏰ **Scout planifie ses taches (SCOUT-CRON)** : plugin `scout_cron`, Scout seul,
+> conversation Telegram privee du proprietaire seule ; chaque creation/modification/
+> suppression/reprise affiche le texte exact puis exige l'approbation (bouton) ;
+> 5 taches max, une execution par jour max, livraison au proprietaire seul, fuseau
+> `America/Guadeloupe` (Scout seul). En cron : journal + registre des offres deja
+> signalees (`scout_task_record`), ni memory ni session_search. Le role ne cree
+> aucune tache. Runbook : `docs/guides/runbook-scout-cron.md`.
+
 ---
 
 ## Sous-projet : caddy/
