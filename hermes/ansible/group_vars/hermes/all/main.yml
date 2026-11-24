@@ -203,7 +203,7 @@ hermes_profile_cafe_ia:
 # vault_hermes_job_search_agentmail_api_key. Runbook :
 # docs/guides/runbook-scout-mail.md. Activer = true ICI et `plugins.enabled:
 # [scout_mail]` dans la declaration de Scout, dans le meme commit.
-hermes_scout_mail_enabled: false
+hermes_scout_mail_enabled: true
 hermes_scout_mail_inbox_id: "scout-emploi@agentmail.to"
 
 # Scout — recherche d'emploi et accompagnement professionnel. Prepare en M4.2,
@@ -281,7 +281,7 @@ hermes_profile_job_search:
     # (tasks/scout_mail.yml refuse un ecart) : [] = coupe, [scout_mail] = actif.
     # La cle AgentMail n'est PAS dans `env` (validate.yml refuse une valeur
     # vide) : tasks/scout_mail.yml la pose ou la retire du .env de Scout.
-    plugins.enabled: []
+    plugins.enabled: [scout_mail]
     # Les noms de serveurs MCP listes forment une liste blanche
     # (hermes_cli/tools_config.py, _merge_mcp_servers) : aucun autre serveur,
     # ni plugin MCP portable, ne s'y ajoute.
