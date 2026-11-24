@@ -50,3 +50,7 @@ Scout (profile `job-search`) answers `/courriels` in Telegram with a read-only d
 ## Pilot decisions
 
 - No Codex review for this mission: a two-value configuration change of a design reviewed six times (MR !109); verification is the playbook's checks plus E6. The owner can ask for one.
+
+## Decisions log
+
+- 2026-11-24T16:20Z pilot, D1 (report BLOCKED on 88c8cf9, `test_role_04` pins the disabled state): option A. One test-only commit on this branch makes `test_role_04` follow the switch (`plugins.enabled == (["scout_mail"] if enabled else [])`, no hard `is False`), every other assertion kept. AC1 becomes "one enabling config commit + one test commit"; rollback = revert of the config commit alone, test still green after it. Reversible, no production effect, inside the owner's GO « activer et déployer »; the GO still covers E4–E6. Also note: the first `--tags hermes` run brings the whole plugin (MR !109 was never deployed), as runbook §1 expects.
