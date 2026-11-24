@@ -163,14 +163,24 @@ def deployed(group_vars: dict[str, Any]) -> list[dict[str, Any]]:
 def m4_era(scout: dict[str, Any]) -> dict[str, Any]:
     """The declaration as M4.3 deployed it (v0.20.4 labs): no MCP server, `no_mcp` on every platform.
 
-    SCOUT-03 added Kandidat, SCOUT-04 turned the background skill review off and SCOUT-MAIL-01 added
-    `plugins.enabled` (the /courriels switch); their own tests (test_scout03_kandidat.py,
-    test_scout04_search_budget.py, test_scout_mail_role.py) cover today's declaration on v0.22.5.
+    SCOUT-03 added Kandidat, SCOUT-04 turned the background skill review off, SCOUT-MAIL-01 added
+    `plugins.enabled` (the /courriels switch) and SCOUT-CRON added scheduling (telegram `cronjob` and
+    `scout_task_record`, a narrower cron list, `known_plugin_toolsets`, `timezone`, `cronjob` out of the deny
+    list); their own tests (test_scout03_kandidat.py, test_scout04_search_budget.py, test_scout_mail_role.py,
+    test_scout_cron_role.py) cover today's declaration on v0.22.5.
     """
     cfg = {k: v for k, v in scout["config"].items()
-           if not k.startswith("mcp_servers.") and k not in ("skills.creation_nudge_interval", "plugins.enabled")}
+           if not k.startswith(("mcp_servers.", "known_plugin_toolsets."))
+           and k not in ("skills.creation_nudge_interval", "plugins.enabled", "timezone")}
     for key in [k for k in cfg if k.startswith("platform_toolsets.")]:
-        cfg[key] = [t for t in cfg[key] if not t.startswith("kandidat")] + ["no_mcp"]
+        cfg[key] = [t for t in cfg[key] if not t.startswith("kandidat") and t not in ("cronjob", "scout_task_record")]
+        cfg[key].append("no_mcp")
+    # Before SCOUT-CRON every platform had the same list, and cronjob sat in the deny list after delegation.
+    cfg["platform_toolsets.cron"] = list(cfg["platform_toolsets.api_server"])
+    denied = list(cfg["agent.disabled_toolsets"])
+    if "cronjob" not in denied:
+        denied.insert(denied.index("delegation") + 1, "cronjob")
+    cfg["agent.disabled_toolsets"] = denied
     return {k: v for k, v in scout.items() if k not in ("mcp_policy", "soul_predecessor_sha256")} | {"config": cfg}
 
 
@@ -370,7 +380,8 @@ def test_s04_soul_states_its_limits() -> None:
     for limit in ("ni terminal", "ni accès aux fichiers", "ni navigateur automatisé", "aucun autre outil Kandidat",
                   "aucun autre serveur MCP"):
         assert limit in limits, limit
-    assert "ni outil d'envoi" in limits and "ni tâches planifiées" in limits
+    # SCOUT-CRON: scheduling exists, bounded by the « Tâches planifiées » rules.
+    assert "ni outil d'envoi" in limits and "aucune tâche planifiée hors des règles" in limits
 
 
 def test_s04_soul_publishes_no_private_fact() -> None:
@@ -535,25 +546,29 @@ def test_s05_tasks_reading_the_profile_mask_per_key() -> None:
 def test_s06_tool_matrix_is_kafeines(scout: dict[str, Any], group_vars: dict[str, Any]) -> None:
     """Same least-privilege matrix as Kaféine (and Néo, D5, M3.3.1, until M7), on the four platforms.
 
-    SCOUT-03 adds the two Kandidat MCP entries (kandidat_confirm not on cron) and nothing else.
+    SCOUT-03 adds the two Kandidat MCP entries (kandidat_confirm not on cron). SCOUT-CRON adds `cronjob` and
+    `scout_task_record` on telegram only, takes `cronjob` out of the deny list, and narrows cron to web, skills,
+    kandidat and scout_task_record.
     """
     cfg = scout["config"]
-    allowed = set(cfg["platform_toolsets.telegram"]) - {"no_mcp", "kandidat", "kandidat_confirm"}
+    scheduling = {"cronjob", "scout_task_record"}
+    allowed = set(cfg["platform_toolsets.telegram"]) - {"no_mcp", "kandidat", "kandidat_confirm"} - scheduling
     denied = set(cfg["agent.disabled_toolsets"])
     assert allowed == ALLOWED
-    assert (allowed | denied) <= HERMES_TOOLSETS
-    assert SENSITIVE - {"browser"} <= denied
-    assert {"terminal", "file", "code_execution", "cronjob", "kanban", "delegation", "computer_use"} <= denied
+    assert (allowed | denied | {"cronjob"}) <= HERMES_TOOLSETS
+    assert SENSITIVE - {"browser", "cronjob"} <= denied
+    assert {"terminal", "file", "code_execution", "kanban", "delegation", "computer_use"} <= denied
+    assert "cronjob" not in denied
     assert "browser" not in denied and "browser" not in cfg["platform_toolsets.telegram"]
-    builtin = [t for t in cfg["platform_toolsets.telegram"] if not t.startswith("kandidat")]
-    for platform in PLATFORMS:
-        mcp = ["kandidat"] if platform == "cron" else ["kandidat", "kandidat_confirm"]
-        assert cfg[f"platform_toolsets.{platform}"] == [*builtin, *mcp], platform
+    builtin = [t for t in cfg["platform_toolsets.api_server"] if not t.startswith("kandidat")]
+    assert cfg["platform_toolsets.telegram"] == [*builtin, "kandidat", "kandidat_confirm", "cronjob", "scout_task_record"]
+    for platform in ("api_server", "cli"):
+        assert cfg[f"platform_toolsets.{platform}"] == [*builtin, "kandidat", "kandidat_confirm"], platform
+    assert cfg["platform_toolsets.cron"] == ["web", "skills", "kandidat", "scout_task_record"]
     for other in ("hermes_profile_cafe_ia",):
-        assert cfg["agent.disabled_toolsets"] == group_vars[other]["config"]["agent.disabled_toolsets"]
-        assert [t for t in cfg["platform_toolsets.telegram"] if not t.startswith("kandidat")] == [
-            t for t in group_vars[other]["config"]["platform_toolsets.telegram"] if t != "no_mcp"
-        ]
+        other_denied = group_vars[other]["config"]["agent.disabled_toolsets"]
+        assert cfg["agent.disabled_toolsets"] == [t for t in other_denied if t != "cronjob"]  # SCOUT-CRON
+        assert builtin == [t for t in group_vars[other]["config"]["platform_toolsets.telegram"] if t != "no_mcp"]
     assert cfg["skills.write_approval"] is True
 
 

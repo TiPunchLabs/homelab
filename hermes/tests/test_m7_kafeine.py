@@ -274,6 +274,8 @@ def test_i05_profile_multiplex_replaces_a_declared_soul_after_the_seed() -> None
         "f712d3359f8a9bcb3a1eb4481435d11e5c17c31cabac9c61e6ca3f4e3f0382fa",
         "777470b3fcaced3a4f7e7322e30aed238bc61907bb56d8b4eb16d2c0ab5b2fc1",
         "7fb4915a7c8951e60df769a40c6bd6aff1e4380db1b84b8abe94676bfd7073a9",
+        # SCOUT-CRON: the KANDIDAT-SCOUT-01 version, live on hermes-31 on 2026-11-24.
+        "7dc753fe06306cb334bb2c25f7fb4cb26aa6ca317d8e12fb6f7cd98607a4fd0a",
     ]
 
 

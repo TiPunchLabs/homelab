@@ -153,9 +153,10 @@ def test_w01_browser_is_neither_allowed_nor_denied(group_vars: dict[str, Any], v
 def test_w01_kafeine_and_scout_keep_the_same_matrix(group_vars: dict[str, Any]) -> None:
     """The fix was the same one-line change for Néo and Kaféine, then Scout: the remaining matrices stay identical."""
     cafe, scout = (group_vars[v]["config"] for v in ("hermes_profile_cafe_ia", "hermes_profile_job_search"))
-    assert scout["agent.disabled_toolsets"] == cafe["agent.disabled_toolsets"]
+    # SCOUT-CRON: Scout's deny list is Kaféine's without `cronjob` (scheduling on telegram, under scout_cron).
+    assert scout["agent.disabled_toolsets"] == [t for t in cafe["agent.disabled_toolsets"] if t != "cronjob"]
     # SCOUT-03: Scout's MCP allowlist (the two Kandidat entries) replaces `no_mcp`; the built-in toolsets stay equal.
-    assert [t for t in scout["platform_toolsets.telegram"] if not t.startswith("kandidat")] == [
+    assert [t for t in scout["platform_toolsets.api_server"] if not t.startswith("kandidat")] == [
         t for t in cafe["platform_toolsets.telegram"] if t != "no_mcp"
     ]
 

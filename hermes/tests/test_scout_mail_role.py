@@ -116,7 +116,8 @@ def test_role_04_only_scout_declares_the_plugin_and_no_key_in_declarations() -> 
     enabled = gv["hermes_scout_mail_enabled"]
     assert isinstance(enabled, bool) and gv["hermes_scout_mail_inbox_id"] == "scout-emploi@agentmail.to"
     scout = gv["hermes_profile_job_search"]
-    assert scout["config"]["plugins.enabled"] == (["scout_mail"] if enabled else [])  # literal, in sync with the switch
+    # Literal, in sync with the switch; SCOUT-CRON adds scout_cron after it (test_scout_cron_role.py).
+    assert [p for p in scout["config"]["plugins.enabled"] if p != "scout_cron"] == (["scout_mail"] if enabled else [])
     assert "AGENTMAIL_API_KEY" not in scout["env"]
     for other in (gv["hermes_profile_cafe_ia"], gv["hermes_default_nora"]):
         assert "plugins.enabled" not in other.get("config", {}) and "AGENTMAIL_API_KEY" not in other.get("env", {})

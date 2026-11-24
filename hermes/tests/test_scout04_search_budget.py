@@ -59,7 +59,8 @@ def test_b01_scout_permissions_unchanged(group_vars: dict[str, Any]) -> None:
         "create_candidature", "create_cible", "update_candidature", "update_cible",
     }
     assert cfg["mcp_servers.kandidat_confirm"]["trust"] == "untrusted"
-    assert cfg["platform_toolsets.cron"][-1] == "kandidat" and "kandidat_confirm" not in cfg["platform_toolsets.cron"]
+    # SCOUT-CRON narrowed cron to web, skills, kandidat and scout_task_record; still no kandidat_confirm.
+    assert "kandidat" in cfg["platform_toolsets.cron"] and "kandidat_confirm" not in cfg["platform_toolsets.cron"]
     assert not [k for k in cfg if k.startswith("tool_budget") or (k.startswith("web.") and k != "web.backend")]
 
 
@@ -102,8 +103,11 @@ def test_b03_soul_rules(rule: str) -> None:
 
 
 def test_b03_soul_stays_compact() -> None:
-    """SOUL.md is re-sent with every model call: the SCOUT-04 rules add at most ~2.2k chars to SCOUT-03's."""
-    assert len(SOUL.read_text()) <= 14300
+    """SOUL.md is re-sent with every model call: the SCOUT-04 rules add at most ~2.2k chars to SCOUT-03's.
+
+    SCOUT-CRON adds the « Tâches planifiées » rules (14,289 -> 15,496 chars, about 300 tokens per call); the
+    cron-run details live in the scout_task_record tool description, sent only where that tool exists."""
+    assert len(SOUL.read_text()) <= 15500
 
 
 LAB = r'''
