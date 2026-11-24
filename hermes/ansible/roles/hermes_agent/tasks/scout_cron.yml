@@ -1,0 +1,90 @@
+---
+# =============================================================================
+# SCOUT-CRON — plugin scout_cron dans le profil job-search SEUL.
+#
+# Le code et settings.json sont poses a chaque run (inertes tant que le plugin
+# n'est pas dans `plugins.enabled` du profil). L'activation passe par la
+# declaration du profil (group_vars : plugins.enabled, listes d'outils,
+# timezone), donc par le mecanisme config existant et son redemarrage unique
+# de la gateway multiplexee. Ce role ne cree, ne modifie et ne declenche
+# AUCUNE tache planifiee.
+#
+# Aucune suppression de fichier : desactive, le code reste sur le disque,
+# jamais charge. Runbook : docs/guides/runbook-scout-cron.md.
+# =============================================================================
+
+# Trois cles a garder d'accord. Sans le plugin, `cronjob` sur telegram serait
+# un outil de planification SANS garde : coupe, il doit revenir dans la liste
+# noire de Scout.
+- name: Refuse a scout_cron switch out of sync with Scout's declaration
+  ansible.builtin.assert:
+    that:
+      - (hermes_scout_cron_enabled | bool) == ('scout_cron' in hermes_scout_cron_plugins)
+      - (hermes_scout_cron_enabled | bool) or ('cronjob' in hermes_scout_cron_denied)
+      - not (hermes_scout_cron_config['cron.allow_agent_scheduling'] | default(false) | bool)
+    fail_msg: >-
+      hermes_scout_cron_enabled={{ hermes_scout_cron_enabled }} mais plugins.enabled de job-search vaut
+      {{ hermes_scout_cron_plugins }} et agent.disabled_toolsets contient cronjob :
+      {{ 'cronjob' in hermes_scout_cron_denied }}. Coupe, scout_cron exige `cronjob` dans la liste noire ;
+      cron.allow_agent_scheduling doit rester faux (runbook Scout cron, rollback).
+    quiet: true
+  vars:
+    hermes_scout_cron_config: >-
+      {{ (hermes_profiles | selectattr('name', 'eq', 'job-search') | first).config | default({}) }}
+    hermes_scout_cron_plugins: "{{ hermes_scout_cron_config['plugins.enabled'] | default([]) }}"
+    hermes_scout_cron_denied: "{{ hermes_scout_cron_config['agent.disabled_toolsets'] | default([]) }}"
+
+- name: Create the scout_cron plugin directories
+  ansible.builtin.file:
+    path: "{{ hermes_scout_cron_dest }}/{{ item.path }}"
+    state: directory
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0755'
+  loop: "{{ [{'path': '.', 'state': 'directory'}] + (hermes_scout_cron_payload | selectattr('state', 'eq', 'directory') | list) }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Deploy the scout_cron plugin code
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ hermes_scout_cron_dest }}/{{ item.path }}"
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0644'
+  loop: "{{ hermes_scout_cron_payload | selectattr('state', 'eq', 'file') | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: hermes_scout_cron_code
+
+# Identifiant Telegram du proprietaire (non secret) : lisible par le seul
+# compte hermes.
+- name: Deploy the scout_cron settings
+  ansible.builtin.copy:
+    dest: "{{ hermes_scout_cron_dest }}/settings.json"
+    content: "{{ hermes_scout_cron_settings | to_nice_json(sort_keys=true) }}\n"
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0640'
+  vars:
+    hermes_scout_cron_settings:
+      enabled: "{{ hermes_scout_cron_enabled | bool }}"
+      profile: job-search
+      owner_user_ids: "{{ hermes_telegram_allowed_users | string | split(',') | map('trim') | select | list }}"
+      display_timezone: "{{ hermes_timezone }}"
+      limits: "{{ hermes_scout_cron_limits }}"
+  register: hermes_scout_cron_settings_file
+
+# Le code n'est lu qu'au demarrage de la gateway : un changement de code ou de
+# settings doit la redemarrer, meme sans changement de config du profil.
+- name: Persist a pending gateway restart for scout_cron
+  ansible.builtin.copy:
+    dest: "{{ hermes_install_dir }}/.multiplex-restart-pending"
+    content: "pending\n"
+    mode: '0644'
+  when: hermes_scout_cron_code is changed or hermes_scout_cron_settings_file is changed
+
+- name: Schedule one restart of the multiplexed gateway for scout_cron
+  ansible.builtin.set_fact:
+    hermes_multiplex_restart: true
+  when: hermes_scout_cron_code is changed or hermes_scout_cron_settings_file is changed

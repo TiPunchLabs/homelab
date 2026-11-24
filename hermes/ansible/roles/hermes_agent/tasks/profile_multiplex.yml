@@ -183,8 +183,15 @@
       - "{{ hermes_allowed | reject('eq', 'no_mcp') | join(',') }}"
       - "{{ hermes_profile.config['agent.disabled_toolsets'] | join(',') }}"
       - "{{ 'true' if 'no_mcp' in hermes_allowed else 'false' }}"
+      # SCOUT-CRON : une liste blanche par plateforme (celles de Scout different).
+      - "{{ hermes_platform_allowed | to_json }}"
   vars:
     hermes_allowed: "{{ hermes_profile.config['platform_toolsets.telegram'] | default([]) }}"
+    hermes_platform_allowed:
+      telegram: "{{ hermes_profile.config['platform_toolsets.telegram'] | default([]) }}"
+      cron: "{{ hermes_profile.config['platform_toolsets.cron'] | default([]) }}"
+      api_server: "{{ hermes_profile.config['platform_toolsets.api_server'] | default([]) }}"
+      cli: "{{ hermes_profile.config['platform_toolsets.cli'] | default([]) }}"
   register: hermes_profile_toolsets
   changed_when: false
   when:

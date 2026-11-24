@@ -16,8 +16,11 @@ Usage (argv after `-c`):
     multiplex <root gateway_state.json> <profiles,csv incl. default>
     schedule-window <minutes>
     api-key <profile .env>                       (HERMES_HOME = the profile)
-    toolsets <allowed,csv> <denied,csv> <no_mcp> (HERMES_HOME = the profile):
-        toolset names AND the tools the model really receives
+    toolsets <allowed,csv> <denied,csv> <no_mcp> [<per-platform json>]
+                                                 (HERMES_HOME = the profile):
+        toolset names AND the tools the model really receives, as a gateway
+        session sees them; the optional JSON ({platform: [toolsets]}) gives
+        each platform its own allowlist (SCOUT-CRON: Scout's differ)
     mcp <policy json>                            (HERMES_HOME = the profile):
         declared MCP servers, platforms and approval policy; connects to
         the servers (tools/list only) and judges the MCP tools each platform
@@ -28,6 +31,13 @@ Usage (argv after `-c`):
     listen <port>                                (on the HOST: reads `ss`)
     memory <memory> <balloon> <balloon bytes> <required MiB> [meminfo]
                                                  (on the HOST: Proxmox values)
+    scout-mail <enabled> <profiles csv> <owner> [root]
+    scout-schedule <enabled> <profiles csv> <owner> [root]
+                                                 SCOUT-CRON: plugin, command and the
+                                                 cronjob / scout_task_record toolsets per
+                                                 profile and platform, and the owner's jobs
+                                                 against the plugin policy (names and
+                                                 schedules only, never a prompt)
     sqlite-snapshot <db>                         (on the HOST, as the agent UID):
                                                  consistent image on stdout
     sqlite-report <db copy>                      integrity + row counts, JSON
@@ -269,7 +279,7 @@ def api_key_errors(profile_env_keys: set[str], effective_matches_managed: bool, 
 
 def toolset_errors(
     effective: Mapping[str, set[str]],
-    allowed: set[str],
+    allowed: set[str] | Mapping[str, set[str]],
     denied: set[str],
     mcp_servers: set[str],
     require_no_mcp: bool,
@@ -277,12 +287,14 @@ def toolset_errors(
     """Judge the toolsets Hermes resolves for each platform of a profile.
 
     `effective` maps a platform to what hermes_cli.tools_config resolves for
-    it (the gateway's own code path). Any toolset outside `allowed`, any
-    `denied` one, and any MCP server when `require_no_mcp` is an error.
+    it (the gateway's own code path). Any toolset outside `allowed` (one set for
+    every platform, or one per platform), any `denied` one, and any MCP server
+    when `require_no_mcp` is an error.
     """
     errors: list[str] = []
     for platform, toolsets in sorted(effective.items()):
-        extra = sorted(toolsets - allowed)
+        permitted = allowed.get(platform, set()) if isinstance(allowed, Mapping) else allowed
+        extra = sorted(toolsets - permitted)
         if extra:
             errors.append(f"{platform}: toolsets beyond the allowlist: {', '.join(extra)}")
         forbidden = sorted(toolsets & denied)
@@ -315,7 +327,7 @@ def enabled_mcp_servers(servers: Any) -> set[str]:
     return enabled
 
 
-def tool_errors(exposed: Mapping[str, set[str]], expected: set[str]) -> list[str]:
+def tool_errors(exposed: Mapping[str, set[str]], expected: set[str] | Mapping[str, set[str]]) -> list[str]:
     """Judge the tools the model really receives on each platform of a profile.
 
     `expected` is every tool of the allowed toolsets. Toolset names are not
@@ -326,10 +338,11 @@ def tool_errors(exposed: Mapping[str, set[str]], expected: set[str]) -> list[str
     """
     errors: list[str] = []
     for platform, tools in sorted(exposed.items()):
-        extra = sorted(tools - expected)
+        wanted = expected.get(platform, set()) if isinstance(expected, Mapping) else expected
+        extra = sorted(tools - wanted)
         if extra:
             errors.append(f"{platform}: tools beyond the allowlist: {', '.join(extra)}")
-        missing = sorted(expected - tools)
+        missing = sorted(wanted - tools)
         if missing:
             errors.append(f"{platform}: allowed tools not exposed: {', '.join(missing)}")
     return errors
@@ -634,6 +647,50 @@ def scout_mail_errors(observed: Mapping[str, Mapping[str, Any]], enabled: bool, 
     return errors
 
 
+# SCOUT-CRON: the toolset the scout_cron plugin registers (excluded from the scout-mail registry diff,
+# verified by the scout-schedule mode instead).
+SCOUT_CRON_TOOLSETS = frozenset({"scout_task_record"})
+_PLATFORMS = ("telegram", "cron", "api_server", "cli")
+
+
+def scout_cron_errors(observed: Mapping[str, Mapping[str, Any]], enabled: bool, owner: str,
+                      max_jobs: int) -> list[str]:
+    """SCOUT-CRON: scheduling and the task record exist for ``owner`` only, on the right platforms.
+
+    ``observed`` maps each served profile to ``{"loaded": bool, "commands": [...], "allow_agent_scheduling":
+    bool, "toolsets": {platform: [names among cronjob/scout_task_record]}, "jobs": [{"name", "expr",
+    "issues": [...]}]}`` as Hermes resolves them in that profile's home. Expected when enabled: for the owner,
+    ``cronjob`` on telegram only and ``scout_task_record`` on telegram and cron only, at most ``max_jobs``
+    jobs, every one conforming; nowhere else, either toolset or the plugin. Disabled: none anywhere.
+    """
+    errors: list[str] = []
+    want = {"telegram": {"cronjob", "scout_task_record"}, "cron": {"scout_task_record"}}
+    for profile, seen in sorted(observed.items()):
+        active = enabled and profile == owner
+        if bool(seen.get("loaded")) != active:
+            errors.append(f"{profile}: scout_cron {'not loaded' if active else 'must not be loaded'}")
+        if ("taches-scout" in seen.get("commands", [])) != active:
+            errors.append(f"{profile}: /taches-scout {'missing' if active else 'must not exist'}")
+        if seen.get("allow_agent_scheduling"):
+            errors.append(f"{profile}: cron.allow_agent_scheduling is true (a cron run could schedule)")
+        toolsets = seen.get("toolsets") or {}
+        for platform in _PLATFORMS:
+            got = set(toolsets.get(platform) or [])
+            expected = want.get(platform, set()) if active else set()
+            if got != expected:
+                errors.append(f"{profile}/{platform}: scheduling toolsets {sorted(got)}, expected {sorted(expected)}")
+        jobs = seen.get("jobs") or []
+        if profile == owner and len(jobs) > max_jobs:
+            errors.append(f"{profile}: {len(jobs)} jobs, cap {max_jobs}")
+        for job in jobs:
+            if job.get("issues"):
+                errors.append(f"{profile}: job {job.get('name')!r} ({job.get('expr')}) outside the policy: "
+                              f"{'; '.join(job['issues'])}")
+    if owner not in observed:
+        errors.append(f"{owner}: profile not observed")
+    return errors
+
+
 def _report(errors: list[str], ok_message: str) -> int:
     """Print the outcome and return the process exit code."""
     if errors:
@@ -740,8 +797,11 @@ def main(argv: list[str]) -> int:
             bool(managed_key),
         )
         return _report(errors, "API_SERVER_KEY comes from managed only (deterministic)")
-    if mode == "toolsets" and len(argv) == 4:
+    if mode == "toolsets" and len(argv) in (4, 5):
         import logging
+
+        # The exposure a gateway session sees: some tools (cronjob_manage) are only available there.
+        os.environ["HERMES_GATEWAY_SESSION"] = "1"
 
         from hermes_cli.config import load_config
         from hermes_cli.env_loader import load_hermes_dotenv
@@ -754,7 +814,9 @@ def main(argv: list[str]) -> int:
         from toolsets import resolve_toolset
 
         cfg = load_config()
-        allowed = {t for t in argv[1].split(",") if t}
+        allowed: set[str] | dict[str, set[str]] = {t for t in argv[1].split(",") if t}
+        if len(argv) == 5:
+            allowed = {p: {t for t in ts if t != "no_mcp"} for p, ts in json.loads(argv[4]).items()}
         effective = {p: set(_get_platform_tools(cfg, p)) for p in ("telegram", "cron", "api_server", "cli")}
         disabled = (cfg.get("agent") or {}).get("disabled_toolsets") or None
         exposed = {
@@ -772,7 +834,8 @@ def main(argv: list[str]) -> int:
             {t for t in argv[2].split(",") if t},
             enabled_mcp_servers(cfg.get("mcp_servers")),
             argv[3] == "true",
-        ) + tool_errors(exposed, set().union(*(resolve_toolset(t) for t in allowed)))
+        ) + tool_errors(exposed, {p: set().union(set(), *(resolve_toolset(t) for t in ts)) for p, ts in allowed.items()}
+                        if isinstance(allowed, dict) else set().union(*(resolve_toolset(t) for t in allowed)))
         return _report(
             errors,
             f"toolsets restricted to: {', '.join(sorted(set().union(*effective.values())))}"
@@ -897,9 +960,69 @@ def main(argv: list[str]) -> int:
                 }
             finally:
                 reset_hermes_home_override(token)
-        observed["_registry"] = {"toolsets_added": sorted(set(registry.get_registered_toolset_names()) - (before or set()))}
+        added = set(registry.get_registered_toolset_names()) - (before or set())
+        owner_manager = None
+        token = set_hermes_home_override(homes[owner])
+        try:
+            owner_manager = hp._ensure_plugins_discovered()
+        finally:
+            reset_hermes_home_override(token)
+        cron_plugin = owner_manager._plugins.get("scout_cron") if owner_manager else None
+        if cron_plugin is not None and cron_plugin.error is None:
+            added -= SCOUT_CRON_TOOLSETS  # scout_cron's own toolset, judged by the scout-schedule mode
+        observed["_registry"] = {"toolsets_added": sorted(added)}
         return _report(scout_mail_errors(observed, enabled, owner),
                        f"scout_mail {'active for ' + owner + ' only' if enabled else 'inactive everywhere'}")
+    if mode == "scout-schedule" and len(argv) in (4, 5):
+        import logging
+
+        from hermes_cli import plugins as hp
+        from hermes_cli.config import load_config
+        from hermes_cli.tools_config import _get_platform_tools
+        from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+
+        logging.disable(logging.CRITICAL)
+        enabled, owner = argv[1] == "true", argv[3]
+        root = argv[4] if len(argv) == 5 else "/opt/data"
+        homes = {"default": root} | {p: f"{root}/profiles/{p}" for p in argv[2].split(",") if p}
+        observed = {}
+        max_jobs = 5
+        for name, home in homes.items():
+            token = set_hermes_home_override(home)
+            try:
+                manager = hp._ensure_plugins_discovered()
+                plugin = manager._plugins.get("scout_cron")
+                cfg = load_config()
+                seen: dict[str, Any] = {
+                    "loaded": bool(plugin is not None and plugin.error is None),
+                    "commands": sorted(hp.get_plugin_commands()),
+                    "allow_agent_scheduling": str((cfg.get("cron") or {}).get("allow_agent_scheduling")).lower()
+                    in _TRUTHY,
+                    "toolsets": {p: sorted(set(_get_platform_tools(cfg, p)) & {"cronjob", "scout_task_record"})
+                                 for p in _PLATFORMS},
+                    "jobs": [],
+                }
+                if name == owner and Path(home, "plugins", "scout_cron").is_dir():
+                    sys.path.insert(0, str(Path(home, "plugins")))
+                    from cron.jobs import list_jobs, use_cron_store
+                    from scout_cron import policy
+                    from scout_cron.config import load_settings
+
+                    settings = load_settings(Path(home, "plugins", "scout_cron", "settings.json"))
+                    max_jobs = settings.limits.max_jobs
+                    with use_cron_store(home):
+                        for job in list_jobs(include_disabled=True):
+                            seen["jobs"].append({
+                                "name": job.get("name"), "expr": (job.get("schedule") or {}).get("expr"),
+                                "issues": policy.conformity_errors(job, settings.owner_user_ids)})
+                observed[name] = seen
+            finally:
+                reset_hermes_home_override(token)
+        for job in observed.get(owner, {}).get("jobs", []):
+            print(f"job {job['name']!r} {job['expr']}: {'ok' if not job['issues'] else 'OUT OF POLICY'}")
+        return _report(scout_cron_errors(observed, enabled, owner, max_jobs),
+                       f"scout_cron {'active for ' + owner + ' only' if enabled else 'inactive everywhere'}"
+                       f" | {len(observed.get(owner, {}).get('jobs', []))} job(s)")
     if mode == "sqlite-snapshot" and len(argv) == 2:
         sys.stdout.buffer.write(sqlite_snapshot(argv[1]))
         return 0
