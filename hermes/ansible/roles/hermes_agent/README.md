@@ -1208,6 +1208,20 @@ flags the rare page that cannot fit with `page_over_budget`), versus 95k
 and 75k for the old full lists. The SOUL guard accepts the M4.3, SCOUT-03 and
 SCOUT-04 versions as predecessors.
 
+### Mail digest `/courriels` (SCOUT-MAIL-01, disabled by default)
+
+Read-only digest of ONE AgentMail inbox, owner-only, in Scout's DM. A user plugin (`files/plugins/scout_mail/`) is
+deployed into `profiles/job-search/plugins/scout_mail/` by `tasks/scout_mail.yml` and enabled through Scout's
+`plugins.enabled`. It registers one gateway command and four hooks, and no tool:
+- the command runs before any agent turn and its reply is not history;
+- the hooks refuse replies to and pastes of a digest, and veto every tool in a session that saw mail text.
+
+Kill switch: `hermes_scout_mail_enabled` (default `false`), kept in sync with the literal `plugins.enabled` of
+Scout's declaration; the role refuses any mismatch. The key `vault_hermes_job_search_agentmail_api_key` is
+required only when enabled. `tasks/scout_mail.yml` writes it to Scout's `.env`, or removes it. Decision: `docs/adr/hermes.md` ADR-002. Threat model:
+`docs/references/scout-mail-threat-model.md`. Operations: `docs/guides/runbook-scout-mail.md`. Tests:
+`hermes/tests/test_scout_mail.py`, `hermes/tests/test_scout_mail_image.py`.
+
 ### Cron drafts (M4.4, not created)
 
 `hermes/cron-drafts/job-search.yml`: `veille-emploi` (`0 7 * * 1` UTC) and

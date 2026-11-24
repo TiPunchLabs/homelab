@@ -605,6 +605,35 @@ def sqlite_report(path: str) -> dict[str, Any]:
     return {"ok": integrity == ["ok"], "integrity": integrity[:5], "counts": counts, "tables": len(tables), "wal": wal}
 
 
+def scout_mail_errors(observed: Mapping[str, Mapping[str, Any]], enabled: bool, owner: str) -> list[str]:
+    """SCOUT-MAIL-01: ``/courriels`` and the scout_mail hooks exist for ``owner`` only, and only when enabled.
+
+    ``observed`` maps each served profile to ``{"commands": [...], "hooks": [...], "loaded": bool}`` as
+    discovered by Hermes in that profile's home; ``toolsets_added`` (if present under ``"_registry"``)
+    lists toolsets that appeared during discovery and must stay empty.
+    """
+    errors = []
+    expected_hooks = {"pre_gateway_dispatch", "pre_llm_call", "pre_tool_call", "transform_tool_result"}
+    for profile, seen in sorted(observed.items()):
+        if profile == "_registry":
+            continue
+        has_cmd = "courriels" in seen.get("commands", [])
+        if profile == owner and enabled:
+            if not (has_cmd and seen.get("loaded")):
+                errors.append(f"{profile}: scout_mail not loaded or /courriels missing")
+            missing = expected_hooks - set(seen.get("hooks", []))
+            if missing:
+                errors.append(f"{profile}: scout_mail hooks missing: {sorted(missing)}")
+        elif has_cmd or seen.get("loaded"):
+            errors.append(f"{profile}: scout_mail must not be active here")
+    if owner not in observed:
+        errors.append(f"{owner}: profile not observed")
+    added = observed.get("_registry", {}).get("toolsets_added", [])
+    if added:
+        errors.append(f"toolsets added during plugin discovery: {sorted(added)}")
+    return errors
+
+
 def _report(errors: list[str], ok_message: str) -> int:
     """Print the outcome and return the process exit code."""
     if errors:
@@ -843,6 +872,34 @@ def main(argv: list[str]) -> int:
         errors, summary = memory_verdict(meminfo, floor, balloon, int(argv[4]))
         print(summary)
         return _report(errors, "GO: memory headroom for one more gateway")
+    if mode == "scout-mail" and len(argv) in (4, 5):
+        from hermes_cli import plugins as hp
+        from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+        from tools.registry import registry
+
+        enabled, owner = argv[1] == "true", argv[3]
+        root = argv[4] if len(argv) == 5 else "/opt/data"
+        homes = {"default": root} | {p: f"{root}/profiles/{p}" for p in argv[2].split(",") if p}
+        observed: dict[str, Any] = {}
+        before = None
+        for name in sorted(homes, key=lambda n: n == owner):  # owner last: the registry diff is its own
+            if name == owner:
+                before = set(registry.get_registered_toolset_names())
+            token = set_hermes_home_override(homes[name])
+            try:
+                manager = hp._ensure_plugins_discovered()
+                plugin = manager._plugins.get("scout_mail")
+                observed[name] = {
+                    "commands": sorted(hp.get_plugin_commands()),
+                    "hooks": sorted(h for h, cbs in manager._hooks.items() if cbs and any(
+                        "scout_mail" in getattr(cb, "__module__", "") for cb in cbs)),
+                    "loaded": bool(plugin is not None and plugin.error is None),
+                }
+            finally:
+                reset_hermes_home_override(token)
+        observed["_registry"] = {"toolsets_added": sorted(set(registry.get_registered_toolset_names()) - (before or set()))}
+        return _report(scout_mail_errors(observed, enabled, owner),
+                       f"scout_mail {'active for ' + owner + ' only' if enabled else 'inactive everywhere'}")
     if mode == "sqlite-snapshot" and len(argv) == 2:
         sys.stdout.buffer.write(sqlite_snapshot(argv[1]))
         return 0

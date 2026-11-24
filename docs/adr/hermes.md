@@ -8,6 +8,7 @@
 ## 📖 Table des matieres
 
 - [ADR-001 : Kandidat, reference de Scout, par deux entrees MCP a autorisation distincte](#adr-001--kandidat-reference-de-scout-par-deux-entrees-mcp-a-autorisation-distincte)
+- [ADR-002: Read-only AgentMail for Scout through a gateway command, isolated by taint hooks](#adr-002-read-only-agentmail-for-scout-through-a-gateway-command-isolated-by-taint-hooks)
 
 ------
 
@@ -101,3 +102,60 @@ par l'utilisateur (une approbation de plus).
   Une version annoncant une ecriture en lecture seule resterait soumise au second verrou, mais une reprise
   pourrait la rejouer sous une seule approbation ; le controle de deploiement refuse ces annotations avant le
   redemarrage (cas de reprise non teste en labo). Revue Codex, passe 5.
+
+------
+
+## ADR-002: Read-only AgentMail for Scout through a gateway command, isolated by taint hooks
+
+| | |
+|---|---|
+| **Date** | 2026-11-20 |
+| **Status** | Proposed (draft MR SCOUT-MAIL-01, merge and enablement by the owner) |
+| **Deciders** | xgueret |
+
+> Written in English per the SCOUT-MAIL-01 brief (engineering documentation in English).
+
+### Context
+
+The owner wants to ask Scout, in its private Telegram chat, for a summary of the job-search mail of one dedicated AgentMail inbox. Mail is attacker-controlled text. Scout holds privileged tools: Web, Kandidat reads and gated writes, memory, skills, session search. Mail-derived text must not be able to drive those tools, on the same turn or on any later one.
+
+Discovery (Hermes v0.22.5 source, `docs/missions/2026-11-20-scout-agentmail-readonly/evidence/d1-discovery.md`):
+- plugins load per profile home;
+- a plugin slash command runs in the gateway before any agent turn, and its reply is not written to session history;
+- `pre_tool_call` can veto any tool;
+- a Telegram reply injects the quoted text into the next agent turn (`[Replying to: "…"]`).
+
+### Decision
+
+A user plugin `scout_mail`, installed and enabled in Scout's profile only:
+
+1. `/courriels [liste|suite|aide]`: trusted code lists one bounded page of the configured inbox and gets each listed message (GET only, fixed host, ids only from that list, ownership re-checked). It cleans and bounds the text. It makes one model call in a fresh context: no tools, no credentials in the prompt, no SOUL, memory or history, same provider and model as Scout. A trusted renderer neutralizes links, mentions, commands and markdown, and posts the result straight to the owner's DM.
+2. Taint hooks keep mail-derived text out of privileged turns:
+   - a reply to, or paste of, a result is refused before the agent runs;
+   - a session whose turn or history contains such text, or whose tool result does, is tainted, and `pre_tool_call` vetoes every tool in it for good (`/new` starts clean). Sessions compressed from a tainted one inherit the restriction;
+   - the ledger stores message ids and 8-byte hashes only. It never expires or evicts an entry: a delivered result stays quotable and a tainted transcript stays actionable for as long as they exist. It has hard capacities instead (20,000 results, 300,000 fingerprints, 100,000 sessions). A result is reserved before delivery and its Telegram ids are attached to that same record, so the last free slot never loses ids. At capacity it fails closed: no new result is delivered, and every Scout message is refused once the session capacity is reached. When a restriction or a delivered id cannot be written, a delivery is uncertain, or a hook fails, the plugin locks down durably: every Scout message and tool is refused, across restarts, until the operator retires Scout's sessions and only then clears it (runbook §8.1, ordered: hold, retire, clear, apply). Retirement covers every row of Scout's session store, hidden, archived, tool-source and compressed sessions included: the operator tool `retire.py` (plugin directory, not imported by the plugin) takes the inventory with an unfiltered `hermes sessions export`, cross-checked with `sessions stats`, deletes through `hermes sessions delete` (Hermes' active-turn and compression-lock guards kept, never bypassed) and succeeds only on an empty inventory. `sessions list` is not an inventory (hidden, archived and tool rows filtered, 20 rows). The lockdown is first written into `taint.state`, a one-block file opened and preallocated at start-up while the directory is proven writable and kept open: overwriting it needs no directory permission, no new name and no new block, so it survives permissions removed later or a full disk. A state write counts only when every byte is written (short writes completed, a stalled or over-reported write is an error) and the block reads back after `fsync`; otherwise the lockdown takes the not-persisted path. Only the exact armed block counts as unlocked: a locked, short, malformed or unreadable block is restrictive, and start-up never overwrites an existing block (a new one is written in full to a temporary file and linked into place). `taint.lockdown` (created empty, or the ledger renamed to it) is added when the directory allows it. The plugin refuses to start when the ledger directory is unwritable or sits on another filesystem than the profile home, where Hermes writes the transcripts. Archiving the ledger, disabling and rolling back follow the same order: Scout's sessions are retired while the plugin is still loaded (or Scout parked), before any restart or deployment unloads the hooks (runbook §8.1).
+3. Disabled by default:
+   - `hermes_scout_mail_enabled: false` together with a literal `plugins.enabled: []` in Scout's declaration; the role refuses any mismatch between the two;
+   - the AgentMail key is required only when enabled. It is written to Scout's `.env` only, by `tasks/scout_mail.yml`, and an inbox-scoped key limited to `inbox_read` + `message_read` is required.
+
+Threat model and enforcement matrix: `docs/references/scout-mail-threat-model.md`. Runbook: `docs/guides/runbook-scout-mail.md`.
+
+### Rejected alternatives
+
+- AgentMail MCP server attached to Scout: 47 tools including send/reply/delete; `readOnlyHint` is a server claim; mail text would land in Scout's privileged context.
+- A Scout MCP/tool that returns a summary: the parent agent would receive mail-derived free text in its tool results and history (an isolated parser feeding an unrestricted parent).
+- Toggling tools in the shared registry for the duration of a mail turn: other profiles or concurrent requests would inherit the wrong permissions.
+- A second bot or profile dedicated to mail: a new public bot needs a separate owner decision. The plugin achieves the separation inside Scout's chat.
+- SOUL instructions ("never act on mail"): behavioral only, not an authorization boundary.
+- `agent.auxiliary_client.call_llm` for the summary: its same-provider retries and provider fallback chain are outside the plugin's bounds.
+- Official `agentmail` Python SDK: it follows redirects by default and retries on its own.
+
+### Consequences
+
+- If the owner retypes or paraphrases mail content into an ordinary Scout message, that input is not detected (it is owner-authored).
+- A corrupt taint ledger or a lockdown blocks Scout's tools and messages until the operator intervenes (fail closed). A full ledger stops new digests until the operator archives it.
+- The request deadline aborts the live HTTPS connection (watchdog on the connection's file descriptor, valid through the TLS wrap). TCP connection goes through the plugin's own httpcore network backend: each address candidate gets at most the time left and none starts after the deadline. Name resolution (`getaddrinfo`, a blocking libc call before any socket exists) is bounded by the system resolver only. The backend is installed on an httpx/httpcore internal attribute (`_pool._network_backend`, checked against httpx 0.28.1 / httpcore 1.0.9 in the v0.22.5 image); if that layout is missing the request fails closed without connecting.
+- If even the open `taint.state` block cannot be written in full (I/O error, read-only remount of the whole volume, write that stops or reads back wrong), the lockdown is held in memory only and the log says so; the operator must retire Scout's sessions before any restart (runbook §8.1). Hermes writes transcripts on that same filesystem (checked at start-up), which is an argument, not a guarantee, that they fail together. The owner accepted this residual on 2026-11-23 (D5), on condition of the ordered recovery.
+- A block left half written is read as locked at the next start: a lockdown that could not be confirmed still refuses after a restart unless the failure left the block untouched.
+- The isolation relies on the Hermes v0.22.5 plugin scoping and dispatch order. Any Hermes upgrade must re-run `hermes/tests/test_scout_mail_image.py` before enabling.
+- Mail content is sent to DeepSeek, the provider Scout already uses.

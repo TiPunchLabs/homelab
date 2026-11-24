@@ -1,0 +1,10 @@
+name: scout_mail
+version: 1.0.0
+description: "Read-only AgentMail digest for Scout (/courriels), isolated from Scout's tools by taint hooks."
+author: "TiPunchLabs homelab (SCOUT-MAIL-01)"
+provides_tools: []
+provides_hooks:
+  - pre_gateway_dispatch
+  - pre_llm_call
+  - pre_tool_call
+  - transform_tool_result

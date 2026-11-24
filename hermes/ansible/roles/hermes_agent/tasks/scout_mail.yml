@@ -1,0 +1,112 @@
+---
+# =============================================================================
+# SCOUT-MAIL-01 — plugin scout_mail (/courriels) dans le profil job-search SEUL.
+#
+# Le code et settings.json sont poses a chaque run (inertes tant que le plugin
+# n'est pas dans `plugins.enabled` du profil). L'activation elle-meme passe par
+# la declaration du profil (group_vars : `plugins.enabled`, cle .env
+# AGENTMAIL_API_KEY), donc par le mecanisme config/env existant et son
+# redemarrage unique de la gateway multiplexee.
+#
+# Aucune suppression de fichier (T17) : desactive, le code reste sur le disque,
+# jamais charge. Conception : docs/adr/hermes.md ADR-002 ; runbook :
+# docs/guides/runbook-scout-mail.md.
+# =============================================================================
+
+- name: Refuse an enabled scout_mail without inbox or key
+  ansible.builtin.assert:
+    that:
+      - hermes_scout_mail_inbox_id is match('^[A-Za-z0-9._+-]{1,64}@[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63}){1,8}$')
+      - (vault_hermes_job_search_agentmail_api_key | default('') | string | length) > 0
+      - hermes_scout_mail_agentmail_host in ['api.agentmail.to', 'api.agentmail.eu']
+    fail_msg: >-
+      hermes_scout_mail_enabled est vrai mais hermes_scout_mail_inbox_id est invalide, l'hote AgentMail
+      n'est pas autorise, ou vault_hermes_job_search_agentmail_api_key est absente (runbook Scout mail, §2).
+    quiet: true
+  no_log: true
+  when: hermes_scout_mail_enabled | bool
+
+# Deux interrupteurs a garder d'accord : la declaration de Scout (litterale,
+# lue par `config set`) et la variable qui pose la cle et les settings.
+- name: Refuse a scout_mail switch out of sync with Scout's plugins.enabled
+  ansible.builtin.assert:
+    that:
+      - (hermes_scout_mail_enabled | bool) == ('scout_mail' in hermes_scout_mail_declared)
+      - hermes_scout_mail_declared | difference(['scout_mail']) | length == 0
+    fail_msg: >-
+      hermes_scout_mail_enabled={{ hermes_scout_mail_enabled }} mais plugins.enabled de job-search vaut
+      {{ hermes_scout_mail_declared }} : mettre les deux d'accord (runbook Scout mail, §2).
+    quiet: true
+  vars:
+    hermes_scout_mail_declared: >-
+      {{ (hermes_profiles | selectattr('name', 'eq', 'job-search') | first).config['plugins.enabled'] | default([]) }}
+
+- name: Create the scout_mail plugin directories
+  ansible.builtin.file:
+    path: "{{ hermes_scout_mail_dest }}/{{ item.path }}"
+    state: directory
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0755'
+  loop: "{{ [{'path': '.', 'state': 'directory'}] + (hermes_scout_mail_payload | selectattr('state', 'eq', 'directory') | list) }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Deploy the scout_mail plugin code
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ hermes_scout_mail_dest }}/{{ item.path }}"
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0644'
+  loop: "{{ hermes_scout_mail_payload | selectattr('state', 'eq', 'file') | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: hermes_scout_mail_code
+
+# Identifiants non secrets (boite, id Telegram du proprietaire) : lisibles par
+# le seul compte hermes.
+- name: Deploy the scout_mail settings
+  ansible.builtin.copy:
+    dest: "{{ hermes_scout_mail_dest }}/settings.json"
+    content: "{{ hermes_scout_mail_settings | to_nice_json(sort_keys=true) }}\n"
+    owner: "{{ hermes_puid }}"
+    group: "{{ hermes_pgid }}"
+    mode: '0640'
+  vars:
+    hermes_scout_mail_settings:
+      enabled: "{{ hermes_scout_mail_enabled | bool }}"
+      profile: job-search
+      inbox_id: "{{ hermes_scout_mail_inbox_id if (hermes_scout_mail_enabled | bool) else 'disabled@agentmail.to' }}"
+      owner_user_ids: "{{ hermes_telegram_allowed_users | string | split(',') | map('trim') | select | list }}"
+      agentmail_host: "{{ hermes_scout_mail_agentmail_host }}"
+      limits: "{{ hermes_scout_mail_limits }}"
+  register: hermes_scout_mail_settings_file
+
+# Cle AgentMail dans le .env de Scout SEUL, cle par cle (no_log, 0600) ;
+# vide = retiree : couper /courriels retire aussi la cle.
+- name: Pin or remove the AgentMail key in Scout's .env
+  ansible.builtin.include_tasks: env_keys.yml
+  vars:
+    hermes_env_path: "{{ hermes_data_dir }}/profiles/job-search/.env"
+    hermes_env_keys:
+      AGENTMAIL_API_KEY: >-
+        {{ vault_hermes_job_search_agentmail_api_key if (hermes_scout_mail_enabled | bool) else '' }}
+
+# Le code n'est lu qu'au demarrage de la gateway : un changement de code ou de
+# settings doit la redemarrer, meme sans changement de config du profil.
+- name: Persist a pending gateway restart for scout_mail
+  ansible.builtin.copy:
+    dest: "{{ hermes_install_dir }}/.multiplex-restart-pending"
+    content: "pending\n"
+    mode: '0644'
+  when: >-
+    hermes_scout_mail_code is changed or hermes_scout_mail_settings_file is changed
+    or hermes_env_keys_result is changed
+
+- name: Schedule one restart of the multiplexed gateway for scout_mail
+  ansible.builtin.set_fact:
+    hermes_multiplex_restart: true
+  when: >-
+    hermes_scout_mail_code is changed or hermes_scout_mail_settings_file is changed
+    or hermes_env_keys_result is changed

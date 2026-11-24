@@ -327,6 +327,14 @@
     label: "{{ hermes_profile.name }}"
   when: hermes_gateway_multiplex
 
+# SCOUT-MAIL-01 : code et settings du plugin de Scout, avant le redemarrage
+# unique (l'activation passe par plugins.enabled du profil job-search).
+- name: Deploy the scout_mail plugin of Scout (inert unless enabled)
+  ansible.builtin.include_tasks: scout_mail.yml
+  when:
+    - hermes_gateway_multiplex
+    - hermes_profiles | selectattr('name', 'eq', 'job-search') | list | length > 0
+
 # `gateway run --replace` tue le detenteur d'un meme jeton, quel que soit son
 # profil. Le controle d'avant ne jugeait default qu'AVANT les profils : celui-ci
 # prouve qu'il est toujours le MEME processus connecte une fois qu'ils tournent.
@@ -448,6 +456,30 @@
   when:
     - hermes_gateway_multiplex
     - not ansible_check_mode
+
+# SCOUT-MAIL-01 : apres le redemarrage, dans la gateway reelle, /courriels et
+# les hooks n'existent que pour job-search (et seulement si active), aucun
+# outil ajoute. Meme chemin de decouverte que la gateway (un home par profil).
+- name: Verify that scout_mail is active for Scout only (or nowhere)
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - scout-mail
+      - "{{ 'true' if hermes_scout_mail_enabled | bool else 'false' }}"
+      - "{{ hermes_profiles | map(attribute='name') | join(',') }}"
+      - job-search
+  changed_when: false
+  when:
+    - hermes_gateway_multiplex
+    - not ansible_check_mode
+    - hermes_profiles | selectattr('name', 'eq', 'job-search') | list | length > 0
 
 - name: Report the multiplexed gateway topology
   ansible.builtin.debug:

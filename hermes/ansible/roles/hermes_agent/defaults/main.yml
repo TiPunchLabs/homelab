@@ -234,3 +234,19 @@ hermes_cpu_limit: "2.0"
 # s6, sinon son propre SIGKILL (10 s par defaut) devient la nouvelle limite.
 hermes_s6_kill_gracetime_ms: 20000
 hermes_stop_grace_period: "30s"
+
+# =============================================================================
+# SCOUT-MAIL-01 — /courriels, lecture seule d'UNE boite AgentMail pour Scout.
+# Desactive par defaut. Activation, rollback et revocation :
+# docs/guides/runbook-scout-mail.md ; conception : docs/adr/hermes.md ADR-002.
+# =============================================================================
+hermes_scout_mail_enabled: false
+# Identifiant (adresse) de la boite ; obligatoire si active (tasks/scout_mail.yml).
+hermes_scout_mail_inbox_id: ""
+hermes_scout_mail_agentmail_host: "api.agentmail.to"
+# Surcharges des plafonds (bornes verifiees par le plugin, config.py Limits).
+hermes_scout_mail_limits: {}
+hermes_scout_mail_dest: "{{ hermes_data_dir }}/profiles/job-search/plugins/scout_mail"
+hermes_scout_mail_payload: >-
+  {{ lookup('community.general.filetree', role_path ~ '/files/plugins/scout_mail', wantlist=true)
+     | hermes_profile_payload }}
