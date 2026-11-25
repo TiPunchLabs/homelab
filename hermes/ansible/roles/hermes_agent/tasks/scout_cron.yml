@@ -13,19 +13,24 @@
 # jamais charge. Runbook : docs/guides/runbook-scout-cron.md.
 # =============================================================================
 
-# Trois cles a garder d'accord. Sans le plugin, `cronjob` sur telegram serait
+# Quatre cles a garder d'accord. Sans le plugin, `cronjob` sur telegram serait
 # un outil de planification SANS garde : coupe, il doit revenir dans la liste
-# noire de Scout.
+# noire de Scout. Actif, le plugin remplace cronjob_manage DANS le profil de
+# Scout (autorisation tools.override, revue 1 F1) pour re-verifier chaque
+# changement approuve au moment de l'enregistrement.
 - name: Refuse a scout_cron switch out of sync with Scout's declaration
   ansible.builtin.assert:
     that:
       - (hermes_scout_cron_enabled | bool) == ('scout_cron' in hermes_scout_cron_plugins)
       - (hermes_scout_cron_enabled | bool) or ('cronjob' in hermes_scout_cron_denied)
       - not (hermes_scout_cron_config['cron.allow_agent_scheduling'] | default(false) | bool)
+      - (hermes_scout_cron_enabled | bool) == ('tools.override' in hermes_scout_cron_grant)
     fail_msg: >-
       hermes_scout_cron_enabled={{ hermes_scout_cron_enabled }} mais plugins.enabled de job-search vaut
-      {{ hermes_scout_cron_plugins }} et agent.disabled_toolsets contient cronjob :
-      {{ 'cronjob' in hermes_scout_cron_denied }}. Coupe, scout_cron exige `cronjob` dans la liste noire ;
+      {{ hermes_scout_cron_plugins }}, agent.disabled_toolsets contient cronjob :
+      {{ 'cronjob' in hermes_scout_cron_denied }}, tools.override accorde : {{ hermes_scout_cron_grant }}.
+      Coupe, scout_cron exige `cronjob` dans la liste noire et aucune autorisation tools.override ;
+      actif, il exige l'autorisation (sans elle, il refuse toute planification) ;
       cron.allow_agent_scheduling doit rester faux (runbook Scout cron, rollback).
     quiet: true
   vars:
@@ -33,6 +38,8 @@
       {{ (hermes_profiles | selectattr('name', 'eq', 'job-search') | first).config | default({}) }}
     hermes_scout_cron_plugins: "{{ hermes_scout_cron_config['plugins.enabled'] | default([]) }}"
     hermes_scout_cron_denied: "{{ hermes_scout_cron_config['agent.disabled_toolsets'] | default([]) }}"
+    hermes_scout_cron_grant: >-
+      {{ hermes_scout_cron_config['plugins.entries.scout_cron.granted_capabilities'] | default([]) }}
 
 - name: Create the scout_cron plugin directories
   ansible.builtin.file:

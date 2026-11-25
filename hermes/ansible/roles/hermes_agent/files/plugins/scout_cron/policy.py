@@ -4,11 +4,17 @@
 reason the model can relay), or ``confirm`` (create, update, remove, resume: a verbatim proposal the
 owner must approve). Every refusal is decided on the ARGUMENTS and the stored jobs, never on what the
 model says about them.
+
+A decision also carries what is BOUND to the owner's approval (``meta``): the immutable job id, a
+fingerprint of the stored job the proposal describes, and the canonical arguments (``dispatch``) that are
+the only ones ever handed to Hermes. The plugin re-evaluates at the real mutation and refuses when any of
+the three changed (stale approval).
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -22,7 +28,7 @@ FREE_ACTIONS = {"list", "pause"}
 CONFIRMED_ACTIONS = {"create", "update", "remove", "resume"}
 BLOCKED_ACTIONS = {"run", "run_now", "trigger"}
 
-# Fields Scout may set, per action. Anything else carrying a value is refused.
+# Fields Scout may set, per action. Any other key must be absent or carry a neutral value.
 ALLOWED_FIELDS: dict[str, set[str]] = {
     "list": {"action", "include_disabled"},
     "pause": {"action", "job_id", "reason"},
@@ -31,11 +37,25 @@ ALLOWED_FIELDS: dict[str, set[str]] = {
     "create": {"action", "name", "schedule", "prompt", "deliver"},
     "update": {"action", "job_id", "name", "schedule", "prompt", "deliver"},
 }
+# Values Hermes v0.22.5 treats as "not set" for a key Scout may not set (tools/cronjob_tools.py). None is
+# neutral for every key. Everything else is a real value and is refused, empty or false included:
+# enabled_toolsets [] = zero-tool override (stored); skills/skill [] and script, workdir, failure_deliver,
+# monitor*, context_from '' = clear on update; pinned, no_agent, attach_to_session, continuity False =
+# stored; repeat 0 = normalised count; paused_reason needs paused.
+_NEUTRAL: dict[str, tuple[Any, ...]] = {
+    "paused": (False,),  # _cronjob_handler reads args.get("paused", False); create forwards it only if not False
+    "include_disabled": (True, False),  # read by action "list" only
+}
 # Stored job fields that make a job non-conforming (set by an operator, never by Scout).
 _STORED_FORBIDDEN = ("script", "no_agent", "workdir", "monitor_script", "monitor_url", "context_from",
                      "skills", "skill", "attach_to_session", "pinned", "model", "provider", "base_url",
                      "failure_deliver", "interpreter", "reasoning_effort")
 _DELIVER_OK = {None, "", "origin"}
+# What the approval is bound to. Run bookkeeping (next_run_at, last_*, repeat.completed, an "error"
+# state) moves on its own and is left out; everything that decides what a run does is in.
+_FINGERPRINT_FIELDS = ("id", "name", "prompt", "deliver", "enabled_toolsets", *_STORED_FORBIDDEN)
+
+MSG_UPDATE_KEEPS = "Instructions enregistrées (inchangées)"
 
 
 @dataclass(frozen=True)
@@ -45,7 +65,7 @@ class Decision:
     proposal: str = ""  # full verbatim text posted before the approval card
     card: str = ""  # short text of the approval card (<= 450 chars)
     reserves_slot: bool = False  # a create that counts against the job cap until it settles
-    meta: dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)  # job_id, fingerprint, dispatch, expect
 
 
 def refuse(reason: str) -> Decision:
@@ -53,12 +73,18 @@ def refuse(reason: str) -> Decision:
 
 
 def _present(value: Any) -> bool:
-    """A value the model actually set (schema defaults such as None, '', False, [] are absent)."""
+    """A non-empty value (used for STORED fields: an operator job with ``script: ''`` runs no script)."""
     if value is None or value is False:
         return False
     if isinstance(value, (str, list, tuple, dict)) and not value:
         return False
     return True
+
+
+def _set(key: str, value: Any) -> bool:
+    """True when an ARGUMENT carries a real value for Hermes (see ``_NEUTRAL``)."""
+    return value is not None and not any(value is n or (type(value) is type(n) and value == n)
+                                         for n in _NEUTRAL.get(key, ()))
 
 
 def _digest(text: str) -> str:
@@ -67,6 +93,28 @@ def _digest(text: str) -> str:
 
 def _norm_name(name: Any) -> str:
     return " ".join(str(name or "").split()).casefold()
+
+
+def _expr(job: Mapping[str, Any]) -> str:
+    schedule = job.get("schedule") or {}
+    return str(schedule.get("expr") or "") if isinstance(schedule, Mapping) else ""
+
+
+def _paused(job: Mapping[str, Any]) -> bool:
+    return job.get("state") == "paused" or not job.get("enabled", True)
+
+
+def fingerprint(job: Mapping[str, Any]) -> str:
+    """Digest of everything in a stored job that decides what its runs do (and whether they happen)."""
+    schedule = job.get("schedule") if isinstance(job.get("schedule"), Mapping) else {"raw": job.get("schedule")}
+    origin = job.get("origin") if isinstance(job.get("origin"), Mapping) else {}
+    payload = {name: job.get(name) for name in _FINGERPRINT_FIELDS}
+    payload |= {"schedule": {k: schedule.get(k) for k in ("kind", "expr", "minutes", "run_at", "raw")},
+                "origin": {k: origin.get(k) for k in ("platform", "chat_id", "thread_id")},
+                "paused": _paused(job), "repeat": (job.get("repeat") or {}).get("times")
+                if isinstance(job.get("repeat"), Mapping) else job.get("repeat")}
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def deliver_is_owner(job: Mapping[str, Any], owners: frozenset[str]) -> bool:
@@ -82,9 +130,10 @@ def deliver_is_owner(job: Mapping[str, Any], owners: frozenset[str]) -> bool:
     return False
 
 
-def conformity_issues(job: Mapping[str, Any], owners: frozenset[str]) -> list[tuple[str, str]]:
+def conformity_issues(job: Mapping[str, Any], owners: frozenset[str],
+                      limits: Limits) -> list[tuple[str, str]]:
     """Why a stored job is outside Scout's policy, as (kind, French reason); empty = conforming.
-    Kinds: ``field``, ``schedule``, ``deliver``."""
+    Kinds: ``field``, ``schedule``, ``deliver``, ``prompt``, ``name``."""
     issues = [("field", f"champ « {name} » défini") for name in _STORED_FORBIDDEN if _present(job.get(name))]
     if job.get("enabled_toolsets") is not None:
         issues.append(("field", "champ « enabled_toolsets » défini"))
@@ -98,12 +147,17 @@ def conformity_issues(job: Mapping[str, Any], owners: frozenset[str]) -> list[tu
             issues.append(("schedule", f"planification : {exc}"))
     if not deliver_is_owner(job, owners):
         issues.append(("deliver", "livraison ailleurs que la conversation privée du propriétaire"))
+    prompt, name = job.get("prompt"), job.get("name")
+    if not isinstance(prompt, str) or len(prompt) > limits.max_prompt_chars:
+        issues.append(("prompt", f"instructions absentes ou de plus de {limits.max_prompt_chars} caractères"))
+    if name is not None and (not isinstance(name, str) or len(name.strip()) > limits.max_name_chars):
+        issues.append(("name", f"nom de plus de {limits.max_name_chars} caractères"))
     return issues
 
 
-def conformity_errors(job: Mapping[str, Any], owners: frozenset[str]) -> list[str]:
+def conformity_errors(job: Mapping[str, Any], owners: frozenset[str], limits: Limits) -> list[str]:
     """French reasons only (empty = conforming)."""
-    return [reason for _kind, reason in conformity_issues(job, owners)]
+    return [reason for _kind, reason in conformity_issues(job, owners, limits)]
 
 
 @dataclass(frozen=True)
@@ -119,14 +173,41 @@ class Context:
     resolve_job: Callable[[str], Mapping[str, Any] | None]
 
 
-def _schedule_lines(expr: str, ctx: Context) -> list[str]:
+def schedule_lines(expr: str, ctx: Context) -> list[str]:
+    """The expression and its next three runs, Guadeloupe time and UTC."""
     runs = next_runs(expr, ctx.tz, ctx.now, 3)
-    lines = [f"Expression : {expr} (fuseau de Scout : {ctx.tz.key})", "Prochains passages :"]
+    lines = [f"Planification : {expr} (fuseau de Scout : {ctx.tz.key})", "Prochains passages :"]
     utc = ZoneInfo("UTC")
     for run in runs:
         lines.append(f"  - {format_fr(run.astimezone(ctx.display_tz))} heure de Guadeloupe"
                      f" ({format_fr(run.astimezone(utc))} UTC)")
     return lines
+
+
+def _job_schedule_lines(job: Mapping[str, Any], ctx: Context, paused: bool) -> list[str]:
+    """A stored job's schedule; one that is not a daily cron expression is shown as stored."""
+    try:
+        daily_fields(_expr(job))
+        lines = schedule_lines(_expr(job), ctx)
+    except ScheduleError:
+        return [f"Planification actuelle (hors politique) : {job.get('schedule_display') or job.get('schedule')}"]
+    return lines + (["(en pause : aucun passage tant qu'elle n'est pas reprise)"] if paused else [])
+
+
+def delivery_line(job: Mapping[str, Any] | None, owners: frozenset[str]) -> str:
+    if job is None or deliver_is_owner(job, owners):
+        return "Livraison : cette conversation privée uniquement, par le bot de Scout."
+    return f"Livraison actuelle (hors politique) : {job.get('deliver')!r}, origine {job.get('origin')!r}."
+
+
+def _instructions(prompt: str, label: str) -> list[str]:
+    return [f"{label} ({len(prompt)} caractères, empreinte {_digest(prompt)}) :", "-----", prompt, "-----"]
+
+
+def job_snapshot(job: Mapping[str, Any], ctx: Context) -> list[str]:
+    """Everything a run of this stored job does: schedule (Guadeloupe and UTC), delivery, instructions."""
+    return (_job_schedule_lines(job, ctx, _paused(job)) + [delivery_line(job, ctx.owners)]
+            + _instructions(str(job.get("prompt") or ""), "Instructions enregistrées"))
 
 
 def _check_schedule(text: Any, ctx: Context) -> tuple[str | None, Decision | None]:
@@ -149,23 +230,28 @@ def _check_schedule(text: Any, ctx: Context) -> tuple[str | None, Decision | Non
     return expr, None
 
 
-def _check_text_fields(args: Mapping[str, Any], ctx: Context, creating: bool) -> Decision | None:
-    name, prompt = args.get("name"), args.get("prompt")
-    if creating and not _present(name):
-        return refuse("un nom de tâche est obligatoire")
-    if _present(name):
-        if not isinstance(name, str) or len(name.strip()) > ctx.limits.max_name_chars:
-            return refuse(f"le nom dépasse {ctx.limits.max_name_chars} caractères")
-    if creating and not _present(prompt):
-        return refuse("les instructions de la tâche sont obligatoires")
-    if _present(prompt):
-        if not isinstance(prompt, str) or len(prompt) > ctx.limits.max_prompt_chars:
-            return refuse(f"les instructions dépassent {ctx.limits.max_prompt_chars} caractères")
-    deliver = args.get("deliver")
+def _text_args(args: Mapping[str, Any], ctx: Context, creating: bool
+               ) -> tuple[str | None, str | None, Decision | None]:
+    """(name, prompt) as they will be saved: None = unchanged (update only; Hermes would CLEAR a stored
+    prompt on '', so a blank one is never forwarded)."""
+    name, prompt, deliver = args.get("name"), args.get("prompt"), args.get("deliver")
+    for key, value in (("name", name), ("prompt", prompt), ("schedule", args.get("schedule"))):
+        if value is not None and not isinstance(value, str):
+            return None, None, refuse(f"« {key} » doit être un texte")
+    name = " ".join(name.split()) if name else None
+    prompt = prompt.strip() if prompt else None
+    if creating and not name:
+        return None, None, refuse("un nom de tâche est obligatoire")
+    if name and len(name) > ctx.limits.max_name_chars:
+        return None, None, refuse(f"le nom dépasse {ctx.limits.max_name_chars} caractères")
+    if creating and not prompt:
+        return None, None, refuse("les instructions de la tâche sont obligatoires")
+    if prompt and len(prompt) > ctx.limits.max_prompt_chars:
+        return None, None, refuse(f"les instructions dépassent {ctx.limits.max_prompt_chars} caractères")
     if deliver not in _DELIVER_OK:
-        return refuse("la livraison se fait uniquement dans cette conversation privée "
-                      "(ne pas renseigner « deliver »)")
-    return None
+        return None, None, refuse("la livraison se fait uniquement dans cette conversation privée "
+                                  "(ne pas renseigner « deliver »)")
+    return name, prompt, None
 
 
 def _name_taken(name: str, ctx: Context, except_id: str | None = None) -> bool:
@@ -178,13 +264,13 @@ def _header(action_fr: str, name: str) -> list[str]:
             "Rien n'est enregistré tant que vous n'avez pas approuvé avec le bouton qui suit.", ""]
 
 
-def _delivery_line() -> str:
-    return "Livraison : cette conversation privée, par le bot de Scout."
-
-
 def _card(action_fr: str, name: str, detail: str) -> str:
     text = f"Scout — {action_fr} « {name} » : {detail}. Texte complet affiché juste au-dessus."
     return text[:450]
+
+
+def _bound(job: Mapping[str, Any], dispatch: dict[str, Any], expect: dict[str, Any] | None = None) -> dict:
+    return {"job_id": str(job["id"]), "fingerprint": fingerprint(job), "dispatch": dispatch, "expect": expect}
 
 
 def evaluate(args: Mapping[str, Any], ctx: Context) -> Decision:
@@ -194,11 +280,12 @@ def evaluate(args: Mapping[str, Any], ctx: Context) -> Decision:
         return refuse("l'exécution immédiate d'une tâche n'est pas permise à Scout")
     if action not in FREE_ACTIONS | CONFIRMED_ACTIONS:
         return refuse(f"action « {action or '?'} » non permise")
-    extra = sorted(k for k, v in args.items() if k not in ALLOWED_FIELDS[action] and _present(v))
+    extra = sorted(k for k, v in args.items() if k not in ALLOWED_FIELDS[action] and _set(k, v))
     if extra:
-        return refuse(f"champs non permis pour « {action} » : {', '.join(extra)}")
+        return refuse(f"champs non permis pour « {action} » (les omettre, même vides) : {', '.join(extra)}")
     if action == "list":
-        return Decision("allow")
+        include = args.get("include_disabled")
+        return Decision("allow", meta={"dispatch": {"action": "list", "include_disabled": include is not False}})
 
     job = None
     if action != "create":
@@ -209,92 +296,110 @@ def evaluate(args: Mapping[str, Any], ctx: Context) -> Decision:
             job = ctx.resolve_job(ref)
         except Exception as exc:
             return refuse(f"tâche ambiguë ou illisible ({str(exc)[:120]})")
-        if job is None:
+        if job is None or not job.get("id"):
             return refuse("tâche introuvable (lister d'abord)")
+        name = str(job.get("name") or job.get("id"))
+        jid = str(job["id"])
     if action == "pause":
-        return Decision("allow")
+        reason = args.get("reason")
+        dispatch = {"action": "pause", "job_id": jid} | ({"reason": reason} if isinstance(reason, str) else {})
+        return Decision("allow", meta=_bound(job, dispatch))
 
     if action == "remove":
-        name = str(job.get("name") or job.get("id"))
-        lines = _header("supprimer", name) + [
-            f"Identifiant : {job.get('id')}",
-            f"Planification actuelle : {job.get('schedule_display') or (job.get('schedule') or {}).get('expr')}",
+        lines = _header("supprimer", name) + [f"Identifiant : {jid}"] + job_snapshot(job, ctx) + [
             "La tâche, son journal et sa liste d'offres déjà signalées seront supprimés."]
-        return Decision("confirm", proposal="\n".join(lines),
-                        card=_card("supprimer", name, f"id {job.get('id')}"),
-                        meta={"action": action, "job_id": job.get("id")})
+        return Decision("confirm", proposal="\n".join(lines), card=_card("supprimer", name, f"id {jid}"),
+                        meta=_bound(job, {"action": "remove", "job_id": jid}))
 
     if action == "resume":
-        errors = conformity_errors(job, ctx.owners)
+        errors = conformity_errors(job, ctx.owners, ctx.limits)
         if errors:
             return refuse("cette tâche ne respecte pas la politique de Scout (" + "; ".join(errors)
                           + ") : seul l'opérateur peut la reprendre")
-        name = str(job.get("name") or job.get("id"))
-        expr = str((job.get("schedule") or {}).get("expr"))
-        lines = _header("reprendre", name) + [f"Identifiant : {job.get('id')}"] + _schedule_lines(expr, ctx) + [
-            _delivery_line(), (f"Instructions enregistrées : {len(job.get('prompt') or '')} caractères, "
-                               f"empreinte {_digest(str(job.get('prompt') or ''))} (inchangées).")]
+        if len(ctx.jobs) + ctx.pending_creates > ctx.limits.max_jobs:
+            return refuse(f"Scout a {len(ctx.jobs)} tâche(s), plafond {ctx.limits.max_jobs} : en supprimer "
+                          "avant d'en reprendre une")
+        prompt = str(job.get("prompt") or "")
+        lines = _header("reprendre", name) + [f"Identifiant : {jid}"] + schedule_lines(_expr(job), ctx) + [
+            delivery_line(job, ctx.owners)] + _instructions(prompt, MSG_UPDATE_KEEPS)
         return Decision("confirm", proposal="\n".join(lines),
-                        card=_card("reprendre", name, f"{expr}, empreinte {_digest(str(job.get('prompt') or ''))}"),
-                        meta={"action": action, "job_id": job.get("id")})
+                        card=_card("reprendre", name, f"{_expr(job)}, empreinte {_digest(prompt)}"),
+                        meta=_bound(job, {"action": "resume", "job_id": jid},
+                                    {"name": job.get("name"), "prompt": prompt, "expr": _expr(job)}))
 
     creating = action == "create"
-    problem = _check_text_fields(args, ctx, creating)
+    new_name, new_prompt, problem = _text_args(args, ctx, creating)
     if problem:
         return problem
     if creating:
         if len(ctx.jobs) + ctx.pending_creates >= ctx.limits.max_jobs:
             return refuse(f"Scout a déjà {len(ctx.jobs)} tâche(s) (pauses comprises), "
                           f"plafond {ctx.limits.max_jobs} : mettre à jour ou supprimer une tâche existante")
-        if _name_taken(args["name"], ctx):
+        if _name_taken(new_name, ctx):
             return refuse("une tâche porte déjà ce nom : la mettre à jour au lieu d'en créer une autre")
         expr, problem = _check_schedule(args.get("schedule"), ctx)
         if problem:
             return problem
-        name, prompt = " ".join(args["name"].split()), args["prompt"]
-        lines = _header("créer", name) + _schedule_lines(expr, ctx) + [
-            _delivery_line(), f"Instructions enregistrées ({len(prompt)} caractères, empreinte {_digest(prompt)}) :",
-            "-----", prompt, "-----"]
+        lines = _header("créer", new_name) + schedule_lines(expr, ctx) + [delivery_line(None, ctx.owners)] + \
+            _instructions(new_prompt, "Instructions enregistrées")
+        dispatch = {"action": "create", "name": new_name, "schedule": expr, "prompt": new_prompt}
         return Decision("confirm", proposal="\n".join(lines), reserves_slot=True,
-                        card=_card("créer", name, f"{expr}, {len(prompt)} caractères, empreinte {_digest(prompt)}"),
-                        meta={"action": action, "name": name})
+                        card=_card("créer", new_name, f"{expr}, {len(new_prompt)} caractères, "
+                                                     f"empreinte {_digest(new_prompt)}"),
+                        meta={"job_id": None, "fingerprint": None, "dispatch": dispatch,
+                              "expect": {"name": new_name, "prompt": new_prompt, "expr": expr}})
 
     # update
-    # A new schedule replaces a non-conforming one; every other issue stays the operator's.
-    errors = [reason for kind, reason in conformity_issues(job, ctx.owners)
-              if not (kind == "schedule" and _present(args.get("schedule")))]
+    replaced = {"schedule"} if args.get("schedule") else set()
+    replaced |= {"prompt"} if new_prompt else set()
+    replaced |= {"name"} if new_name else set()
+    # A replaced field may fix its own issue (operator schedule, oversize text); any other issue stays the
+    # operator's.
+    errors = [reason for kind, reason in conformity_issues(job, ctx.owners, ctx.limits) if kind not in replaced]
     if errors:
         return refuse("cette tâche ne respecte pas la politique de Scout (" + "; ".join(errors)
                       + ") : seul l'opérateur peut la modifier")
-    changes: list[str] = []
-    name = str(job.get("name") or job.get("id"))
-    detail: list[str] = []
-    if _present(args.get("name")) and " ".join(args["name"].split()) != name:
-        new_name = " ".join(args["name"].split())
-        if _name_taken(new_name, ctx, except_id=job.get("id")):
+    old_prompt, old_expr = str(job.get("prompt") or ""), _expr(job)
+    dispatch: dict[str, Any] = {"action": "update", "job_id": jid}
+    changed: list[str] = []
+    before_after: list[str] = []
+    if new_name and new_name != name:
+        if _name_taken(new_name, ctx, except_id=jid):
             return refuse("une autre tâche porte déjà ce nom")
-        changes += [f"Nom : « {name} » → « {new_name} »"]
-        detail.append("nom")
-    expr = str((job.get("schedule") or {}).get("expr") or "")
-    if _present(args.get("schedule")):
+        dispatch["name"] = new_name
+        changed.append("nom")
+        before_after.append(f"Nom : « {name} » → « {new_name} »")
+    expr = old_expr
+    if args.get("schedule"):
         new_expr, problem = _check_schedule(args.get("schedule"), ctx)
         if problem:
             return problem
-        changes += [f"Planification : {job.get('schedule_display') or expr} → {new_expr}"]
-        expr = new_expr
-        detail.append(new_expr)
-    if _present(args.get("prompt")):
-        old, new = str(job.get("prompt") or ""), args["prompt"]
-        changes += [f"Instructions : {len(old)} → {len(new)} caractères, empreinte {_digest(old)} → {_digest(new)}.",
-                    "Nouvelles instructions complètes :", "-----", new, "-----"]
-        detail.append(f"instructions {_digest(new)}")
-    if not changes:
-        return refuse("aucune modification demandée")
-    lines = _header("mettre à jour", name) + [f"Identifiant : {job.get('id')}"] + changes + [""] + \
-        _schedule_lines(expr, ctx) + [_delivery_line()]
-    return Decision("confirm", proposal="\n".join(lines),
-                    card=_card("mettre à jour", name, ", ".join(detail)),
-                    meta={"action": action, "job_id": job.get("id")})
+        if new_expr != old_expr:
+            dispatch["schedule"] = new_expr
+            changed.append("planification")
+            before_after.append(f"Planification : {job.get('schedule_display') or old_expr or '?'} → {new_expr}")
+            expr = new_expr
+    prompt = old_prompt
+    if new_prompt and new_prompt != old_prompt:
+        dispatch["prompt"] = new_prompt
+        changed.append("instructions")
+        before_after.append(f"Instructions : {len(old_prompt)} → {len(new_prompt)} caractères, "
+                            f"empreinte {_digest(old_prompt)} → {_digest(new_prompt)}")
+        prompt = new_prompt
+    if not changed:
+        return refuse("aucune modification demandée (les valeurs données sont déjà celles de la tâche)")
+    unchanged = [f for f in ("nom", "planification", "instructions", "livraison") if f not in changed]
+    final_name = dispatch.get("name", name)
+    lines = _header("mettre à jour", name) + [
+        f"Identifiant : {jid}", f"Champs modifiés : {', '.join(changed)}",
+        f"Champs inchangés : {', '.join(unchanged)}", *before_after, "",
+        "Tâche après la mise à jour :", f"Nom : « {final_name} »"] + schedule_lines(expr, ctx) + [
+        delivery_line(job, ctx.owners)] + _instructions(
+            prompt, "Nouvelles instructions complètes" if "instructions" in changed else MSG_UPDATE_KEEPS)
+    if _paused(job):
+        lines.insert(lines.index("Tâche après la mise à jour :") + 1, "(reste en pause)")
+    return Decision("confirm", proposal="\n".join(lines), card=_card("mettre à jour", name, ", ".join(changed)),
+                    meta=_bound(job, dispatch, {"name": final_name, "prompt": prompt, "expr": expr}))
 
 
 def split_for_telegram(text: str, limit: int = 3500) -> list[str]:

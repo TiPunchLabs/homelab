@@ -5,6 +5,11 @@ Registered in Scout's profile only (``plugins.enabled`` of job-search). It adds:
   cron run; field, schedule (at most one run a day), delivery, size and job-count policy; for create,
   update, remove and resume, the exact text to be saved is posted by this code, then the call is sent
   to Hermes' approval gate with a single-use rule key (no tap, nothing saved). ``run`` is refused;
+- the approval is BOUND to this tool call: the immutable job id, a fingerprint of the job shown, and the
+  canonical arguments. ``cronjob_manage`` is replaced in Scout's profile only (operator grant
+  ``tools.override``) by ``manage``, which runs after the tap and re-checks everything (context, /yolo,
+  other plugins' veto, policy, binding, job cap) right before handing Hermes the canonical arguments;
+  stale approval = nothing saved. A create's slot reservation belongs to its tool call;
 - a cron-run tool-call cap (all tools, and web tools apart), per execution;
 - the ``scout_task_record`` tool: in a cron run, the running job's journal (Hermes notepad, injected at
   the start of every run) and its ledger of vacancies already alerted; in the owner's chat, one action,
@@ -21,6 +26,7 @@ import logging
 import secrets
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -54,6 +60,12 @@ MSG_BYPASS = ("Planification refusée : l'approbation automatique (/yolo ou appr
 MSG_VETO = "Action refusée : un autre contrôle de sécurité bloque les outils dans cette conversation."
 MSG_POST = "Impossible d'afficher la proposition complète : rien n'est enregistré."
 MSG_ERROR = "Contrôle de planification en erreur : rien n'est enregistré."
+MSG_GUARD = ("Planification indisponible : la garde d'enregistrement n'est pas installée (opérateur : "
+             "plugins.entries.scout_cron.granted_capabilities: [tools.override]).")
+MSG_STALE = ("Rien n'est enregistré : l'approbation portait sur un état qui a changé depuis (tâche renommée, "
+             "modifiée, supprimée, ou demande différente). Liste les tâches, puis refais la demande : une "
+             "nouvelle proposition sera affichée.")
+MSG_UNAPPROVED = "Rien n'est enregistré : aucune approbation valide pour cet appel (refais la demande)."
 MSG_RECORD_CONTEXT = ("Le journal d'une tâche n'est accessible qu'à son exécution planifiée ; en conversation, "
                       "seule l'action feedback_add est permise au propriétaire.")
 
@@ -92,6 +104,25 @@ def _block(message: str) -> dict:
     return {"action": "block", "message": message}
 
 
+def _fail(message: str) -> str:
+    return _json({"success": False, "error": message})
+
+
+@dataclass
+class _Binding:
+    """What one approval covers: one tool call, one job version, one set of canonical arguments."""
+
+    tool: str
+    action: str
+    job_id: str | None
+    fingerprint: str | None
+    dispatch: dict
+    expect: dict | None
+    hook_kwargs: dict
+    reserves_slot: bool
+    expiry: float
+
+
 class _Plugin:
     def __init__(self, ctx: Any, home: Path, port: HermesPort | None = None,
                  settings_path: Path | None = None) -> None:
@@ -111,9 +142,10 @@ class _Plugin:
         if self.settings is not None:
             lim = self.settings.limits
             self.ledger = Ledger(home / "plugin-data" / "scout_cron" / "ledger", lim.ledger_days, lim.ledger_max)
-        self._lock = threading.Lock()
-        self._pending: dict[str, float] = {}
+        self._lock = threading.RLock()
+        self._bindings: dict[str, _Binding] = {}  # by tool_call_id
         self._runs: dict[str, list[int]] = {}
+        self.guard_installed = False  # set by register() once the cronjob_manage override is in place
 
     # ---- context --------------------------------------------------------------------------------
 
@@ -156,42 +188,49 @@ class _Plugin:
             parse_schedule=self.port.parse_schedule, resolve_job=self.port.resolve_job)
 
     def _pending_count(self) -> int:
+        """Live create reservations (each owned by one tool call); expired bindings are dropped."""
         now = time.monotonic()
-        for token, expiry in list(self._pending.items()):
-            if expiry < now:
-                self._pending.pop(token, None)
-        return len(self._pending)
-
-    def _release_one(self) -> None:
         with self._lock:
-            if self._pending:
-                oldest = min(self._pending, key=self._pending.get)
-                self._pending.pop(oldest, None)
+            for call_id, binding in list(self._bindings.items()):
+                if binding.expiry < now:
+                    self._bindings.pop(call_id, None)
+            return sum(1 for b in self._bindings.values() if b.reserves_slot)
+
+    def _release(self, call_id: str) -> _Binding | None:
+        """Drop the binding (and reservation) of ``call_id`` only."""
+        if not call_id:
+            return None
+        with self._lock:
+            return self._bindings.pop(call_id, None)
 
     # ---- confirmation -----------------------------------------------------------------------------
 
-    def _confirm(self, decision: policy.Decision, tool_name: str, args: dict, ids: dict,
-                 reservation: str | None) -> dict:
-        """Post the verbatim proposal (only if no other hook vetoes), then ask Hermes' approval gate."""
+    def _confirm(self, decision: policy.Decision, call_id: str) -> dict:
+        """Post the verbatim proposal (only if no other hook vetoes), then ask Hermes' approval gate.
+        The binding of ``call_id`` was stored by the caller; any refusal here drops it."""
+        binding = self._bindings.get(call_id)
         try:
-            if self.port.other_hooks_veto(self, {"tool_name": tool_name, "args": args, **ids}):
-                self._drop(reservation)
+            if binding is None or self.port.other_hooks_veto(self, binding.hook_kwargs):
+                self._release(call_id)
                 return _block(MSG_VETO)
             for chunk in policy.split_for_telegram(decision.proposal):
                 if not self.port.post(chunk):
-                    self._drop(reservation)
+                    self._release(call_id)
                     return _block(MSG_POST)
         except Exception:
             logger.warning("scout_cron confirmation failed; refusing", exc_info=True)
-            self._drop(reservation)
+            self._release(call_id)
             return _block(MSG_ERROR)
         # A fresh key per call: a "session" or "always" answer can never pre-approve another call.
         return {"action": "approve", "message": decision.card, "rule_key": f"scout_cron:{secrets.token_hex(8)}"}
 
-    def _drop(self, reservation: str | None) -> None:
-        if reservation:
-            with self._lock:
-                self._pending.pop(reservation, None)
+    def _bind(self, call_id: str, tool: str, decision: policy.Decision, hook_kwargs: dict) -> None:
+        meta = decision.meta
+        self._bindings[call_id] = _Binding(
+            tool=tool, action=str(meta["dispatch"].get("action") or ""), job_id=meta.get("job_id"),
+            fingerprint=meta.get("fingerprint"), dispatch=dict(meta["dispatch"]), expect=meta.get("expect"),
+            hook_kwargs=dict(hook_kwargs), reserves_slot=decision.reserves_slot,
+            expiry=time.monotonic() + PENDING_TTL_S)
 
     def _common_gate(self) -> dict | None:
         if not self._usable():
@@ -214,13 +253,16 @@ class _Plugin:
         refused = self._common_gate()
         if refused:
             return refused
-        reservation = None
+        if not self.guard_installed:
+            return _block(MSG_GUARD)
+        call_id = str(ids.get("tool_call_id") or "")
         try:
             with self.port.scope(), self._lock:
                 decision = policy.evaluate(args, self._context())
-                if decision.kind == "confirm" and decision.reserves_slot:
-                    reservation = secrets.token_hex(8)
-                    self._pending[reservation] = time.monotonic() + PENDING_TTL_S
+                if decision.kind == "confirm":
+                    if not call_id:
+                        return _block(MSG_ERROR)
+                    self._bind(call_id, CRON_TOOL, decision, {"tool_name": CRON_TOOL, "args": args, **ids})
         except Exception:
             logger.warning("scout_cron policy evaluation failed; refusing", exc_info=True)
             return _block(MSG_ERROR)
@@ -228,35 +270,44 @@ class _Plugin:
             return _block(decision.message)
         if decision.kind == "allow":
             return None
-        return self._confirm(decision, CRON_TOOL, args, ids, reservation)
+        return self._confirm(decision, call_id)
 
     def _guard_feedback(self, args: dict, ids: dict) -> dict | None:
         refused = self._common_gate()
         if refused:
             return refused
-        extra = sorted(k for k, v in args.items() if k not in {"action", "job_id", "text"} and policy._present(v))
+        extra = sorted(k for k, v in args.items() if k not in {"action", "job_id", "text"} and v is not None)
         if extra:
             return _block(f"Champs non permis pour feedback_add : {', '.join(extra)}")
         text = args.get("text")
         limit = self.settings.limits.feedback_chars
         if not isinstance(text, str) or not text.strip() or len(text) > limit:
             return _block(f"Le retour doit faire entre 1 et {limit} caractères.")
+        call_id = str(ids.get("tool_call_id") or "")
+        if not call_id:
+            return _block(MSG_ERROR)
         try:
-            with self.port.scope():
+            with self.port.scope(), self._lock:
                 job = self.port.resolve_job(str(args.get("job_id") or ""))
+                if job is None or not job.get("id"):
+                    return _block("Tâche introuvable : lister d'abord.")
+                ctx = self._context()
+                name, jid = str(job.get("name") or job.get("id")), str(job["id"])
+                proposal = "\n".join([
+                    f"📋 Scout — retour à ajouter au journal de la tâche « {name} » (id {jid})",
+                    "Il sera lu par chaque exécution suivante. Rien n'est enregistré sans votre approbation.", "",
+                    "Tâche concernée :", *policy.job_snapshot(job, ctx), "",
+                    f"Retour à ajouter ({len(text)} caractères) :", "-----", text, "-----"])
+                decision = policy.Decision(
+                    "confirm", proposal=proposal,
+                    card=f"Scout — retour pour « {name} » : {len(text)} caractères. "
+                         "Texte complet affiché juste au-dessus."[:450],
+                    meta={"job_id": jid, "fingerprint": policy.fingerprint(job),
+                          "dispatch": {"action": "feedback_add", "job_id": jid, "text": text}})
+                self._bind(call_id, TOOL, decision, {"tool_name": TOOL, "args": args, **ids})
         except Exception:
             return _block("Tâche ambiguë ou illisible : lister d'abord.")
-        if job is None:
-            return _block("Tâche introuvable : lister d'abord.")
-        name = str(job.get("name") or job.get("id"))
-        proposal = "\n".join([
-            f"📋 Scout — retour à ajouter au journal de la tâche « {name} » (id {job.get('id')})",
-            "Il sera lu par chaque exécution suivante. Rien n'est enregistré sans votre approbation.",
-            "-----", text, "-----"])
-        decision = policy.Decision("confirm", proposal=proposal,
-                                   card=f"Scout — retour pour « {name} » : {len(text)} caractères. "
-                                        "Texte complet affiché juste au-dessus."[:450])
-        return self._confirm(decision, TOOL, args, ids, None)
+        return self._confirm(decision, call_id)
 
     def _count_run_call(self, tool_name: str, execution: Any) -> dict | None:
         if self.settings is None:
@@ -310,12 +361,15 @@ class _Plugin:
             logger.warning("scout_cron pre_tool_call error; refusing", exc_info=True)
             return _block(MSG_ERROR)
 
-    def post_tool_call(self, tool_name: str = "", args: Any = None, result: Any = None, **_: Any) -> None:
+    def post_tool_call(self, tool_name: str = "", args: Any = None, result: Any = None, tool_call_id: Any = "",
+                       **_: Any) -> None:
+        """Terminal outcome of a call (saved, denied, timed out, blocked, failed): only ITS binding goes."""
+        if tool_name not in (CRON_TOOL, TOOL):
+            return
+        self._release(str(tool_call_id or ""))
         if tool_name != CRON_TOOL or not isinstance(args, dict):
             return
         action = str(args.get("action") or "").strip().lower()
-        if action == "create":
-            self._release_one()
         if action == "remove" and self.ledger is not None:
             try:
                 data = json.loads(result) if isinstance(result, str) else {}
@@ -325,6 +379,82 @@ class _Plugin:
             except (ValueError, AttributeError, LedgerError):
                 logger.warning("scout_cron: ledger of a removed job not deleted")
         return
+
+    # ---- cronjob_manage override (runs after the approval, at the real save) -------------------------
+
+    def manage(self, args: Any, **kw: Any) -> str:
+        """Scout's cronjob_manage: re-check the approved call, then hand Hermes the canonical arguments."""
+        args = args if isinstance(args, dict) else {}
+        binding = self._release(self._call_id())
+        if not self._usable():
+            return _fail(MSG_SETTINGS)
+        if not self._profile_ok():
+            return _fail(MSG_PROFILE)
+        refused = self._common_gate()
+        if refused:
+            return _fail(refused["message"])
+        try:
+            builtin = self.port.builtin_cronjob(self)
+            with self.port.scope(), self._lock:
+                # The call's own reservation is already released: the count below is the atomic check.
+                decision = policy.evaluate(args, self._context())
+                if decision.kind == "refuse":
+                    return _fail(decision.message)
+                if decision.kind == "allow":
+                    return builtin(dict(decision.meta["dispatch"]), **kw)
+                problem = self._stale(binding, CRON_TOOL, decision.meta)
+                if problem:
+                    return _fail(problem)
+                result = builtin(dict(binding.dispatch), **kw)
+                return self._verify_saved(binding, result, builtin, kw)
+        except Exception:
+            logger.warning("scout_cron manage failed; nothing saved by this plugin", exc_info=True)
+            return _fail(MSG_ERROR)
+
+    def _call_id(self) -> str:
+        try:
+            return self.port.current_tool_call_id()
+        except Exception:
+            return ""
+
+    def _stale(self, binding: _Binding | None, tool: str, meta: dict) -> str | None:
+        """Why the approval no longer covers this mutation (None = it does). Re-checks the other plugins'
+        veto (a session tainted while the card was pending) at this boundary."""
+        if binding is None or binding.tool != tool or binding.expiry < time.monotonic():
+            return MSG_UNAPPROVED
+        if (binding.job_id, binding.fingerprint, binding.dispatch) != (
+                meta.get("job_id"), meta.get("fingerprint"), meta.get("dispatch")):
+            return MSG_STALE
+        if self.port.other_hooks_veto(self, binding.hook_kwargs):
+            return MSG_VETO
+        return None
+
+    def _verify_saved(self, binding: _Binding, result: Any, builtin: Any, kw: dict) -> Any:
+        """The stored job must be what the owner approved and conform; otherwise it is paused at once."""
+        if binding.expect is None:
+            return result
+        try:
+            data = json.loads(result) if isinstance(result, str) else {}
+        except ValueError:
+            return result
+        if not isinstance(data, dict) or not data.get("success"):
+            return result
+        job_id = binding.job_id or str(data.get("job_id") or "")
+        job = self.port.get_job(job_id) if job_id else None
+        problems = ["tâche introuvable après l'enregistrement"] if job is None else policy.conformity_errors(
+            job, self.settings.owner_user_ids, self.settings.limits)
+        if job is not None:
+            seen = {"name": job.get("name"), "prompt": job.get("prompt"),
+                    "expr": (job.get("schedule") or {}).get("expr")}
+            problems += [f"{k} enregistré différent de la proposition" for k, v in binding.expect.items()
+                         if seen.get(k) != v]
+        if not problems:
+            return result
+        logger.warning("scout_cron: saved job %s differs from the approval: %s", job_id, problems)
+        if job is not None:
+            builtin({"action": "pause", "job_id": job_id, "reason": "scout_cron : différente de l'approbation"}, **kw)
+        return _fail("Enregistrement différent de la proposition approuvée (" + "; ".join(problems)
+                     + ") : la tâche a été mise en pause, prévenir l'opérateur.")
 
     def transform_tool_result(self, tool_name: str = "", result: Any = None, **_: Any) -> str | None:
         if tool_name != CRON_TOOL or not isinstance(result, str) or self.settings is None:
@@ -405,16 +535,24 @@ class _Plugin:
             return _json({"success": True, "count": self.ledger.count(job_id, today)})
 
     def _feedback(self, args: dict) -> str:
-        """Runs only after the owner approved (pre_tool_call); re-checked here."""
+        """Runs only after the owner approved THIS call (binding); everything is re-checked here."""
+        binding = self._release(self._call_id())
         text = args.get("text")
         limit = self.settings.limits.feedback_chars
         if not isinstance(text, str) or not text.strip() or len(text) > limit:
-            return _json({"success": False, "error": f"Retour limité à {limit} caractères."})
+            return _fail(f"Retour limité à {limit} caractères.")
+        refused = self._common_gate()
+        if refused:
+            return _fail(refused["message"])
         today = self.port.now().astimezone(ZoneInfo(self.settings.display_timezone)).date().isoformat()
-        with self.port.scope():
+        with self.port.scope(), self._lock:
             job = self.port.resolve_job(str(args.get("job_id") or ""))
-            if job is None:
-                return _json({"success": False, "error": "Tâche introuvable."})
+            meta = {"job_id": str(job["id"]) if job and job.get("id") else None,
+                    "fingerprint": policy.fingerprint(job) if job else None,
+                    "dispatch": {"action": "feedback_add", "job_id": str(job["id"]) if job else None, "text": text}}
+            problem = self._stale(binding, TOOL, meta)
+            if problem:
+                return _fail(problem)
             job_id = str(job["id"])
             line = f"{today} : {' '.join(text.split())}"
             lines = [x for x in (self.port.note_get(job_id, "feedback") or "").split("\n") if x] + [line]
@@ -448,7 +586,7 @@ class _Plugin:
                         when = (f"{format_fr(nxt[0].astimezone(display))} Guadeloupe" if nxt else "aucun")
                     except ScheduleError:
                         when = f"hors politique ({job.get('next_run_at')})"
-                    issues = policy.conformity_errors(job, owners)
+                    issues = policy.conformity_errors(job, owners, self.settings.limits)
                     lines.append(f"• {job.get('name')} (id {job.get('id')}) — {state} — {expr} — prochain : {when}"
                                  + (f" — ⚠️ {'; '.join(issues)}" if issues else ""))
                     if wanted and wanted.casefold() in (str(job.get("id")).casefold(),
@@ -468,10 +606,20 @@ class _Plugin:
 
 
 def register(ctx: Any) -> None:
-    """Hermes entry point: three hooks, one tool, one command."""
+    """Hermes entry point: three hooks, two tools (one replaces cronjob_manage here only), one command."""
     from hermes_constants import get_hermes_home
 
     plugin = _Plugin(ctx, Path(get_hermes_home()))
+    try:
+        schema, check = HermesPort.cronjob_schema()
+        handle = ctx.register_tool(name=CRON_TOOL, toolset="cronjob", schema=schema, handler=plugin.manage,
+                                   check_fn=check, description=schema.get("description", ""), emoji="⏰",
+                                   override=True)
+        plugin.guard_installed = handle is not None
+    except Exception as exc:  # no tools.override grant: every scheduling change is refused (fail closed)
+        logger.warning("scout_cron: cronjob_manage override not installed (%s); scheduling refused", exc)
+    if not plugin.guard_installed:
+        logger.warning("scout_cron: cronjob_manage override missing; scheduling refused")
     ctx.register_hook("pre_tool_call", plugin.pre_tool_call)
     ctx.register_hook("post_tool_call", plugin.post_tool_call)
     ctx.register_hook("transform_tool_result", plugin.transform_tool_result)

@@ -647,9 +647,10 @@ def scout_mail_errors(observed: Mapping[str, Mapping[str, Any]], enabled: bool, 
     return errors
 
 
-# SCOUT-CRON: the toolset the scout_cron plugin registers (excluded from the scout-mail registry diff,
-# verified by the scout-schedule mode instead).
-SCOUT_CRON_TOOLSETS = frozenset({"scout_task_record"})
+# SCOUT-CRON: the toolsets the scout_cron plugin registers (excluded from the scout-mail registry diff,
+# verified by the scout-schedule mode instead): its own record tool, and Hermes' ``cronjob`` toolset, which
+# its cronjob_manage override (review 1, F1) imports and re-registers in Scout's scope.
+SCOUT_CRON_TOOLSETS = frozenset({"scout_task_record", "cronjob"})
 _PLATFORMS = ("telegram", "cron", "api_server", "cli")
 
 
@@ -658,10 +659,12 @@ def scout_cron_errors(observed: Mapping[str, Mapping[str, Any]], enabled: bool, 
     """SCOUT-CRON: scheduling and the task record exist for ``owner`` only, on the right platforms.
 
     ``observed`` maps each served profile to ``{"loaded": bool, "commands": [...], "allow_agent_scheduling":
-    bool, "toolsets": {platform: [names among cronjob/scout_task_record]}, "jobs": [{"name", "expr",
-    "issues": [...]}]}`` as Hermes resolves them in that profile's home. Expected when enabled: for the owner,
-    ``cronjob`` on telegram only and ``scout_task_record`` on telegram and cron only, at most ``max_jobs``
-    jobs, every one conforming; nowhere else, either toolset or the plugin. Disabled: none anywhere.
+    bool, "guarded": bool, "toolsets": {platform: [names among cronjob/scout_task_record]}, "jobs": [{"name",
+    "expr", "issues": [...]}]}`` as Hermes resolves them in that profile's home. ``guarded``: cronjob_manage
+    resolves to scout_cron's override (the re-check at the real save). Expected when enabled: for the owner,
+    the override, ``cronjob`` on telegram only and ``scout_task_record`` on telegram and cron only, at most
+    ``max_jobs`` jobs, every one conforming; nowhere else, either toolset, the override or the plugin.
+    Disabled: none anywhere.
     """
     errors: list[str] = []
     want = {"telegram": {"cronjob", "scout_task_record"}, "cron": {"scout_task_record"}}
@@ -671,6 +674,9 @@ def scout_cron_errors(observed: Mapping[str, Mapping[str, Any]], enabled: bool, 
             errors.append(f"{profile}: scout_cron {'not loaded' if active else 'must not be loaded'}")
         if ("taches-scout" in seen.get("commands", [])) != active:
             errors.append(f"{profile}: /taches-scout {'missing' if active else 'must not exist'}")
+        if bool(seen.get("guarded")) != active:
+            errors.append(f"{profile}: cronjob_manage " + ("not guarded by scout_cron (tools.override grant?)"
+                                                           if active else "must stay the built-in tool"))
         if seen.get("allow_agent_scheduling"):
             errors.append(f"{profile}: cron.allow_agent_scheduling is true (a cron run could schedule)")
         toolsets = seen.get("toolsets") or {}
@@ -689,6 +695,16 @@ def scout_cron_errors(observed: Mapping[str, Mapping[str, Any]], enabled: bool, 
     if owner not in observed:
         errors.append(f"{owner}: profile not observed")
     return errors
+
+
+def _cronjob_guarded() -> bool:
+    """True when cronjob_manage, as the current profile home resolves it, is scout_cron's override."""
+    from tools.registry import registry
+
+    entry = registry.get_entry("cronjob_manage")
+    owner = getattr(getattr(entry, "handler", None), "__self__", None)
+    return bool(entry is not None and entry.toolset == "cronjob" and getattr(entry.handler, "__name__", "") == "manage"
+                and "scout_cron" in type(owner).__module__)
 
 
 def _report(errors: list[str], ok_message: str) -> int:
@@ -969,7 +985,7 @@ def main(argv: list[str]) -> int:
             reset_hermes_home_override(token)
         cron_plugin = owner_manager._plugins.get("scout_cron") if owner_manager else None
         if cron_plugin is not None and cron_plugin.error is None:
-            added -= SCOUT_CRON_TOOLSETS  # scout_cron's own toolset, judged by the scout-schedule mode
+            added -= SCOUT_CRON_TOOLSETS  # scout_cron's toolsets, judged by the scout-schedule mode
         observed["_registry"] = {"toolsets_added": sorted(added)}
         return _report(scout_mail_errors(observed, enabled, owner),
                        f"scout_mail {'active for ' + owner + ' only' if enabled else 'inactive everywhere'}")
@@ -1000,6 +1016,7 @@ def main(argv: list[str]) -> int:
                     in _TRUTHY,
                     "toolsets": {p: sorted(set(_get_platform_tools(cfg, p)) & {"cronjob", "scout_task_record"})
                                  for p in _PLATFORMS},
+                    "guarded": _cronjob_guarded(),
                     "jobs": [],
                 }
                 if name == owner and Path(home, "plugins", "scout_cron").is_dir():
@@ -1014,7 +1031,8 @@ def main(argv: list[str]) -> int:
                         for job in list_jobs(include_disabled=True):
                             seen["jobs"].append({
                                 "name": job.get("name"), "expr": (job.get("schedule") or {}).get("expr"),
-                                "issues": policy.conformity_errors(job, settings.owner_user_ids)})
+                                "issues": policy.conformity_errors(job, settings.owner_user_ids,
+                                                                   settings.limits)})
                 observed[name] = seen
             finally:
                 reset_hermes_home_override(token)

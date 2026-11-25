@@ -300,6 +300,12 @@ hermes_profile_job_search:
     # SCOUT-CRON : [scout_mail, scout_cron] ; en accord avec
     # hermes_scout_cron_enabled (tasks/scout_cron.yml refuse un ecart).
     plugins.enabled: [scout_mail, scout_cron]
+    # SCOUT-CRON (revue 1, F1) : scout_cron remplace cronjob_manage dans ce
+    # profil SEUL, pour re-verifier chaque changement approuve au moment ou
+    # Hermes l'enregistre (tache, version, arguments, veto scout_mail, /yolo).
+    # Sans cette autorisation, le plugin refuse toute planification.
+    # Coupe (rollback) : la retirer avec scout_cron.
+    plugins.entries.scout_cron.granted_capabilities: [tools.override]
     # SCOUT-CRON (D3) : les expressions cron et next_run_at de Scout sont en
     # heure de Guadeloupe. Profil de Scout SEUL : les autres restent en UTC.
     timezone: America/Guadeloupe
@@ -340,9 +346,12 @@ hermes_profile_job_search:
     platform_toolsets.cli: *hermes_job_search_toolsets
     # Un toolset de plugin est actif PAR DEFAUT sur toute plateforme qui ne le
     # declare pas « connu » (hermes_cli/tools_config.py,
-    # _enabled_plugin_toolsets) : ces deux listes l'en excluent.
-    known_plugin_toolsets.api_server: [scout_task_record]
-    known_plugin_toolsets.cli: [scout_task_record]
+    # _enabled_plugin_toolsets) : ces listes l'en excluent. `cronjob` devient un
+    # toolset de plugin quand scout_cron remplace cronjob_manage (revue 1, F1) :
+    # connu partout sauf sur telegram, il n'est actif que la ou il est liste.
+    known_plugin_toolsets.api_server: [scout_task_record, cronjob]
+    known_plugin_toolsets.cli: [scout_task_record, cronjob]
+    known_plugin_toolsets.cron: [cronjob]
     # Une cle par serveur, valeur entiere : `config set` remplace la table,
     # aucune sous-cle ancienne (exclude, auth) ne survit.
     mcp_servers.kandidat:

@@ -73,11 +73,38 @@ class HermesPort:
                 return True
         return False
 
+    def current_tool_call_id(self) -> str:
+        """The tool_call_id Hermes binds around a registry dispatch (model_tools._approval_observability)."""
+        from tools import approval_context
+
+        return str(approval_context._approval_tool_call_id.get() or "")
+
+    @staticmethod
+    def cronjob_schema() -> tuple[dict, Any]:
+        """Hermes' own cronjob_manage schema and availability check, reused by the override."""
+        from tools.cronjob_tools import CRONJOB_SCHEMA, check_cronjob_requirements
+
+        return CRONJOB_SCHEMA, check_cronjob_requirements
+
+    def builtin_cronjob(self, own: Any) -> Any:
+        """The process-global (built-in) cronjob_manage handler, never this plugin's override."""
+        from tools.registry import registry
+
+        entry = registry.snapshot_registration("cronjob_manage", scope=None)
+        if entry is None or getattr(entry.handler, "__self__", None) is own:
+            raise RuntimeError("built-in cronjob_manage handler not found")
+        return entry.handler
+
     def post(self, text: str) -> bool:
         handle = self.ctx.post_message(text)
         return bool(getattr(handle, "ok", False))
 
     # ---- store --------------------------------------------------------------------------------
+
+    def get_job(self, job_id: str) -> dict | None:
+        from cron.jobs import get_job
+
+        return get_job(job_id)
 
     def jobs(self) -> list[dict]:
         from cron.jobs import list_jobs
