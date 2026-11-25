@@ -1,7 +1,7 @@
 # Report — homelab/2026-11-24-scout-self-cron (SCOUT-CRON)
 
-Verdict: PASS
-Version: 5a1fb5a (branch `feat/scout-self-cron`; commits 8ea5783 plugin, 3f22db6 role/config/SOUL/checks, 20e4e70 tests, 5cff2b9 docs, 5a1fb5a test alignment; this report is committed on top)
+Verdict: PASS (correction cycle 1 of review-1.md, CHANGES_REQUESTED on 5a1fb5a: F1–F5 fixed, see « Answers to review 1 »)
+Version: 392e02d (branch `feat/scout-self-cron`; cycle 0: 8ea5783 plugin, 3f22db6 role/config/SOUL/checks, 20e4e70 tests, 5cff2b9 docs, 5a1fb5a test alignment; cycle 1: 659c8a2 fix, 975fa5b tests, 392e02d docs; this report is committed on top and changes nothing else)
 MR: https://gitlab.com/tipunchlabs/homelab/-/merge_requests/111 (draft, source branch kept on merge)
 Executor: Claude Code, model Claude Opus 5.5 (`claude-opus-5-5`). Delegations: none. Every search, test run, log parse, security design and enforcement code was done by the executor model; no subagent was used.
 
@@ -18,6 +18,123 @@ Executor: Claude Code, model Claude Opus 5.5 (`claude-opus-5-5`). Delegations: n
   - runbook; README M4.4 section rewritten.
 - Not done, by design: no deployment, no restart, nothing written on hermes-31; check mode only (E3).
 - Every acceptance criterion is verified by tests on the real Hermes v0.22.5 image, except Telegram's own transport and button rendering. Both are faked in the lab and listed under owner tests.
+- Cycle 1 (Codex review 1): the owner's approval is now bound to one tool call, one job version and one set of arguments, and re-checked at the real save. To do that, scout_cron replaces `cronjob_manage` in Scout's profile only; this needs the operator grant `tools.override`. Create reservations belong to their own call, and the job count is checked again at the save. Every explicit value Hermes would store or clear is refused. Resume is refused over the cap. Every proposal shows the full effective task. Each finding has regression tests that fail on 5a1fb5a, including interleavings against real Hermes.
+
+## Answers to review 1
+
+Review `review-1.md` (Codex, CHANGES_REQUESTED on 5a1fb5a). Fix commits: 659c8a2 (plugin, role, config, deploy check), 975fa5b (tests), 392e02d (docs). No deployment; check mode only (below).
+
+### Mechanism (root cause of F1)
+
+- Hermes v0.22.5 runs nothing of a plugin between the approval tap and the dispatch:
+  - `pre_tool_call` runs before the card, and Hermes does not re-run the policy after the tap (`hermes_cli/plugins.py`, `_resolve_block_from_details`);
+  - tool-execution middleware wraps the whole pipeline, approval included (`agent/tool_executor.py`, `_hermes_pipeline` → `_authorized_dispatch`);
+  - the only supported point after the tap is the tool handler.
+- Hermes lets a plugin replace a built-in tool in its own profile scope, under an operator grant: `PluginContext.register_tool(override=True)`, gated by `plugin_capability_granted(..., "tools.override")` and stored with `registry.register(scope=<profile>)`.
+- scout_cron now registers `cronjob_manage` (Hermes' own schema, toolset `cronjob`) with the handler `manage`, in Scout's scope only.
+  - Scout config: `plugins.entries.scout_cron.granted_capabilities: [tools.override]`.
+  - Without the grant, `guard_installed` stays false and every scheduling call is refused (fail closed).
+  - The role refuses a switch and grant out of sync (`tasks/scout_cron.yml`).
+  - The `scout-schedule` check now requires the override for job-search, and the built-in tool everywhere else.
+- `pre_tool_call`, for a confirmed action, stores a binding keyed by `tool_call_id`. It holds:
+  - the immutable job id;
+  - a fingerprint: sha256 over id, name, prompt, deliver, origin, schedule, paused state, `enabled_toolsets`, `repeat.times` and every operator-only field (run bookkeeping excluded);
+  - the canonical arguments to dispatch and the expected saved values;
+  - the hook kwargs, a reservation flag and a 900 s expiry.
+- `manage` runs after the tap, under the `tool_call_id` Hermes binds around the dispatch (`model_tools._approval_observability`). It:
+  1. pops the binding (single use);
+  2. re-checks profile, cron context, owner DM, `/yolo` and `approvals.mode: off`;
+  3. under the plugin lock, re-evaluates the policy against the current store;
+  4. requires the same job id, fingerprint and canonical arguments as bound;
+  5. calls the other plugins' `pre_tool_call` again (scout_mail);
+  6. calls Hermes' built-in handler with the canonical arguments only: immutable id, never a name.
+- After a create, update or resume, `manage` re-reads the job. If it differs from the approval or does not conform, the job is paused and an error is returned.
+- `feedback_add` goes through the same binding and re-checks, inside the plugin's own tool handler.
+- A stale approval saves nothing. The tool result asks Scout to list the tasks and ask again, which produces a new proposal.
+
+### Per finding
+
+| Finding | Fix | Regression tests (fail on 5a1fb5a) |
+|---|---|---|
+| F1 approval not bound to the job, nor re-checked at execution; feedback resolves the name twice; taint while the card is pending | Mechanism above. scout_mail's veto and the `/yolo` and approvals-off state are re-checked at the save | Unit: `test_r1_f1_name_retargeted_after_approval_is_refused` (Codex's reproduction), `..._same_id_edited_after_approval_is_refused` (remove, resume, update), `..._hermes_gets_the_bound_id_and_canonical_arguments_once` (immutable id, single use, arguments modified after approval), `..._never_approved_call_saves_nothing`, `..._taint_or_yolo_during_the_pending_card_refuses_the_save`, `..._feedback_bound_to_the_job_version`, `..._saved_job_differing_from_the_approval_is_paused`. Image, real store, executor, approval gate and scout_mail, with the change made while the card is pending: `test_r1_02` (rename), `test_r1_03` (same id), `test_r1_04` (late taint, late `/yolo`), `test_r1_05` (feedback), `test_r1_01` (override in Scout only) |
+| F2 a terminal outcome released another call's reservation | Reservations are bindings keyed by `tool_call_id`. `post_tool_call` (every terminal outcome) and `manage` release only their own call's. Expired ones (900 s) drop. The count is re-checked in `manage`, under the lock that also covers Hermes' save | Unit: `test_r1_f2_blocked_create_releases_only_its_own_reservation` (Codex's sequence), `..._count_is_checked_again_at_the_save`, `..._two_competing_approved_creates_never_exceed_the_cap`. Image: `test_r1_07` (an operator job saved during the card → « plafond 5 », nothing saved), `test_r1_09` (no binding survives its call: Hermes hands the same `tool_call_id` to the hook, the handler and the post hook) |
+| F3 explicit empty override accepted, then saved | Field check by Hermes semantics (table below) instead of truthiness. Hermes only ever receives the canonical arguments, so a blank `prompt` on update is never forwarded (Hermes would clear the instructions) | Unit: `test_r1_f3_every_explicit_value_hermes_would_store_or_clear_is_refused` (24 fields × create/update), `test_r1_f3_create_dispatch_is_canonical`. Image: `test_g3_01[toolsets_empty]`, `[pinned_false]`, `test_r1_06` (blank prompt keeps the instructions) |
+| F4 resume ignores the cap; sizes not checked on stored jobs | Resume is refused when the jobs plus live reservations exceed `max_jobs`; pause and remove stay allowed. `conformity_issues` checks the stored prompt and name sizes (an update that replaces the oversized field is allowed). It is used by resume, update, `/taches-scout` and `scout-schedule` | Unit: `test_r1_f4_resume_is_refused_while_over_the_cap` (excess store, lowered limit, pending), `test_r1_f4_conformity_checks_stored_sizes`. Image: `test_r1_08` |
+| F5 proposals omit saved instructions, timezone or delivery | Every confirmed action shows the full effective instructions, the schedule (next three runs, Guadeloupe time and UTC) and the delivery: create, update, resume, remove and feedback. An update lists changed and unchanged fields with before → after. A paused job is marked as such | Unit: `test_r1_f5_every_confirmed_proposal_shows_the_effective_task`; `test_g2_02` (image) unchanged |
+
+F3 audit, against `tools/cronjob_tools.py` v0.22.5:
+- Always neutral: an absent key, or `None`.
+- Fields Scout may not set: any other value is refused, because Hermes acts on it. Two exceptions are Hermes' own no-ops: `paused: false` (handler default) and `include_disabled` (read by `list` only).
+
+  | Field | Value | What Hermes does with it |
+  |---|---|---|
+  | `enabled_toolsets` | `[]` | stores a zero-tool override |
+  | `skills`, `skill` | `[]` | clear on update |
+  | `script`, `workdir`, `failure_deliver`, `monitor*`, `context_from` | `''` | clear on update |
+  | `pinned`, `no_agent`, `attach_to_session`, `continuity` | `false` | stored |
+  | `repeat` | `0` | normalised count |
+
+- Fields Scout may set:
+  - `name`, `prompt`, `schedule`: `None` or blank means unchanged, and is not forwarded;
+  - `deliver`: only `None`, `''` or `origin`, and never forwarded;
+  - `job_id` becomes the immutable id.
+
+Found and fixed during the cycle:
+- Registering the override makes `cronjob` a plugin toolset, which Hermes enables by default on every platform where it is not "known" (`_enabled_plugin_toolsets`).
+- The image lab caught it, through `test_g1_02` and the scout-mail check: `cronjob` appeared on cron, api_server and cli.
+- Fix: `known_plugin_toolsets.{api_server,cli}: [scout_task_record, cronjob]` and `known_plugin_toolsets.cron: [cronjob]` (`test_decl_01`).
+- The scout-mail check's registry diff now ignores `cronjob` as well; its exposure is judged by `scout-schedule`.
+
+### Proof that the tests fail on 5a1fb5a
+
+- Unit: 5a1fb5a's `hermes/` tree was exported to the scratchpad (`git archive 5a1fb5a hermes`; not a worktree), the new `test_scout_cron.py` copied in, and `pytest -k test_r1_` run.
+  - Result: 56 failed, 6 passed of 62 items. Every test function fails.
+  - The 6 passing items are F3 audit rows with non-empty values that 5a1fb5a already refused (`enabled_toolsets: ["web"]`, `repeat: 0`, `paused: true`, each for create and update). Every empty or false row fails.
+- Image, 5a1fb5a's plugin with the new lab, `tool_search` off:
+  - With the two new F3 rows, the old plugin accepted `enabled_toolsets: []` and `pinned: false` and saved both jobs. The cap was then reached early, and the lab stopped before the interleavings.
+  - Without those rows, all 9 `test_r1_*` image tests fail. Observed on real Hermes:
+    - rename during the card → `"Cron job 'Remplissage 0' removed."`, id `e298e69e9414`, which is the job renamed INTO that name (Codex's F1, reproduced end to end);
+    - same-id edit → the update was saved over the operator's edit;
+    - late taint → the removal was saved;
+    - blank prompt → forwarded; Hermes then rejected the whole update (« Cron job has nothing to run »);
+    - no override installed.
+- On 392e02d: `test_scout_cron.py` 154 passed; `test_scout_cron_role.py` 13 passed; `test_scout_cron_image.py` 108 passed (54 per lab, `tool_search` off and auto).
+
+### Kandidat date-sensitive failure
+
+Pre-existing on 975e302; reproduced there.
+- Cause: `test_scout03_kandidat.py::test_l06_create_candidature_side_effects` compares the host's `date.today()` with the date the fake Kandidat server takes from its own `date.today()` inside the container (UTC). Between 20:00 and 24:00 Guadeloupe time the two dates differ.
+- On 975e302 (untouched base worktree), run at 22:11–22:14 AST (02:11 UTC, 25 Nov): failed, `assert '2026-11-25' == '2026-11-24'`. Same failure on the branch at 22:14–22:17.
+- Neither file changed since 975e302. Not fixed here: out of scope, and it is a test-clock issue, not a Kandidat write path.
+- Suggested fix, separate: compare with the container's date, or accept either calendar date.
+
+### Full suite after the last product commit
+
+- Command, from the worktree root at 392e02d: `uv run pytest hermes/tests -q -p no:cacheprovider -o faulthandler_timeout=300 -rf`. Nothing deselected: the Kaféine gateway labs and both cron image labs are included.
+- Started 23:25:27 AST (03:25 UTC, 25 Nov), ended 00:02:22 AST.
+- Result: 1 failed, 1147 passed, 27 skipped, in 2214.69 s; exit code 1.
+- The only failure is the pre-existing `test_scout03_kandidat.py::test_l06_create_candidature_side_effects` (`'2026-11-25' == '2026-11-24'`), explained above.
+- `test_m5_recovery.py::test_r10_closed_database_is_restored_with_its_sidecars_set_aside` passed. The cycle-0 baseline failure did not recur, as Codex also observed.
+- The report commit on top of 392e02d changes only `report.md`.
+
+### Check mode (cycle 1)
+
+- Command, from `hermes/`, worktree venv, at 392e02d: `ansible-playbook ansible/deploy.yml --limit hermes-31 --tags hermes --check --diff`.
+- Result: `ok=84 changed=5 unreachable=0 failed=0 skipped=58`, the same five tasks as in E3:
+  - SOUL predecessor replaced;
+  - plugin directories;
+  - plugin code (7 files, now cycle-1 content);
+  - `settings.json`;
+  - restart flag.
+- The switch assertion, now including the grant, passed.
+- Not shown in check mode (existing role behaviour: config reads are skipped): the new keys `plugins.entries.scout_cron.granted_capabilities` and `known_plugin_toolsets.cron`, and the extended `known_plugin_toolsets.{api_server,cli}`. The real run sets them with the other Scout keys before the single restart.
+- No change for default (Nora) or cafe-ia (Kaféine). Nothing applied on hermes-31.
+
+### Remaining limits of the fix
+
+- The re-check and Hermes' save run under the plugin's lock, inside the gateway process. A write by another process in between is not excluded; the window is between the re-check and Hermes' write, both inside one handler call. Examples: the operator CLI, or the cron worker updating run bookkeeping, which the fingerprint ignores on purpose.
+- New v0.22.5 internals are listed in `hermes_port.py`: the `_approval_tool_call_id` context variable, `registry.snapshot_registration` and `CRONJOB_SCHEMA`. `test_r1_09` and the image labs prove them; any image upgrade must re-run `test_scout_cron_image.py`.
+- The approval card text itself is unchanged; the full text is in the posted proposal above it.
 
 ## Initial state and scope
 
@@ -115,6 +232,9 @@ Test counts (exact):
 | New: offline unit | `test_scout_cron.py` | 92 passed |
 | New: role/declarations | `test_scout_cron_role.py` | 11 passed |
 | New: image lab | `test_scout_cron_image.py` | 86 passed (43 tests × 2 labs, tool_search off/auto) |
+| Cycle 1, full run on 392e02d | `uv run pytest hermes/tests -q -p no:cacheprovider -o faulthandler_timeout=300 -rf` | 1 failed, 1147 passed, 27 skipped, nothing deselected. The failure is the pre-existing date-sensitive `test_scout03_kandidat.py::test_l06` (fails identically on 975e302 between 20:00 and 24:00 AST) |
+| Cycle 1: unit, role, image | `test_scout_cron.py`, `test_scout_cron_role.py`, `test_scout_cron_image.py` | 154, 13, 108 passed |
+| Cycle 1: new tests against 5a1fb5a | export of 5a1fb5a + new test files | unit `test_r1_*`: 56 failed, 6 passed (non-empty audit rows already refused); image `test_r1_*`: 9 of 9 failed |
 
 The run on the untouched base commit is the reference: everything passing there passes on the branch except the deliberately updated assertions listed under Deviations.
 
@@ -201,7 +321,7 @@ Residual risks (stated, not solved):
 
   Search queries or fetched URLs can still carry the private context (`agent.environment_hint`). That was already true of any Scout session with web tools; scheduling makes it unattended and recurring.
 - A run can write steering text into its own journal (at most 3,000 characters, read by that job only). It is visible with `/taches-scout` and deleted with the job.
-- A taint that appears while an approval card is pending is not re-checked before execution. This is a limit of scout_mail's per-call veto, and the window is the approval wait.
+- (Closed in cycle 1, F1.) A taint that appears while an approval card is pending is now re-checked at the save: scout_cron calls scout_mail's veto again inside its `cronjob_manage` handler (`test_r1_04`, image).
 - The cron worker process takes `HERMES_TIMEZONE` from the gateway environment, i.e. the default profile's `timezone` (unset today). Keep Nora's `timezone` unset or equal to Scout's (runbook §9).
 - The plugin depends on v0.22.5 internals (`hermes_port.py`). Any image upgrade must re-run `test_scout_cron_image.py`.
 - `/approve` by a stranger was not lab-tested (code evidence only).
@@ -209,7 +329,7 @@ Residual risks (stated, not solved):
 
 ## Repository and infrastructure state
 
-- Branch `feat/scout-self-cron`, pushed; commits 8ea5783, 3f22db6, 20e4e70, 5cff2b9, 5a1fb5a, plus the report commit. Working tree clean after the report commit.
+- Branch `feat/scout-self-cron`, pushed; commits 8ea5783, 3f22db6, 20e4e70, 5cff2b9, 5a1fb5a, 98d627e (cycle 0 report), 659c8a2, 975fa5b, 392e02d (cycle 1), plus the cycle 1 report commit. Working tree clean after it, except Codex's own untracked `review-1.md` and `review-brief-1.md` (not committed by the executor).
 - Draft MR !111 opened, not merged; `force_remove_source_branch` set to false.
 - hermes-31: read-only commands and one check-mode playbook run. No file written, no restart, no job created.
 - `owner-request.local.md` stays local (excluded by `.git/info/exclude`); its criteria are absent from every committed file (grep on all added lines).
@@ -246,7 +366,7 @@ Residual risks (stated, not solved):
 
 Runbook §7:
 1. Pause or remove Scout's jobs.
-2. In one commit: `hermes_scout_cron_enabled: false`, remove `scout_cron` from `plugins.enabled`, put `cronjob` back into Scout's deny list. The role refuses an inconsistent set.
+2. In one commit: `hermes_scout_cron_enabled: false`, remove `scout_cron` from `plugins.enabled`, put `cronjob` back into Scout's deny list, set `plugins.entries.scout_cron.granted_capabilities: []` (the role never deletes a config key). The role refuses an inconsistent set.
 3. Run check mode, then deploy.
 
 To revert the whole MR instead, mind three things:
@@ -256,4 +376,4 @@ To revert the whole MR instead, mind three things:
 
 ## Recommended next action
 
-Codex review of MR !111, brief by the pilot. Then the owner's deployment decision (D-DEPLOY) and the owner Telegram tests above. Nothing is safe to execute on hermes-31 without that decision.
+Codex re-review of MR !111 at 392e02d (cycle 1), brief by the pilot. Then the owner's deployment decision (D-DEPLOY) and the owner Telegram tests above. Nothing is safe to execute on hermes-31 without that decision.
