@@ -286,7 +286,9 @@ ansible-playbook ansible/deploy.yml --limit hermes-31 --tags komodo-periphery
 
 > ⏰ **Scout planifie ses taches (SCOUT-CRON)** : plugin `scout_cron`, Scout seul,
 > conversation Telegram privee du proprietaire seule ; chaque creation/modification/
-> suppression/reprise affiche le texte exact puis exige l'approbation (bouton) ;
+> suppression/reprise affiche le texte exact puis exige l'approbation (bouton),
+> liee a la tache et reverifiee a l'enregistrement (le plugin remplace
+> cronjob_manage dans le profil de Scout : autorisation `tools.override`) ;
 > 5 taches max, une execution par jour max, livraison au proprietaire seul, fuseau
 > `America/Guadeloupe` (Scout seul). En cron : journal + registre des offres deja
 > signalees (`scout_task_record`), ni memory ni session_search. Le role ne cree

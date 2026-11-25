@@ -1235,7 +1235,13 @@ Operator procedures (enable, owner test, inspect/pause/remove a job, rollback):
 - Create, update, remove, resume and owner feedback need the owner's approval tap. The plugin posts the
   exact text to be saved first, then Hermes' approval card appears (single-use rule key, 300 s, silence
   is a refusal). `/yolo` or `approvals.mode: off` makes the plugin refuse.
-- Limits: at most 5 jobs (paused included); one fixed minute and hour (at most one run a day);
+- The approval covers one tool call, one job version and one set of arguments. The plugin replaces
+  `cronjob_manage` in Scout's profile only (Scout config
+  `plugins.entries.scout_cron.granted_capabilities: [tools.override]`, required when the switch is on,
+  refused when it is off); after the tap its handler re-checks context, `/yolo`, scout_mail's veto, the
+  policy, the job id and fingerprint, and the job count, then calls Hermes' own handler with the canonical
+  arguments only. A change in between saves nothing. `scout-schedule` verifies the override.
+- Limits: at most 5 jobs (paused included; resume is refused over the cap); one fixed minute and hour (at most one run a day);
   delivery to the owner's chat only; instructions of at most 6,000 characters; no script, toolsets,
   skills, workdir or model fields; no immediate run; 40 tool calls and 20 web calls per cron run.
 - Scout's timezone is `America/Guadeloupe` (Scout's profile only): `0 7 * * 1-5` means 07:00 in

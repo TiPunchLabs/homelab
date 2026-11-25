@@ -8,12 +8,12 @@ In his private Telegram chat, the owner asks Scout to create, update, list, paus
 |---|---|
 | Plugin code | `hermes/ansible/roles/hermes_agent/files/plugins/scout_cron/` → `/opt/hermes/data/profiles/job-search/plugins/scout_cron/` (owner hermes, 0644) |
 | Settings | `settings.json` in the same directory, rendered by `tasks/scout_cron.yml` (0640): `enabled`, `profile`, `owner_user_ids` (from `hermes_telegram_allowed_users`), `display_timezone` (`hermes_timezone`), `limits` |
-| Switch | `hermes_scout_cron_enabled` (group_vars). Must agree with `plugins.enabled` of Scout. Off requires `cronjob` back in Scout's `agent.disabled_toolsets`, and `cron.allow_agent_scheduling` stays false: the role refuses otherwise |
-| Scout config | `plugins.enabled: [scout_mail, scout_cron]`; `timezone: America/Guadeloupe` (Scout only); `cronjob` and `scout_task_record` on `platform_toolsets.telegram` only; `platform_toolsets.cron: [web, skills, kandidat, scout_task_record]` (no memory, no session_search); `known_plugin_toolsets.{api_server,cli}: [scout_task_record]`; `cronjob` removed from `agent.disabled_toolsets` |
+| Switch | `hermes_scout_cron_enabled` (group_vars). Must agree with `plugins.enabled` of Scout and with the `tools.override` grant below. Off requires `cronjob` back in Scout's `agent.disabled_toolsets` and no grant, and `cron.allow_agent_scheduling` stays false: the role refuses otherwise |
+| Scout config | `plugins.enabled: [scout_mail, scout_cron]`; `plugins.entries.scout_cron.granted_capabilities: [tools.override]` (lets the plugin replace `cronjob_manage` in Scout's profile only; without it the plugin refuses every scheduling change); `timezone: America/Guadeloupe` (Scout only); `cronjob` and `scout_task_record` on `platform_toolsets.telegram` only; `platform_toolsets.cron: [web, skills, kandidat, scout_task_record]` (no memory, no session_search); `known_plugin_toolsets.{api_server,cli}: [scout_task_record, cronjob]` and `known_plugin_toolsets.cron: [cronjob]` (a plugin toolset is on by default where it is not "known"; the override makes `cronjob` one); `cronjob` removed from `agent.disabled_toolsets` |
 | SOUL.md (Scout) | Section « Tâches planifiées »; predecessor hash `7dc753fe…` (live on 2026-11-24) added so `default_soul.yml` replaces it once |
 | Runtime data | Jobs: `profiles/job-search/cron/jobs.json` (Hermes). Journal and owner feedback: Hermes cron notepad `profiles/job-search/cron/notepad.db`, keys `journal` and `feedback`. Alerted-vacancy ledger: `profiles/job-search/plugin-data/scout_cron/ledger/<job_id>.json` (0600, 16-hex URL hashes, date, short title) |
 | Exposed to the owner | `/taches-scout [nom ou id]` (read-only: jobs, next run, journal, feedback, ledger count) |
-| Exposed to the model | Telegram: `cronjob_manage` (Hermes) and `scout_task_record` (`feedback_add` only). Cron run: `scout_task_record` (journal, alerted ledger). Nothing on api_server, cli, Nora or Kaféine |
+| Exposed to the model | Telegram: `cronjob_manage` (Hermes' schema; in Scout's profile its handler is scout_cron's `manage`, which re-checks the approved call and then calls Hermes' own handler) and `scout_task_record` (`feedback_add` only). Cron run: `scout_task_record` (journal, alerted ledger). Nothing on api_server, cli, Nora or Kaféine |
 | Created by the deploy | No job. The role never creates, edits, pauses or runs a job |
 
 ## 2. Guards and how they are enforced
@@ -22,11 +22,12 @@ In his private Telegram chat, the owner asks Scout to create, update, list, paus
 |---|---|---|
 | G1 scheduling only in the owner's private Telegram chat, Scout only | Per-platform tool lists; Hermes strips `cronjob` from every cron run; plugin refuses outside the owner's private chat, on another profile and in any cron context | code |
 | G1 a scheduled run never schedules | Hermes cron denylist (`cron.allow_agent_scheduling` false) + plugin block in cron context | code |
-| G2 owner approval for create, update, remove, resume, feedback | The plugin posts the exact text to be saved, then sends the call to Hermes' approval gate (button; 300 s; silence = refusal) with a single-use rule key. `/yolo` or `approvals.mode: off` → refused | code |
+| G2 owner approval for create, update, remove, resume, feedback | The plugin posts the exact text to be saved (full effective instructions, schedule in Guadeloupe time and UTC, delivery; changed and unchanged fields for an update), then sends the call to Hermes' approval gate (button; 300 s; silence = refusal) with a single-use rule key. `/yolo` or `approvals.mode: off` → refused | code |
+| G2 the approval covers that exact change | The approval is bound to the tool call, the immutable job id, a fingerprint of the job shown and the canonical arguments. After the tap, `manage` re-checks context, `/yolo`, the other plugins' veto (scout_mail), the policy and the binding, then hands Hermes only the canonical arguments (job id, never a name). Anything changed meanwhile (job renamed, edited, removed; other arguments) → nothing saved, the owner gets a new proposal on the next request. A saved job that differs from the approval is paused at once | code |
 | G2 summary before the tool call, list before create | SOUL | prompt |
-| G3 ≤ 5 jobs (paused included), ≤ 1 run per day per job, owner chat only, ≤ 6,000-char instructions, no script/toolsets/skills/workdir/model fields, no immediate run | Plugin policy on the arguments and the stored jobs | code |
+| G3 ≤ 5 jobs (paused included), ≤ 1 run per day per job, owner chat only, ≤ 6,000-char instructions, no script/toolsets/skills/workdir/model fields, no immediate run | Plugin policy on the arguments and the stored jobs. Any explicit value of another field is refused, empty or false included (`enabled_toolsets: []`, `pinned: false`, `skills: []`...: Hermes stores or clears them); only Hermes' own no-op defaults pass. A create reserves its slot for its own call only; the count is checked again at the save; resume is refused while Scout is over the cap; stored jobs are also checked for instruction and name size | code |
 | G3 per-run cost | Plugin: 40 tool calls, 20 web calls per cron execution | code |
-| G4 mail-tainted session cannot schedule | scout_mail veto (wins over approval); scout_cron posts nothing when another hook vetoes | code |
+| G4 mail-tainted session cannot schedule | scout_mail veto (wins over approval); scout_cron posts nothing when another hook vetoes, and asks again at the save (a session tainted while the card is pending saves nothing) | code |
 | G5 record read at start | Hermes notepad injected into every run's prompt | code |
 | G5 record written, dedup applied | Tool exists and is scoped to the running job; using it is asked by the SOUL and the job instructions | prompt (use) |
 
@@ -59,7 +60,7 @@ ansible-playbook ansible/deploy.yml --limit hermes-31 --tags hermes             
 ```
 
 After the restart the playbook verifies:
-- `hermes_checks.py scout-schedule`: the plugin and `/taches-scout` exist for job-search only; `cronjob` is on telegram only and `scout_task_record` on telegram and cron only, nowhere else; `cron.allow_agent_scheduling` is not true; at most 5 jobs, each conforming. It prints names and schedules, never instructions;
+- `hermes_checks.py scout-schedule`: the plugin, `/taches-scout` and the `cronjob_manage` override exist for job-search only; `cronjob` is on telegram only and `scout_task_record` on telegram and cron only, nowhere else; `cron.allow_agent_scheduling` is not true; at most 5 jobs, each conforming. It prints names and schedules, never instructions;
 - `hermes_checks.py scout-mail`, unchanged;
 - the per-platform `toolsets` check.
 
@@ -110,8 +111,9 @@ Order matters. A job keeps firing after the plugin is unloaded, and it then runs
 2. In ONE commit:
    - set `hermes_scout_cron_enabled: false`;
    - remove `scout_cron` from Scout's `plugins.enabled`;
-   - put `cronjob` back into Scout's `agent.disabled_toolsets`.
-   The role refuses a disabled switch without `cronjob` denied.
+   - put `cronjob` back into Scout's `agent.disabled_toolsets`;
+   - set `plugins.entries.scout_cron.granted_capabilities: []` (keep the line: the role never deletes a config key, so a removed line would leave the grant in place).
+   The role refuses a disabled switch without `cronjob` denied or with the grant left.
 
    Optionally, revert the whole MR instead. It also restores:
    - the tool lists: cron keeps memory and session_search again;
