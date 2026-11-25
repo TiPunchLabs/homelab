@@ -75,6 +75,10 @@ class FakePort:
         self.posts: list[str] = []
         self.profile = "job-search"
         self.veto_calls: list[dict] = []
+        self.call_id = ""
+        self.dispatched: list[dict] = []
+        self.save_prompt_suffix = ""  # simulates a Hermes save that differs from the approved arguments
+        self._ids = iter(range(1, 10_000))
 
     from contextlib import contextmanager
 
@@ -130,16 +134,73 @@ class FakePort:
     def note_set(self, job_id: str, key: str, value: str) -> None:
         self.notes[(job_id, key)] = value
 
+    def current_tool_call_id(self) -> str:
+        return self.call_id
+
+    def get_job(self, job_id: str) -> dict | None:
+        return next((j for j in self.store if j["id"] == job_id), None)
+
+    def builtin_cronjob(self, own: Any) -> Any:
+        """A small stand-in of Hermes' handler (the real one runs in the image tests): resolves job_id by id
+        or name AT DISPATCH, like Hermes, and records the arguments it was handed."""
+        def handler(args: dict, **kw: Any) -> str:
+            self.dispatched.append(dict(args))
+            action = args["action"]
+            if action == "list":
+                return json.dumps({"success": True, "jobs": self.store})
+            if action == "create":
+                new = job(f"new{next(self._ids):09d}", args["name"], fake_parse(args["schedule"])["expr"],
+                          prompt=args["prompt"].strip() + self.save_prompt_suffix, deliver=None)
+                self.store.append(new)
+                return json.dumps({"success": True, "job_id": new["id"]})
+            target = self.resolve_job(args["job_id"])
+            if target is None:
+                return json.dumps({"success": False, "error": "not found"})
+            if action == "remove":
+                self.store.remove(target)
+                return json.dumps({"success": True, "removed_job": {"id": target["id"], "name": target["name"]}})
+            if action == "pause":
+                target.update(state="paused", enabled=False)
+            elif action == "resume":
+                target.update(state="scheduled", enabled=True)
+            elif action == "update":
+                if "schedule" in args:
+                    target["schedule"] = {"kind": "cron", "expr": fake_parse(args["schedule"])["expr"]}
+                for key in ("name", "prompt"):
+                    if key in args:
+                        target[key] = args[key] + (self.save_prompt_suffix if key == "prompt" else "")
+            return json.dumps({"success": True, "job": target})
+        return handler
+
 
 @pytest.fixture
 def plugin(tmp_path: Path) -> scout_cron._Plugin:
     path = tmp_path / "settings.json"
     path.write_text(json.dumps(settings_raw(run_tool_calls=6, run_web_calls=2)))
-    return scout_cron._Plugin(SimpleNamespace(), tmp_path, port=FakePort(tmp_path), settings_path=path)
+    p = scout_cron._Plugin(SimpleNamespace(), tmp_path, port=FakePort(tmp_path), settings_path=path)
+    p.guard_installed = True
+    return p
 
 
-def call(p: scout_cron._Plugin, args: dict[str, Any], tool: str = "cronjob_manage") -> dict | None:
-    return p.pre_tool_call(tool_name=tool, args=args, session_id="S1", tool_call_id="c1")
+_CALLS = iter(range(1, 100_000))
+
+
+def call(p: scout_cron._Plugin, args: dict[str, Any], tool: str = "cronjob_manage", call_id: str = "") -> dict | None:
+    """Hermes' pre_tool_call for one tool call (a fresh tool_call_id unless given)."""
+    return p.pre_tool_call(tool_name=tool, args=args, session_id="S1", tool_call_id=call_id or f"c{next(_CALLS)}")
+
+
+def dispatch(p: scout_cron._Plugin, args: dict[str, Any], call_id: str, tool: str = "cronjob_manage") -> dict:
+    """What Hermes does after an approved tap: the registry handler runs under the call's id."""
+    p.port.call_id = call_id
+    out = p.manage(args) if tool == "cronjob_manage" else p.tool(args)
+    return json.loads(out)
+
+
+def approved(p: scout_cron._Plugin, args: dict[str, Any], call_id: str, tool: str = "cronjob_manage") -> dict:
+    d = call(p, args, tool=tool, call_id=call_id)
+    assert d is not None and d["action"] == "approve", d
+    return d
 
 
 def create_args(**extra: Any) -> dict[str, Any]:
@@ -247,9 +308,9 @@ def test_pol_03_create_refusals(extra: dict[str, Any], why: str) -> None:
     assert d.kind == "refuse" and why in d.message, d.message
 
 
-def test_pol_04_schema_defaults_are_not_fields() -> None:
-    d = policy.evaluate(create_args(skills=[], repeat=None, no_agent=False, include_disabled=False, script="",
-                                    paused=False, deliver="origin"), ctx())
+def test_pol_04_only_hermes_neutral_values_are_absent() -> None:
+    d = policy.evaluate(create_args(skills=None, repeat=None, no_agent=None, include_disabled=False, script=None,
+                                    paused=False, deliver="origin", enabled_toolsets=None), ctx())
     assert d.kind == "confirm"
 
 
@@ -329,7 +390,7 @@ def test_hook_01_create_posts_verbatim_then_requests_approval_with_single_use_ke
     second = call(plugin, create_args(name="Autre veille"))
     assert first["action"] == "approve" and second["action"] == "approve"
     assert first["rule_key"].startswith("scout_cron:") and first["rule_key"] != second["rule_key"]
-    assert "Consigne complète." in plugin.port.posts[0]
+    assert "Consigne complète." in "\n".join(plugin.port.posts)
     assert plugin.port.veto_calls[0]["tool_name"] == "cronjob_manage"
 
 
@@ -363,11 +424,14 @@ def test_hook_04_bypass_veto_and_post_failure_fail_closed(plugin: scout_cron._Pl
     plugin.port.bypass = False
     plugin.port.veto = True
     assert "autre contrôle" in call(plugin, create_args())["message"] and plugin.port.posts == []
-    assert plugin._pending == {}  # the reservation is released
+    assert plugin._bindings == {}  # the reservation is released
     plugin.port.veto = False
     plugin.port.post_ok = False
     assert "Impossible d'afficher" in call(plugin, create_args())["message"]
-    assert plugin._pending == {}
+    assert plugin._bindings == {}
+    plugin.port.post_ok = True
+    plugin.guard_installed = False  # no tools.override grant: no scheduling change at all
+    assert "garde d'enregistrement" in call(plugin, create_args())["message"]
 
 
 def test_hook_05_port_errors_fail_closed(plugin: scout_cron._Plugin) -> None:
@@ -382,16 +446,20 @@ def test_hook_05_port_errors_fail_closed(plugin: scout_cron._Plugin) -> None:
 def test_hook_06_list_and_pause_need_no_approval(plugin: scout_cron._Plugin) -> None:
     plugin.port.store.append(job())
     assert call(plugin, {"action": "list"}) is None
-    assert call(plugin, {"action": "pause", "job_id": "aaaa11112222"}) is None
+    assert call(plugin, {"action": "pause", "job_id": "Veille"}) is None
     assert plugin.port.posts == []
+    assert dispatch(plugin, {"action": "pause", "job_id": "Veille", "reason": "vacances"}, "p1")["success"]
+    assert plugin.port.dispatched[-1] == {"action": "pause", "job_id": "aaaa11112222", "reason": "vacances"}
+    assert plugin.port.store[0]["state"] == "paused"
 
 
 def test_hook_07_pending_creates_count_until_settled(plugin: scout_cron._Plugin) -> None:
     plugin.port.store += [job(f"id{i:010d}", f"T{i}") for i in range(3)]
-    assert call(plugin, create_args(name="A"))["action"] == "approve"
-    assert call(plugin, create_args(name="B"))["action"] == "approve"
+    approved(plugin, create_args(name="A"), "cA")
+    approved(plugin, create_args(name="B"), "cB")
     assert "plafond" in call(plugin, create_args(name="C"))["message"]
-    plugin.post_tool_call(tool_name="cronjob_manage", args=create_args(name="A"), result='{"success": false}')
+    plugin.post_tool_call(tool_name="cronjob_manage", args=create_args(name="A"), result='{"success": false}',
+                          tool_call_id="cA")  # A denied or timed out
     assert call(plugin, create_args(name="C"))["action"] == "approve"
 
 
@@ -442,7 +510,9 @@ def test_hook_11_feedback_under_approval_then_trimmed(plugin: scout_cron._Plugin
                 tool="scout_task_record")["action"] == "block"
     assert call(plugin, {"action": "feedback_add", "job_id": "nope", "text": "x"}, tool="scout_task_record")["action"] == "block"
     for i in range(40):
-        assert json.loads(plugin.tool({"action": "feedback_add", "job_id": "aaaa11112222", "text": f"retour {i} " * 5}))["success"]
+        args = {"action": "feedback_add", "job_id": "aaaa11112222", "text": f"retour {i} " * 5}
+        approved(plugin, args, f"fb{i}", tool="scout_task_record")
+        assert dispatch(plugin, args, f"fb{i}", tool="scout_task_record")["success"]
     stored = plugin.port.notes[("aaaa11112222", "feedback")]
     assert len(stored) <= 1500 and "retour 39" in stored and "retour 0 " not in stored
 
@@ -482,6 +552,213 @@ def test_hook_15_unrelated_tools_untouched_outside_cron(plugin: scout_cron._Plug
     assert call(plugin, {}, tool="kandidat__list_cibles") is None
 
 
+# ---- review 1 (Codex, 5a1fb5a): approval bound to the job and the call --------------------------------------
+# Each test fails on 5a1fb5a (no binding, no override handler, global reservations, truthiness-based field
+# check, no cap on resume, partial proposals).
+
+def test_r1_f1_name_retargeted_after_approval_is_refused(plugin: scout_cron._Plugin) -> None:
+    # Codex F1 reproduction: the proposal names jobA; before the tap A becomes "Renamed" and B becomes "Target".
+    plugin.port.store += [job("jobA00000000", "Target"), job("jobB00000000", "Other")]
+    approved(plugin, {"action": "remove", "job_id": "Target"}, "r1")
+    assert "jobA00000000" in plugin.port.posts[0]
+    plugin.port.store[0]["name"], plugin.port.store[1]["name"] = "Renamed", "Target"
+    out = dispatch(plugin, {"action": "remove", "job_id": "Target"}, "r1")
+    assert out["success"] is False and "a changé" in out["error"]
+    assert [j["id"] for j in plugin.port.store] == ["jobA00000000", "jobB00000000"] and plugin.port.dispatched == []
+
+
+def test_r1_f1_same_id_edited_after_approval_is_refused(plugin: scout_cron._Plugin) -> None:
+    plugin.port.store.append(job())
+    for args in ({"action": "remove", "job_id": "aaaa11112222"}, {"action": "resume", "job_id": "Veille"},
+                 {"action": "update", "job_id": "aaaa11112222", "schedule": "0 8 * * 1-5"}):
+        cid = f"e-{args['action']}"
+        approved(plugin, args, cid)
+        plugin.port.store[0]["prompt"] = "Consigne modifiée par l'opérateur."  # same id, new version
+        out = dispatch(plugin, args, cid)
+        assert out["success"] is False and "a changé" in out["error"], args
+        plugin.port.store[0]["prompt"] = "Consigne."
+    assert plugin.port.dispatched == [] and len(plugin.port.store) == 1
+
+
+def test_r1_f1_hermes_gets_the_bound_id_and_canonical_arguments_once(plugin: scout_cron._Plugin) -> None:
+    plugin.port.store.append(job())
+    args = {"action": "update", "job_id": "Veille", "schedule": "0 8 * * 1-5", "prompt": "", "deliver": "origin",
+            "paused": False}
+    approved(plugin, args, "u1")
+    assert dispatch(plugin, args, "u1")["success"]
+    # Immutable id; '' prompt NOT forwarded (Hermes would clear the stored prompt); no deliver, no paused.
+    assert plugin.port.dispatched == [{"action": "update", "job_id": "aaaa11112222", "schedule": "0 8 * * 1-5"}]
+    assert plugin.port.store[0]["prompt"] == "Consigne."
+    assert "u1" not in plugin._bindings  # the approval is single-use
+    plugin.port.store[0]["schedule"] = {"kind": "cron", "expr": "0 7 * * 1-5"}
+    again = dispatch(plugin, args, "u1")
+    assert again["success"] is False and "aucune approbation" in again["error"] and len(plugin.port.dispatched) == 1
+    # Arguments changed between the approval and the save (e.g. another plugin's "modify"): refused.
+    approved(plugin, {"action": "update", "job_id": "Veille", "prompt": "A"}, "u2")
+    out = dispatch(plugin, {"action": "update", "job_id": "Veille", "prompt": "B"}, "u2")
+    assert out["success"] is False and plugin.port.store[0]["prompt"] == "Consigne."
+
+
+def test_r1_f1_never_approved_call_saves_nothing(plugin: scout_cron._Plugin) -> None:
+    plugin.port.store.append(job())
+    for args in (create_args(), {"action": "remove", "job_id": "Veille"}):
+        out = dispatch(plugin, args, "never-seen")
+        assert out["success"] is False and "aucune approbation" in out["error"]
+    out = dispatch(plugin, create_args(), "")  # no call id at dispatch
+    assert out["success"] is False and plugin.port.dispatched == [] and len(plugin.port.store) == 1
+
+
+def test_r1_f1_taint_or_yolo_during_the_pending_card_refuses_the_save(plugin: scout_cron._Plugin) -> None:
+    plugin.port.store.append(job())
+    approved(plugin, create_args(), "t1")
+    plugin.port.veto = True  # scout_mail marks the session while the card is pending
+    out = dispatch(plugin, create_args(), "t1")
+    assert out["success"] is False and "autre contrôle" in out["error"]
+    assert plugin.port.veto_calls[-1]["tool_call_id"] == "t1"
+    plugin.port.veto = False
+    approved(plugin, {"action": "remove", "job_id": "Veille"}, "t2")
+    plugin.port.bypass = True  # /yolo switched on before the tap
+    out = dispatch(plugin, {"action": "remove", "job_id": "Veille"}, "t2")
+    assert out["success"] is False and "/yolo" in out["error"]
+    assert plugin.port.dispatched == [] and len(plugin.port.store) == 1
+
+
+def test_r1_f1_feedback_bound_to_the_job_version(plugin: scout_cron._Plugin) -> None:
+    plugin.port.store += [job("jobA00000000", "Target"), job("jobB00000000", "Other")]
+    args = {"action": "feedback_add", "job_id": "Target", "text": "Moins d'ESN."}
+    approved(plugin, args, "f1", tool="scout_task_record")
+    plugin.port.store[0]["name"], plugin.port.store[1]["name"] = "Renamed", "Target"
+    assert dispatch(plugin, args, "f1", tool="scout_task_record")["success"] is False
+    plugin.port.store[0]["name"], plugin.port.store[1]["name"] = "Target", "Other"
+    approved(plugin, args, "f2", tool="scout_task_record")
+    plugin.port.store[0]["prompt"] = "Nouvelle consigne."
+    assert dispatch(plugin, args, "f2", tool="scout_task_record")["success"] is False
+    approved(plugin, args, "f3", tool="scout_task_record")
+    plugin.port.veto = True
+    assert dispatch(plugin, args, "f3", tool="scout_task_record")["success"] is False
+    plugin.port.veto = False
+    assert plugin.port.notes == {}
+    approved(plugin, args, "f4", tool="scout_task_record")
+    out = dispatch(plugin, args, "f4", tool="scout_task_record")
+    assert out["success"] and out["job_id"] == "jobA00000000" and ("jobA00000000", "feedback") in plugin.port.notes
+
+
+def test_r1_f1_saved_job_differing_from_the_approval_is_paused(plugin: scout_cron._Plugin) -> None:
+    approved(plugin, create_args(), "s1")
+    plugin.port.save_prompt_suffix = " + ajout"
+    out = dispatch(plugin, create_args(), "s1")
+    assert out["success"] is False and "mise en pause" in out["error"]
+    assert plugin.port.store[0]["state"] == "paused"
+
+
+def test_r1_f2_blocked_create_releases_only_its_own_reservation(plugin: scout_cron._Plugin) -> None:
+    # Codex F2 reproduction: four jobs; A reserves the fifth slot; B is refused; B's terminal post hook.
+    plugin.port.store += [job(f"id{i:010d}", f"Task{i}") for i in range(4)]
+    approved(plugin, create_args(name="A"), "cA")
+    assert call(plugin, create_args(name="B"), call_id="cB")["action"] == "block"
+    plugin.post_tool_call(tool_name="cronjob_manage", args=create_args(name="B"),
+                          result=json.dumps({"error": "blocked"}), tool_call_id="cB")
+    assert plugin._pending_count() == 1
+    assert call(plugin, create_args(name="C"), call_id="cC")["action"] == "block"
+    assert dispatch(plugin, create_args(name="A"), "cA")["success"] and len(plugin.port.store) == 5
+    plugin.post_tool_call(tool_name="cronjob_manage", args=create_args(name="A"), result="{}", tool_call_id="cA")
+    assert plugin._pending_count() == 0 and len(plugin.port.store) == 5
+
+
+def test_r1_f2_count_is_checked_again_at_the_save(plugin: scout_cron._Plugin) -> None:
+    plugin.port.store += [job(f"id{i:010d}", f"Task{i}") for i in range(3)]
+    approved(plugin, create_args(name="A"), "cA")
+    approved(plugin, create_args(name="B"), "cB")
+    plugin.port.store.append(job("operator0001", "Ajout opérateur"))  # a job saved outside Scout meanwhile
+    out = dispatch(plugin, create_args(name="A"), "cA")
+    assert out["success"] is False and "plafond 5" in out["error"]
+    assert dispatch(plugin, create_args(name="B"), "cB")["success"]
+    assert len(plugin.port.store) == 5
+
+
+def test_r1_f2_two_competing_approved_creates_never_exceed_the_cap(plugin: scout_cron._Plugin) -> None:
+    plugin.port.store += [job(f"id{i:010d}", f"Task{i}") for i in range(3)]
+    approved(plugin, create_args(name="A"), "cA")
+    approved(plugin, create_args(name="B"), "cB")
+    assert dispatch(plugin, create_args(name="B"), "cB")["success"]
+    assert dispatch(plugin, create_args(name="A"), "cA")["success"]
+    assert len(plugin.port.store) == 5 and plugin._pending_count() == 0
+    assert call(plugin, create_args(name="C"))["action"] == "block"
+
+
+@pytest.mark.parametrize("action", ["create", "update"])
+@pytest.mark.parametrize("field,value", [
+    ("enabled_toolsets", []), ("enabled_toolsets", ["web"]), ("skills", []), ("skill", ""), ("script", ""),
+    ("workdir", ""), ("failure_deliver", ""), ("context_from", []), ("context_from", ""), ("monitor", ""),
+    ("monitor_script", ""), ("monitor_url", ""), ("pinned", False), ("no_agent", False),
+    ("attach_to_session", False), ("continuity", False), ("repeat", 0), ("paused", True), ("paused_reason", ""),
+    ("model", ""), ("provider", ""), ("base_url", ""), ("reasoning_effort", ""), ("interpreter", ""),
+])
+def test_r1_f3_every_explicit_value_hermes_would_store_or_clear_is_refused(action: str, field: str, value: Any) -> None:
+    args = create_args() if action == "create" else {"action": "update", "job_id": "aaaa11112222", "prompt": "Autre."}
+    d = policy.evaluate(args | {field: value}, ctx([job()]))
+    assert d.kind == "refuse" and field in d.message, d.message
+
+
+def test_r1_f3_create_dispatch_is_canonical(plugin: scout_cron._Plugin) -> None:
+    args = create_args(name="  Veille   emploi ", schedule="weekdays at 7am", prompt="  Consigne.  \n",
+                       deliver="origin", paused=False, enabled_toolsets=None, include_disabled=True)
+    approved(plugin, args, "k1")
+    assert dispatch(plugin, args, "k1")["success"]
+    assert plugin.port.dispatched == [{"action": "create", "name": "Veille emploi", "schedule": "0 7 * * 1-5",
+                                       "prompt": "Consigne."}]
+    saved = plugin.port.store[0]
+    assert saved["enabled_toolsets"] is None and not policy.conformity_errors(saved, frozenset({OWNER}), Limits())
+
+
+def test_r1_f4_resume_is_refused_while_over_the_cap() -> None:
+    six = [job(f"job{i}0000000", f"T{i}", state="paused", enabled=False) for i in range(6)]
+    d = policy.evaluate({"action": "resume", "job_id": "job00000000"}, ctx(six))
+    assert d.kind == "refuse" and "plafond 5" in d.message
+    three = six[:3]
+    assert policy.evaluate({"action": "resume", "job_id": "job00000000"}, ctx(three, max_jobs=2)).kind == "refuse"
+    assert policy.evaluate({"action": "resume", "job_id": "job00000000"}, ctx(six[:5])).kind == "confirm"
+    assert policy.evaluate({"action": "resume", "job_id": "job00000000"}, ctx(six[:4], pending=2)).kind == "refuse"
+    # Over the cap, the owner can still pause and remove.
+    assert policy.evaluate({"action": "pause", "job_id": "job00000000"}, ctx(six)).kind == "allow"
+    assert policy.evaluate({"action": "remove", "job_id": "job00000000"}, ctx(six)).kind == "confirm"
+
+
+def test_r1_f4_conformity_checks_stored_sizes() -> None:
+    owners, lim = frozenset({OWNER}), Limits()
+    assert policy.conformity_errors(job(), owners, lim) == []
+    assert any("6000" in e for e in policy.conformity_errors(job(prompt="x" * 6001), owners, lim))
+    assert any("80" in e for e in policy.conformity_errors(job(name="n" * 81), owners, lim))
+    big = job(prompt="x" * 6001)
+    assert policy.evaluate({"action": "resume", "job_id": big["id"]}, ctx([big])).kind == "refuse"
+    assert policy.evaluate({"action": "update", "job_id": big["id"], "schedule": "0 8 * * 1"}, ctx([big])).kind == "refuse"
+    assert policy.evaluate({"action": "update", "job_id": big["id"], "prompt": "Court."}, ctx([big])).kind == "confirm"
+
+
+def test_r1_f5_every_confirmed_proposal_shows_the_effective_task(plugin: scout_cron._Plugin) -> None:
+    saved = "INSTRUCTIONS ENREGISTRÉES QUI DOIVENT ÊTRE LUES\nligne 2"
+    plugin.port.store.append(job(prompt=saved, state="paused", enabled=False))
+    cases = {
+        "update": {"action": "update", "job_id": "aaaa11112222", "schedule": "0 8 * * 1-5"},
+        "resume": {"action": "resume", "job_id": "aaaa11112222"},
+        "remove": {"action": "remove", "job_id": "aaaa11112222"},
+        "feedback": {"action": "feedback_add", "job_id": "aaaa11112222", "text": "Retour."},
+    }
+    for name, args in cases.items():
+        plugin.port.posts.clear()
+        approved(plugin, args, f"p-{name}", tool="scout_task_record" if name == "feedback" else "cronjob_manage")
+        text = "\n".join(plugin.port.posts)
+        assert saved in text, name
+        assert "heure de Guadeloupe" in text and " UTC)" in text and "Livraison : cette conversation privée" in text, name
+    plugin.port.posts.clear()
+    approved(plugin, cases["update"], "p-update-2")
+    text = "\n".join(plugin.port.posts)
+    assert "Champs modifiés : planification" in text and "Champs inchangés : nom, instructions, livraison" in text
+    assert "0 7 * * 1-5 → 0 8 * * 1-5" in text and "mercredi 25/11/2026 08:00 heure de Guadeloupe (mercredi 25/11/2026 12:00 UTC)" in text
+    d = policy.evaluate(create_args(), ctx())
+    assert "Consigne complète." in d.proposal and " UTC)" in d.proposal and "Livraison" in d.proposal
+
+
 # ---- ledger --------------------------------------------------------------------------------------------
 
 def test_led_01_normalization() -> None:
@@ -511,10 +788,10 @@ def test_led_02_prune_cap_mode_and_corruption(tmp_path: Path) -> None:
 # ---- deploy check verdicts (hermes_checks.py) ------------------------------------------------------------
 
 def observed(**over: Any) -> dict[str, Any]:
-    scout = {"loaded": True, "commands": ["courriels", "taches-scout"], "allow_agent_scheduling": False,
+    scout = {"loaded": True, "commands": ["courriels", "taches-scout"], "allow_agent_scheduling": False, "guarded": True,
              "toolsets": {"telegram": ["cronjob", "scout_task_record"], "cron": ["scout_task_record"],
                           "api_server": [], "cli": []}, "jobs": [{"name": "Veille", "expr": "0 7 * * 1-5", "issues": []}]}
-    other = {"loaded": False, "commands": [], "allow_agent_scheduling": False,
+    other = {"loaded": False, "commands": [], "allow_agent_scheduling": False, "guarded": False,
              "toolsets": {p: [] for p in ("telegram", "cron", "api_server", "cli")}, "jobs": []}
     base = {"job-search": scout, "default": dict(other), "cafe-ia": dict(other)}
     for key, value in over.items():
@@ -540,6 +817,12 @@ def test_chk_01_scout_cron_verdicts() -> None:
     o["job-search"]["jobs"] = [{"name": "X", "expr": "*/5 * * * *", "issues": ["planification"]}]
     assert any("outside the policy" in e for e in hc.scout_cron_errors(o, True, "job-search", 5))
     assert any("must not be loaded" in e for e in hc.scout_cron_errors(observed(), False, "job-search", 5))
+    o = observed()
+    o["job-search"]["guarded"] = False  # plugin loaded, override missing (no tools.override grant)
+    assert any("not guarded" in e for e in hc.scout_cron_errors(o, True, "job-search", 5))
+    o = observed()
+    o["cafe-ia"] = {**o["cafe-ia"], "guarded": True}
+    assert any("cafe-ia: cronjob_manage must stay the built-in" in e for e in hc.scout_cron_errors(o, True, "job-search", 5))
     assert "job-search: profile not observed" in hc.scout_cron_errors({}, True, "job-search", 5)
 
 

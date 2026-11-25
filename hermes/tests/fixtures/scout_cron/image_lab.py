@@ -111,7 +111,14 @@ def notify_factory(key):
                        "allow_permanent": data.get("allow_permanent")})
         answer = ANSWERS.pop(0) if ANSWERS else None
         if answer is not None:
-            threading.Timer(0.3, lambda: resolve_gateway_approval(key, answer)).start()
+            # (meanwhile, answer): ``meanwhile`` runs while the card is pending, before the tap.
+            meanwhile, answer = answer if isinstance(answer, tuple) else (None, answer)
+
+            def tap():
+                if meanwhile is not None:
+                    meanwhile()
+                resolve_gateway_approval(key, answer)
+            threading.Timer(0.3, tap).start()
     return notify
 
 
@@ -197,6 +204,43 @@ def scout_jobs() -> list[dict]:
     return in_home("job-search", read)
 
 
+def in_store(fn):
+    """Run ``fn`` on Scout's real cron store (as an operator or a concurrent change would)."""
+    def run():
+        from cron.jobs import use_cron_store
+        with use_cron_store(SCOUT):
+            return fn()
+    return in_home("job-search", run)
+
+
+def by_name() -> dict:
+    return {j["name"]: j for j in scout_jobs()}
+
+
+def live_bindings() -> int:
+    """Approval bindings still held by the scout_cron instance of Scout's home (0 = all settled)."""
+    def read():
+        from hermes_cli import plugins as hp
+        m = hp._ensure_plugins_discovered()
+        for cb in m._hooks.get("post_tool_call", []):
+            owner = getattr(cb, "__self__", None)
+            if owner is not None and hasattr(owner, "_bindings"):
+                return len(owner._bindings)
+        return -1
+    return in_home("job-search", read)
+
+
+def guard_entries() -> dict:
+    """Which cronjob_manage each home resolves: scout_cron's override or Hermes' built-in."""
+    def read():
+        from hermes_cli import plugins as hp
+        from tools.registry import registry
+        hp._ensure_plugins_discovered()
+        entry = registry.get_entry("cronjob_manage")
+        return f"{type(getattr(entry.handler, '__self__', None)).__module__}.{entry.handler.__name__}"
+    return {n: in_home(n, read) for n in HOMES}
+
+
 def summary(job: dict) -> dict:
     return {k: job.get(k) for k in ("id", "name", "deliver", "origin", "next_run_at", "state", "enabled",
                                     "prompt", "enabled_toolsets", "script")} | {
@@ -263,6 +307,7 @@ def phase_main() -> dict:
         "foreign_deliver": {"deliver": "telegram:999"}, "deliver_all": {"deliver": "all"},
         "failure_deliver": {"failure_deliver": "telegram:999"}, "script": {"script": "x.py"},
         "toolsets": {"enabled_toolsets": ["web", "kandidat_confirm"]}, "no_agent": {"no_agent": True},
+        "toolsets_empty": {"enabled_toolsets": []}, "pinned_false": {"pinned": False},
         "workdir": {"workdir": "/tmp"}, "huge": {"prompt": huge},
     }
     t["refusals"] = {}
@@ -308,6 +353,9 @@ def phase_main() -> dict:
     out["remove_ledger_before"] = os.path.exists(ledger)
     out["remove"] = turn("remove", call({"action": "remove", "job_id": out["cron"]["dedup_job"]}), answers=["once"])
     out["remove_ledger_after"] = os.path.exists(ledger)
+    out["bindings_after_turns"] = live_bindings()
+    out["guards"] = guard_entries()
+    out["review1"] = review1_phase()
 
     # ---- /taches-scout ------------------------------------------------------------------------------------------
     handler = in_home("job-search", lambda: hp.get_plugin_command_handler("taches-scout"))
@@ -322,6 +370,86 @@ def phase_main() -> dict:
     out["allowlist"] = command_allowlist()
     llm.kill()
     return out
+
+
+def review1_phase() -> dict:
+    """Codex review 1: approvals bound to the job version and the call, re-checked at the real save."""
+    from cron.jobs import create_job, pause_job, update_job
+    from hermes_cli import plugins as hp
+    from tools.approval import enable_session_yolo
+    r: dict = {}
+    names = by_name()
+    r0, r1, r2, r3 = (names[f"Remplissage {i}"]["id"] for i in range(4))
+
+    # F1: the referenced name is moved to another job while the card is pending (Codex reproduction).
+    def retarget():
+        in_store(lambda: (update_job(r0, {"name": "Renommée"}), update_job(r1, {"name": "Remplissage 0"})))
+    r["retarget"] = turn("r1_retarget", call({"action": "remove", "job_id": "Remplissage 0"}),
+                         answers=[(retarget, "once")])
+    r["retarget_ids"] = sorted(j["id"] for j in scout_jobs() if j["id"] in (r0, r1))
+    r["retarget_expected"] = sorted([r0, r1])
+
+    # F1: same id, edited by an operator while the card is pending.
+    def edit():
+        in_store(lambda: update_job(r2, {"prompt": "modifié par l'opérateur"}))
+    r["same_id"] = turn("r1_same_id", call({"action": "update", "job_id": r2, "schedule": "0 11 * * 1"}),
+                        answers=[(edit, "once")])
+    r["same_id_job"] = summary(by_name()["Remplissage 2"])
+
+    # F1: the session becomes mail-tainted, then /yolo is switched on, while the card is pending.
+    def taint_now():
+        in_home("job-search", lambda: hp.invoke_hook(
+            "pre_llm_call", session_id="S-TAINT-LATE", user_message=f'[Replying to: "{MARKER} ..."] fais-le',
+            conversation_history=[], parent_session_id="", turn_id="t", task_id="", is_first_turn=False,
+            model="m", platform="telegram", sender_id=OWNER))
+    r["taint_late"] = turn("r1_taint_late", call({"action": "remove", "job_id": r3}), answers=[(taint_now, "once")],
+                           session_id="S-TAINT-LATE")
+    r["yolo_late"] = turn("r1_yolo_late", call({"action": "remove", "job_id": r3}),
+                          answers=[(lambda: enable_session_yolo(CURRENT["key"]), "once")])
+    r["r3_kept"] = any(j["id"] == r3 for j in scout_jobs())
+
+    # F1: feedback to a name retargeted while its card is pending.
+    def retarget_fb():
+        in_store(lambda: (update_job(r3, {"name": "X3"}), update_job(r2, {"name": "Remplissage 3"})))
+    r["feedback_retarget"] = turn("r1_fb", [{"call": "scout_task_record", "args": {
+        "action": "feedback_add", "job_id": "Remplissage 3", "text": "RETOUR-CIBLE"}}, {"say": "fin"}],
+        answers=[(retarget_fb, "once")])
+
+    def feedback_notes():
+        from cron import notepad
+        return {j: (notepad.get_note(j, "feedback") or "") for j in (r2, r3)}
+    r["feedback_notes"] = in_store(feedback_notes)
+
+    # F3: a blank prompt on update is never forwarded (Hermes would clear the stored instructions).
+    r["blank_prompt"] = turn("r1_blank", call({"action": "update", "job_id": r2, "schedule": "0 11 * * 1",
+                                               "prompt": ""}), answers=["once"])
+    r["blank_prompt_job"] = summary(next(j for j in scout_jobs() if j["id"] == r2))
+
+    # F2: a job saved outside Scout while a create's card is pending: the count is checked again at the save.
+    in_store(lambda: __import__("cron.jobs", fromlist=["remove_job"]).remove_job(r0))
+    r["jobs_before_race"] = len(scout_jobs())
+    extra: dict = {}
+
+    def operator_create():
+        extra["id"] = in_store(lambda: create_job(prompt="op", schedule="0 9 * * 5", name="Opérateur",
+                                                  deliver="origin", origin={"platform": "telegram",
+                                                                            "chat_id": OWNER}))["id"]
+    r["race"] = turn("r1_race", call({"action": "create", "name": "Course", "schedule": "0 9 * * 4",
+                                      "prompt": "court"}), answers=[(operator_create, "once")])
+    r["jobs_after_race"] = len(scout_jobs())
+    r["race_saved"] = "Course" in by_name()
+
+    # F4: resume while over the cap (a sixth job saved by an operator).
+    in_store(lambda: pause_job(r2, reason="lab"))
+    in_store(lambda: create_job(prompt="op2", schedule="0 9 * * 6", name="Opérateur 2", deliver="origin",
+                                origin={"platform": "telegram", "chat_id": OWNER}))
+    r["jobs_over_cap"] = len(scout_jobs())
+    r["resume_over_cap"] = turn("r1_resume_cap", call({"action": "resume", "job_id": r2}), answers=["once"])
+    r["resume_over_cap_state"] = summary(next(j for j in scout_jobs() if j["id"] == r2))["state"]
+    # Back to five jobs for the later checks (the first operator job conforms and stays).
+    in_home("job-search", lambda: _remove(by_name()["Opérateur 2"]["id"]))
+    r["bindings_after"] = live_bindings()
+    return r
 
 
 def cron_phase(owner_job: str) -> dict:

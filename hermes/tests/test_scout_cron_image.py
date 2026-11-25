@@ -263,7 +263,7 @@ def test_g2_09_no_permanent_allowlist_entry(lab: dict[str, Any]) -> None:
 
 @pytest.mark.parametrize("name", ["every_30m", "interval", "one_shot", "twice_a_day", "foreign_deliver",
                                   "deliver_all", "failure_deliver", "script", "toolsets", "no_agent", "workdir",
-                                  "huge"])
+                                  "huge", "toolsets_empty", "pinned_false"])
 def test_g3_01_refusals(lab: dict[str, Any], name: str) -> None:
     t = lab["main"]["turns"]["refusals"][name]
     assert refused(t), (name, first_result(t))
@@ -299,6 +299,68 @@ def test_g3_06_deploy_check_accepts_the_policy(lab: dict[str, Any]) -> None:
     assert c["scout_cron_post"]["rc"] == 0, c["scout_cron_post"]
     assert "5 job(s)" in c["scout_cron_post"]["out"] and "OUT OF POLICY" not in c["scout_cron_post"]["out"]
     assert c["scout_cron_wrong_switch"]["rc"] == 1 and "must not be loaded" in c["scout_cron_wrong_switch"]["out"]
+
+
+# ---- Codex review 1: approval bound to the job version and the call, re-checked at the save -------------------
+# Each scenario changes something WHILE the approval card is pending, then taps "once"; real store, executor,
+# approval gate and scout_mail. On 5a1fb5a these saves went through (F1) or are absent (F2/F4).
+
+def stale(t: dict[str, Any]) -> bool:
+    return "a changé depuis" in first_result(t)
+
+
+def test_r1_01_override_installed_in_scout_only(lab: dict[str, Any]) -> None:
+    g = lab["main"]["guards"]
+    assert g["job-search"].endswith("scout_cron.manage"), g
+    assert not g["default"].endswith(".manage") and not g["cafe-ia"].endswith(".manage"), g
+
+
+def test_r1_02_name_retargeted_while_pending_refused(lab: dict[str, Any]) -> None:
+    r = lab["main"]["review1"]
+    assert "card" in r["retarget"]["order"] and stale(r["retarget"]), first_result(r["retarget"])
+    assert r["retarget_ids"] == r["retarget_expected"]  # neither job removed
+
+
+def test_r1_03_same_id_edited_while_pending_refused(lab: dict[str, Any]) -> None:
+    r = lab["main"]["review1"]
+    assert "card" in r["same_id"]["order"] and stale(r["same_id"]), first_result(r["same_id"])
+    assert r["same_id_job"]["expr"] == "12 9 * * 1" and r["same_id_job"]["prompt"] == "modifié par l'opérateur"
+
+
+def test_r1_04_taint_or_yolo_appearing_while_pending_refused(lab: dict[str, Any]) -> None:
+    r = lab["main"]["review1"]
+    assert "card" in r["taint_late"]["order"] and "autre contrôle de sécurité" in first_result(r["taint_late"])
+    assert "card" in r["yolo_late"]["order"] and "/yolo" in first_result(r["yolo_late"])
+    assert r["r3_kept"]
+
+
+def test_r1_05_feedback_retargeted_while_pending_refused(lab: dict[str, Any]) -> None:
+    r = lab["main"]["review1"]
+    assert "card" in r["feedback_retarget"]["order"] and stale(r["feedback_retarget"])
+    assert "RETOUR-CIBLE" not in "".join(r["feedback_notes"].values())
+
+
+def test_r1_06_blank_prompt_on_update_keeps_the_instructions(lab: dict[str, Any]) -> None:
+    r = lab["main"]["review1"]
+    assert '"success": true' in first_result(r["blank_prompt"]), first_result(r["blank_prompt"])
+    assert r["blank_prompt_job"]["expr"] == "0 11 * * 1" and r["blank_prompt_job"]["prompt"] == "modifié par l'opérateur"
+
+
+def test_r1_07_job_count_checked_again_at_the_save(lab: dict[str, Any]) -> None:
+    r = lab["main"]["review1"]
+    assert r["jobs_before_race"] == 4 and "card" in r["race"]["order"]
+    assert "plafond 5" in first_result(r["race"]) and not r["race_saved"] and r["jobs_after_race"] == 5
+
+
+def test_r1_08_resume_refused_over_the_cap(lab: dict[str, Any]) -> None:
+    r = lab["main"]["review1"]
+    assert r["jobs_over_cap"] == 6 and refused(r["resume_over_cap"]) and r["resume_over_cap"]["order"] == []
+    assert r["resume_over_cap_state"] == "paused"
+
+
+def test_r1_09_every_binding_settled_by_its_own_call(lab: dict[str, Any]) -> None:
+    # Hermes hands the same tool_call_id to pre_tool_call, the handler and post_tool_call: nothing lingers.
+    assert lab["main"]["bindings_after_turns"] == 0 and lab["main"]["review1"]["bindings_after"] == 0
 
 
 # ---- AC4 / G4 ---------------------------------------------------------------------------------------------

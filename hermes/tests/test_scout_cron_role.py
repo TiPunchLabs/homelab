@@ -26,12 +26,17 @@ def gv() -> dict[str, Any]:
     return yaml.safe_load(GROUP_VARS.read_text())
 
 
+GRANT = "plugins.entries.scout_cron.granted_capabilities"
+
+
 def variables(tmp_path: Path, enabled: bool | None = None, plugins: list[str] | None = None,
-              denied: list[str] | None = None, **config: Any) -> dict[str, Any]:
+              denied: list[str] | None = None, grant: list[str] | None = None, **config: Any) -> dict[str, Any]:
     on = bool(enabled)
     scout = {"plugins.enabled": plugins if plugins is not None else (["scout_mail", "scout_cron"] if on else ["scout_mail"]),
              "agent.disabled_toolsets": denied if denied is not None else (["terminal"] if on else DENIED_WITH_CRON),
              **config}
+    if grant is not None or on:
+        scout[GRANT] = grant if grant is not None else ["tools.override"]
     out = {"hermes_install_dir": str(tmp_path / "install"), "hermes_data_dir": str(tmp_path / "data"),
            "hermes_telegram_allowed_users": "111, 222", "hermes_timezone": "America/Guadeloupe",
            "hermes_profiles": [{"name": "cafe-ia", "config": {}}, {"name": "job-search", "config": scout}]}
@@ -75,6 +80,8 @@ def test_role_02_enabled_settings(run_tasks: RunTasks, tmp_path: Path) -> None:
     {"enabled": False, "plugins": ["scout_mail", "scout_cron"]},        # declared, switch off
     {"enabled": False, "denied": ["terminal"]},                          # off without cronjob denied: ungated tool
     {"enabled": True, "cron.allow_agent_scheduling": True},             # a cron run could schedule
+    {"enabled": True, "grant": []},                                      # on without the override grant
+    {"enabled": False, "grant": ["tools.override"]},                     # off but the grant left behind
 ])
 def test_role_03_inconsistent_switches_refused_before_any_write(run_tasks: RunTasks, tmp_path: Path,
                                                                 kwargs: dict[str, Any]) -> None:
@@ -92,8 +99,12 @@ def test_decl_01_scout_scheduling_scope(gv: dict[str, Any]) -> None:
     assert c["platform_toolsets.cron"] == ["web", "skills", "kandidat", "scout_task_record"]
     for p in ("api_server", "cli"):
         assert not {"cronjob", "scout_task_record"} & set(c[f"platform_toolsets.{p}"])
-        assert c[f"known_plugin_toolsets.{p}"] == ["scout_task_record"]
+        assert c[f"known_plugin_toolsets.{p}"] == ["scout_task_record", "cronjob"]
+    # The override makes `cronjob` a plugin toolset (on by default where not "known"): known off telegram.
+    assert c["known_plugin_toolsets.cron"] == ["cronjob"] and "cronjob" not in c["platform_toolsets.cron"]
     assert "cron.allow_agent_scheduling" not in c
+    # Review 1 F1: the override that re-checks at the real save needs the operator grant, Scout only.
+    assert c[GRANT] == ["tools.override"]
     # Kandidat writes stay out of cron (SCOUT-03 policy unchanged).
     assert gv["hermes_profile_job_search"]["mcp_policy"]["platforms"]["cron"] == ["kandidat"]
 
@@ -102,7 +113,7 @@ def test_decl_02_nora_and_kafeine_unchanged(gv: dict[str, Any]) -> None:
     for name in ("hermes_profile_cafe_ia", "hermes_default_nora"):
         c = gv[name]["config"]
         assert "cronjob" in c["agent.disabled_toolsets"] and "timezone" not in c
-        assert "plugins.enabled" not in c
+        assert "plugins.enabled" not in c and not any(k.startswith("plugins.entries.") for k in c)
         for key, value in c.items():
             if key.startswith("platform_toolsets."):
                 assert not {"cronjob", "scout_task_record"} & set(value), (name, key)

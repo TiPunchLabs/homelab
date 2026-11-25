@@ -166,11 +166,11 @@ def m4_era(scout: dict[str, Any]) -> dict[str, Any]:
     SCOUT-03 added Kandidat, SCOUT-04 turned the background skill review off, SCOUT-MAIL-01 added
     `plugins.enabled` (the /courriels switch) and SCOUT-CRON added scheduling (telegram `cronjob` and
     `scout_task_record`, a narrower cron list, `known_plugin_toolsets`, `timezone`, `cronjob` out of the deny
-    list); their own tests (test_scout03_kandidat.py, test_scout04_search_budget.py, test_scout_mail_role.py,
+    list, the `plugins.entries.scout_cron` tools.override grant); their own tests (test_scout03_kandidat.py, test_scout04_search_budget.py, test_scout_mail_role.py,
     test_scout_cron_role.py) cover today's declaration on v0.22.5.
     """
     cfg = {k: v for k, v in scout["config"].items()
-           if not k.startswith(("mcp_servers.", "known_plugin_toolsets."))
+           if not k.startswith(("mcp_servers.", "known_plugin_toolsets.", "plugins.entries."))
            and k not in ("skills.creation_nudge_interval", "plugins.enabled", "timezone")}
     for key in [k for k in cfg if k.startswith("platform_toolsets.")]:
         cfg[key] = [t for t in cfg[key] if not t.startswith("kandidat") and t not in ("cronjob", "scout_task_record")]
