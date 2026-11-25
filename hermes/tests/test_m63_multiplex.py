@@ -288,7 +288,17 @@ def by_prefix(tasks: list[dict[str, Any]], prefix: str) -> dict[str, Any]:
 def test_multiplex_profile_shares_the_deployed_tasks(prefix: str) -> None:
     """Creation, content, config and checks are the very tasks of profile.yml (the v0.20.4 standalone path)."""
     multiplex, standalone = tasks_of(TASKS / "profile_multiplex.yml"), tasks_of(TASKS / "profile.yml")
-    assert by_prefix(multiplex, prefix) == by_prefix(standalone, prefix)
+    mine, theirs = by_prefix(multiplex, prefix), by_prefix(standalone, prefix)
+    if prefix == "Verify that the declared tool restrictions":
+        # SCOUT-CRON: the multiplexed check (hermes-31) adds one allowlist per platform; profile.yml stays frozen
+        # since M4 (test_m5_nora.py::test_n08). Exactly that argument and its var differ, nothing else.
+        argv = list(mine["ansible.builtin.command"]["argv"])
+        assert argv.pop() == "{{ hermes_platform_allowed | to_json }}"
+        assert argv == theirs["ansible.builtin.command"]["argv"]
+        assert set(mine["vars"]) - set(theirs["vars"]) == {"hermes_platform_allowed"}
+        mine = {k: v for k, v in mine.items() if k not in ("ansible.builtin.command", "vars")}
+        theirs = {k: v for k, v in theirs.items() if k not in ("ansible.builtin.command", "vars")}
+    assert mine == theirs
 
 
 def test_multiplex_profile_writes_the_token_last_after_every_check() -> None:
