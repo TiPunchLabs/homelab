@@ -283,6 +283,10 @@ class _Plugin:
         limit = self.settings.limits.feedback_chars
         if not isinstance(text, str) or not text.strip() or len(text) > limit:
             return _block(f"Le retour doit faire entre 1 et {limit} caractères.")
+        shapes = policy.unsafe_shapes(text)
+        if shapes:
+            return _block(f"Le retour contient une forme que Telegram n'afficherait pas telle quelle "
+                          f"({', '.join(shapes)}) : reformuler sans.")
         call_id = str(ids.get("tool_call_id") or "")
         if not call_id:
             return _block(MSG_ERROR)
@@ -294,10 +298,10 @@ class _Plugin:
                 ctx = self._context()
                 name, jid = str(job.get("name") or job.get("id")), str(job["id"])
                 proposal = "\n".join([
-                    f"📋 Scout — retour à ajouter au journal de la tâche « {name} » (id {jid})",
+                    f"📋 Scout — retour à ajouter au journal d'une tâche (id {jid})",
                     "Il sera lu par chaque exécution suivante. Rien n'est enregistré sans votre approbation.", "",
-                    "Tâche concernée :", *policy.job_snapshot(job, ctx), "",
-                    f"Retour à ajouter ({len(text)} caractères) :", "-----", text, "-----"])
+                    "Tâche concernée :", *policy.verbatim(name), *policy.job_snapshot(job, ctx), "",
+                    f"Retour à ajouter ({len(text)} caractères) :", *policy.verbatim(text)])
                 decision = policy.Decision(
                     "confirm", proposal=proposal,
                     card=f"Scout — retour pour « {name} » : {len(text)} caractères. "
@@ -401,7 +405,10 @@ class _Plugin:
                 if decision.kind == "refuse":
                     return _fail(decision.message)
                 if decision.kind == "allow":
-                    return builtin(dict(decision.meta["dispatch"]), **kw)
+                    result = builtin(dict(decision.meta["dispatch"]), **kw)
+                    if decision.meta["dispatch"].get("action") == "pause":
+                        self._notify_pause(decision.meta["job_id"], result)
+                    return result
                 problem = self._stale(binding, CRON_TOOL, decision.meta)
                 if problem:
                     return _fail(problem)
@@ -410,6 +417,23 @@ class _Plugin:
         except Exception:
             logger.warning("scout_cron manage failed; nothing saved by this plugin", exc_info=True)
             return _fail(MSG_ERROR)
+
+    def _notify_pause(self, job_id: str, result: Any) -> None:
+        """Pause needs no approval (it only stops runs); the owner is still told, in the chat (review 2, F7)."""
+        try:
+            data = json.loads(result) if isinstance(result, str) else {}
+            if not (isinstance(data, dict) and data.get("success")):
+                return
+            job = self.port.get_job(job_id) or {}
+            reason = str(job.get("paused_reason") or "")
+            text = "\n".join([f"⏸️ Scout a mis en pause une tâche planifiée (id {job_id}) :",
+                              *policy.verbatim(str(job.get("name") or job_id))]
+                             + (["Motif :", *policy.verbatim(reason)] if reason else [])
+                             + ["Reprise : demander à Scout (approbation requise)."])
+            for chunk in policy.split_for_telegram(text):
+                self.port.post(chunk)
+        except Exception:
+            logger.warning("scout_cron: pause notice not posted", exc_info=True)
 
     def _call_id(self) -> str:
         try:
@@ -587,22 +611,30 @@ class _Plugin:
                     except ScheduleError:
                         when = f"hors politique ({job.get('next_run_at')})"
                     issues = policy.conformity_errors(job, owners, self.settings.limits)
-                    lines.append(f"• {job.get('name')} (id {job.get('id')}) — {state} — {expr} — prochain : {when}"
-                                 + (f" — ⚠️ {'; '.join(issues)}" if issues else ""))
+                    code = policy._code(expr)
+                    lines += [f"• id {job.get('id')} — {state} — prochain : {when}", *policy.verbatim(
+                        str(job.get("name") or ""))]
+                    lines += [f"  Planification : {code}"] if code else ["  Planification :", *policy.verbatim(expr)]
+                    if issues:
+                        lines += ["  ⚠️ Hors politique :", *policy.verbatim("; ".join(issues))]
                     if wanted and wanted.casefold() in (str(job.get("id")).casefold(),
                                                         str(job.get("name") or "").casefold()):
                         jid = str(job["id"])
                         prompt = str(job.get("prompt") or "")
                         lines += [f"  Instructions : {len(prompt)} caractères, empreinte {policy._digest(prompt)}",
                                   f"  Offres déjà signalées : {self.ledger.count(jid, now.astimezone(display).date())}",
-                                  "  Journal :", "  " + (self.port.note_get(jid, "journal") or "(vide)"),
-                                  "  Retours :", "  " + (self.port.note_get(jid, "feedback") or "(aucun)")]
+                                  "  Journal :", *policy.verbatim(self.port.note_get(jid, "journal") or "(vide)"),
+                                  "  Retours :", *policy.verbatim(self.port.note_get(jid, "feedback") or "(aucun)")]
         except Exception:
             logger.warning("/taches-scout failed", exc_info=True)
             return "Lecture des tâches impossible (journal d'erreurs de la gateway)."
         if not jobs:
             lines.append("Aucune tâche.")
-        return "\n".join(lines)[:3900]
+        # One reply: the first chunk (fences balanced, rendered size bounded), then where the rest is.
+        chunks = policy.split_for_telegram("\n".join(lines))
+        if len(chunks) > 1:
+            return chunks[0].split("\n", 1)[1] + "\n(suite tronquée : /taches-scout <nom ou id> pour une tâche)"
+        return chunks[0]
 
 
 def register(ctx: Any) -> None:
