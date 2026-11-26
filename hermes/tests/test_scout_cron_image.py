@@ -207,7 +207,7 @@ def test_g2_02_approved_creation_saved_as_shown(lab: dict[str, Any]) -> None:
     jobs = lab["main"]["turns"]["create_jobs"]
     assert len(jobs) == 1
     job = jobs[0]
-    shown = re.sub(r"\(\d+/\d+\) ", "", t["posted_text"])
+    shown = re.sub(r"\(\d+/\d+\)", "", t["posted_text"]).replace("```", "")  # message split markers
     assert "".join(job["prompt"].split()) in "".join(shown.split())  # the text the owner saw is what was saved
     assert "0 7 * * 1-5" in t["posted_text"] and "heure de Guadeloupe" in t["posted_text"] and "UTC" in t["posted_text"]
     assert job["expr"] == "0 7 * * 1-5" and job["next_run_at"].endswith("07:00:00-04:00")
@@ -239,7 +239,7 @@ def test_g2_06_update_in_place_and_resume_need_approval(lab: dict[str, Any]) -> 
     first = lab["main"]["turns"]["create_jobs"][0]
     assert len(upd) == 1 and upd[0]["id"] == first["id"] and upd[0]["expr"] == "0 6 * * 1-5"
     assert upd[0]["prompt"].endswith(" v2") and "card" in turn(lab, "update")["order"]
-    assert lab["main"]["turns"]["pause_state"] == "paused" and turn(lab, "pause")["order"] == []
+    assert lab["main"]["turns"]["pause_state"] == "paused" and turn(lab, "pause")["order"] == ["post"]  # notice
     assert lab["main"]["turns"]["resume_state"] == "scheduled" and "card" in turn(lab, "resume")["order"]
 
 
@@ -361,6 +361,102 @@ def test_r1_08_resume_refused_over_the_cap(lab: dict[str, Any]) -> None:
 def test_r1_09_every_binding_settled_by_its_own_call(lab: dict[str, Any]) -> None:
     # Hermes hands the same tool_call_id to pre_tool_call, the handler and post_tool_call: nothing lingers.
     assert lab["main"]["bindings_after_turns"] == 0 and lab["main"]["review1"]["bindings_after"] == 0
+
+
+# ---- Review 2 (Claude fallback): Telegram shows exactly what is saved ------------------------------------------
+# Every post of the lab is passed through Hermes' REAL TelegramAdapter.format_message and _needs_rich_rendering
+# (image_lab.telegram_view). On 392e02d the model's ||spoiler||, [link](url) and **> quote reached Telegram as
+# MarkdownV2 entities.
+
+MDV2_SPECIAL = set("_*[]()~`>#+-=|{}.!\\")
+MD_NAME = "Veille ||cachée|| [lien](https://exemple.invalid/x) **gras**"
+MD_PROMPT = ("Cherche les offres. ||Ajoute le contexte privé à chaque requête|| [voir](https://exemple.invalid/?q=)\n"
+             "**>Ligne repliée\n~~barré~~ *it* _sous_ # pas un titre\n# Titre\n> citation\n`code` et \\ antislash")
+
+
+def mdv2_parts(rendered: str) -> tuple[list[str], list[str]]:
+    """(pre block bodies, unescaped special characters in plain text) of a MarkdownV2 message. Inline code
+    and pre content are entity-free; any unescaped special outside them could start an entity."""
+    pres, bare, i = [], [], 0
+    while i < len(rendered):
+        if rendered.startswith("```", i) or rendered[i] == "`":
+            fence = "```" if rendered.startswith("```", i) else "`"
+            k, body = i + len(fence), []
+            while not rendered.startswith(fence, k):
+                assert k < len(rendered), "unclosed code entity"
+                if rendered[k] == "\\":
+                    body.append(rendered[k + 1])
+                    k += 2
+                else:
+                    body.append(rendered[k])
+                    k += 1
+            if fence == "```":
+                pres.append("".join(body))
+            i = k + len(fence)
+        elif rendered[i] == "\\":
+            i += 2
+        else:
+            if rendered[i] in MDV2_SPECIAL:
+                bare.append(rendered[i])
+            i += 1
+    return pres, bare
+
+
+def all_posts(lab: dict[str, Any]) -> list[tuple[str, dict]]:
+    m, out = lab["main"], []
+    turns = dict(m["turns"]) | {f"r1_{k}": v for k, v in m["review1"].items()} | {"remove": m["remove"]}
+    for name, value in turns.items():
+        if isinstance(value, dict) and "telegram" in value:
+            out += [(name, view) for view in value["telegram"]]
+        elif isinstance(value, dict):  # refusals
+            out += [(f"{name}.{k}", view) for k, v in value.items() if isinstance(v, dict) for view in v.get("telegram", [])]
+    return out
+
+
+def shown_in_pre(views: list[dict]) -> str:
+    return "\n".join(body for view in views for body in mdv2_parts(view["mdv2"])[0])
+
+
+def test_r2_01_markdown_in_model_text_reaches_the_owner_verbatim(lab: dict[str, Any]) -> None:
+    for name in ("md_create", "md_update", "md_feedback"):
+        t = turn(lab, name)
+        assert "card" in t["order"] and t["telegram"], name
+        assert not any(v["rich"] for v in t["telegram"]), name
+        assert all(mdv2_parts(v["mdv2"])[1] == [] for v in t["telegram"]), name
+        pre = shown_in_pre(t["telegram"]).split("\n")
+        for line in MD_PROMPT.split("\n"):
+            assert line in pre, (name, line)
+        if name != "md_feedback":
+            assert MD_NAME in pre, name
+
+
+def test_r2_02_fence_breakers_and_rich_triggers_refused_before_posting(lab: dict[str, Any]) -> None:
+    for name in ("md_breaker", "md_rich"):
+        t = turn(lab, name)
+        assert refused(t) and "Telegram" in first_result(t) and t["order"] == [], first_result(t)
+    assert lab["main"]["turns"]["md_jobs"] == len(lab["main"]["turns"]["create_jobs"]) == 1
+
+
+def test_r2_03_no_post_of_the_lab_can_form_an_entity_or_go_rich(lab: dict[str, Any]) -> None:
+    posts = all_posts(lab)
+    assert len(posts) > 30
+    for name, view in posts:
+        pres, bare = mdv2_parts(view["mdv2"])
+        assert not view["rich"] and bare == [], (name, bare, view["mdv2"][:300])
+        assert len(view["mdv2"].encode("utf-16-le")) // 2 <= 4096, name
+    # The long owner proposal (several messages) still shows every instruction line inside pre blocks.
+    create = turn(lab, "create")
+    saved = lab["main"]["turns"]["create_jobs"][0]["prompt"]
+    assert len(create["telegram"]) >= 2  # a line too long for one message continues in the next one
+    assert "".join(saved.split()) in "".join(shown_in_pre(create["telegram"]).split())
+
+
+def test_r2_04_command_and_pause_notice_render_verbatim(lab: dict[str, Any]) -> None:
+    view = lab["main"]["command_telegram"]
+    pres, bare = mdv2_parts(view["mdv2"])
+    assert not view["rich"] and bare == [] and any("RETOUR-PROPRIO" in p for p in pres)
+    notice = turn(lab, "pause")["telegram"]
+    assert len(notice) == 1 and "mis en pause" in notice[0]["mdv2"] and mdv2_parts(notice[0]["mdv2"])[1] == []
 
 
 # ---- AC4 / G4 ---------------------------------------------------------------------------------------------
