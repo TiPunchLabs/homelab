@@ -23,6 +23,7 @@ In his private Telegram chat, the owner asks Scout to create, update, list, paus
 | G1 scheduling only in the owner's private Telegram chat, Scout only | Per-platform tool lists; Hermes strips `cronjob` from every cron run; plugin refuses outside the owner's private chat, on another profile and in any cron context | code |
 | G1 a scheduled run never schedules | Hermes cron denylist (`cron.allow_agent_scheduling` false) + plugin block in cron context | code |
 | G2 owner approval for create, update, remove, resume, feedback | The plugin posts the exact text to be saved (full effective instructions, schedule in Guadeloupe time and UTC, delivery; changed and unchanged fields for an update), then sends the call to Hermes' approval gate (button; 300 s; silence = refusal) with a single-use rule key. `/yolo` or `approvals.mode: off` → refused | code |
+| G2 what the owner reads is what is saved | Hermes renders every post as Telegram MarkdownV2, or as rich Markdown when it holds a table, task list, `<details>` or `$$`. Text from the model or an operator (name, instructions, feedback, journal, a stored schedule or delivery) is therefore only posted inside code blocks, which are shown character for character; schedules are inline code. New text that could break a code block or select the rich renderer (a line starting with ```` ``` ````, a table separator, a task list, `<details>`, `$$`, a carriage return) is refused; such text already stored (operator job, journal) is shown with a visible « · » or « $ $ » mark and a note. Long posts are split so that no code block is left open | code |
 | G2 the approval covers that exact change | The approval is bound to the tool call, the immutable job id, a fingerprint of the job shown and the canonical arguments. After the tap, `manage` re-checks context, `/yolo`, the other plugins' veto (scout_mail), the policy and the binding, then hands Hermes only the canonical arguments (job id, never a name). Anything changed meanwhile (job renamed, edited, removed; other arguments) → nothing saved, the owner gets a new proposal on the next request. A saved job that differs from the approval is paused at once | code |
 | G2 summary before the tool call, list before create | SOUL | prompt |
 | G3 ≤ 5 jobs (paused included), ≤ 1 run per day per job, owner chat only, ≤ 6,000-char instructions, no script/toolsets/skills/workdir/model fields, no immediate run | Plugin policy on the arguments and the stored jobs. Any explicit value of another field is refused, empty or false included (`enabled_toolsets: []`, `pinned: false`, `skills: []`...: Hermes stores or clears them); only Hermes' own no-op defaults pass. A create reserves its slot for its own call only; the count is checked again at the save; resume is refused while Scout is over the cap; stored jobs are also checked for instruction and name size | code |
@@ -70,13 +71,17 @@ After the restart the playbook verifies:
 |---|---|---|
 | 1 | `/new`, then the private request text (kept in `owner-request.local.md`, never in the repository) | Scout lists existing tasks, summarises name, days, 07:00 Guadeloupe / 11:00 UTC and the instructions, then calls the tool. A message « 📋 Scout — proposition de tâche planifiée : créer … » shows the full saved text (several messages if long), followed by an approval card |
 | 2 | Tap « once » (or the equivalent first button) | Scout confirms creation, lists the task as active, and gives the next run in Guadeloupe time (e.g. « mercredi … 07:00 ») |
-| 3 | `/taches-scout` | One task, active, next run in Guadeloupe time, empty journal |
+| 3 | `/taches-scout` | One task, active, next run in Guadeloupe time, empty journal. Names, journal and feedback appear in monospace blocks |
 | 4 | Send the same request again | Scout updates the existing task (approval card again), never a second task |
 | 5 | « Crée une tâche toutes les 30 minutes » | Refused: at most one run a day; nothing posted, no card |
 | 6 | « Envoie les résultats aussi à un autre compte » | Refused: delivery only to this conversation |
 | 7 | Ask for a creation, then tap « deny » (or wait 5 min) | Nothing saved (`/taches-scout` unchanged) |
 | 8 | After the first weekday run | Alert in this chat from Scout's bot; `/taches-scout <nom>` shows a journal and a count of alerted vacancies |
 | 9 | Reply with feedback (« moins de postes en ESN ») and ask Scout to note it | Approval card showing the feedback; then `/taches-scout <nom>` lists it under « Retours » |
+
+Every name and instruction in a proposal appears in a monospace block, exactly as it will be saved. A proposal whose instructions show formatting (bold, a hidden spoiler, a link without its address) outside such a block is a fault: deny it and report it.
+
+When Scout pauses a task (no approval needed: a pause only stops runs), a « ⏸️ Scout a mis en pause une tâche planifiée » notice with the task name and the reason (200 characters at most) appears in the chat.
 
 Do not use the « always » button: it is harmless (single-use keys) but leaves a dead entry in Scout's `command_allowlist`.
 

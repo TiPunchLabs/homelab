@@ -1241,6 +1241,10 @@ Operator procedures (enable, owner test, inspect/pause/remove a job, rollback):
   refused when it is off); after the tap its handler re-checks context, `/yolo`, scout_mail's veto, the
   policy, the job id and fingerprint, and the job count, then calls Hermes' own handler with the canonical
   arguments only. A change in between saves nothing. `scout-schedule` verifies the override.
+- Telegram renders posts as MarkdownV2: names, instructions, feedback and journal are only ever posted
+  inside code blocks (shown verbatim); text that could break one or select Telegram's rich renderer is
+  refused (review 2, F6). A pause needs no approval but posts a notice; its reason is capped at 200
+  characters (F7).
 - Limits: at most 5 jobs (paused included; resume is refused over the cap); one fixed minute and hour (at most one run a day);
   delivery to the owner's chat only; instructions of at most 6,000 characters; no script, toolsets,
   skills, workdir or model fields; no immediate run; 40 tool calls and 20 web calls per cron run.
