@@ -1,7 +1,7 @@
 # Report — homelab/2026-11-24-scout-self-cron (SCOUT-CRON)
 
-Verdict: PASS (correction cycle 1 of review-1.md, CHANGES_REQUESTED on 5a1fb5a: F1–F5 fixed, see « Answers to review 1 »)
-Version: 392e02d (branch `feat/scout-self-cron`; cycle 0: 8ea5783 plugin, 3f22db6 role/config/SOUL/checks, 20e4e70 tests, 5cff2b9 docs, 5a1fb5a test alignment; cycle 1: 659c8a2 fix, 975fa5b tests, 392e02d docs; this report is committed on top and changes nothing else)
+Verdict: PASS (correction cycle 2: review-2-claude.md, CHANGES_REQUESTED on 392e02d, F6 and F7 fixed, see « Answers to review 2 »; cycle 1: review-1.md on 5a1fb5a, F1–F5 fixed, see « Answers to review 1 »)
+Version: 4e8e279 (branch `feat/scout-self-cron`; cycle 0: 8ea5783 plugin, 3f22db6 role/config/SOUL/checks, 20e4e70 tests, 5cff2b9 docs, 5a1fb5a test alignment; cycle 1: 659c8a2 fix, 975fa5b tests, 392e02d docs; cycle 2: 1d6dc94 fix, 7e39898 tests, 4e8e279 docs; this report is committed on top and changes nothing else)
 MR: https://gitlab.com/tipunchlabs/homelab/-/merge_requests/111 (draft, source branch kept on merge)
 Executor: Claude Code, model Claude Opus 5.5 (`claude-opus-5-5`). Delegations: none. Every search, test run, log parse, security design and enforcement code was done by the executor model; no subagent was used.
 
@@ -19,6 +19,84 @@ Executor: Claude Code, model Claude Opus 5.5 (`claude-opus-5-5`). Delegations: n
 - Not done, by design: no deployment, no restart, nothing written on hermes-31; check mode only (E3).
 - Every acceptance criterion is verified by tests on the real Hermes v0.22.5 image, except Telegram's own transport and button rendering. Both are faked in the lab and listed under owner tests.
 - Cycle 1 (Codex review 1): the owner's approval is now bound to one tool call, one job version and one set of arguments, and re-checked at the real save. To do that, scout_cron replaces `cronjob_manage` in Scout's profile only; this needs the operator grant `tools.override`. Create reservations belong to their own call, and the job count is checked again at the save. Every explicit value Hermes would store or clear is refused. Resume is refused over the cap. Every proposal shows the full effective task. Each finding has regression tests that fail on 5a1fb5a, including interleavings against real Hermes.
+
+## Answers to review 2
+
+Review `review-2-claude.md` (Claude fallback reviewer, owner-approved; CHANGES_REQUESTED on 392e02d). It confirms F1–F5 fixed and raises F6 [major] and F7 [minor]. Fix commits: 1d6dc94 (plugin only), 7e39898 (tests), 4e8e279 (runbook, role README). No role task, variable or config change in this cycle.
+
+### F6: the owner must read exactly what is saved
+
+Root cause, from Hermes v0.22.5 `plugins/platforms/telegram/adapter.py`:
+- `send()` → `_send_text_locked` renders every post with `format_message` (Markdown → MarkdownV2).
+- When the raw text has a table separator line, a task-list item, a `<details>`/`<summary>` line or `$$`, `send()` instead takes the rich path (`_needs_rich_rendering` → `sendRichMessage`): Telegram renders the raw Markdown server-side.
+- `format_message` converts `||…||` into a spoiler, `[text](url)` into a link (URL hidden), `**>` into a collapsed quote, and `**`, `*`, `~~`, `#`. It never converts the body of a fenced block: it is stashed first, and only `\` and `` ` `` are escaped.
+- The approval card is not affected: `_send_exec_approval_prompt` uses HTML parse mode and `_ea_escape` (html.escape).
+
+Fix:
+- `policy.verbatim()` puts text from the model or an operator in a code fence. It is used for:
+  - the task name;
+  - instructions (create, update, resume, remove);
+  - feedback text;
+  - an out-of-policy stored schedule or delivery;
+  - the `/taches-scout` names, journal, feedback and policy issues;
+  - the pause notice.
+- Cron expressions are inline code (`` `0 7 * * 1-5` ``).
+- `policy.unsafe_shapes()` refuses new text that could close a fence or select the rich path: a line starting with ```` ``` ````, a table separator, a task-list item, `<details>`/`<summary>`, `$$`, a carriage return. This applies to name and instructions (create, update) and feedback; Scout is told to reformulate. The private request contains none of these shapes.
+- Text already stored (operator jobs, cron journal) is shown with a visible « · » before such a line, « $ $ » for `$$`, « ␍ » for a carriage return, and a note saying so.
+- `split_for_telegram` is fence-aware:
+  - a chunk ending inside a fence closes it, and the next one reopens it;
+  - every chunk's rendered size is bounded in UTF-16 units, counting MarkdownV2 escapes (budget 3,500 for Telegram's 4,096);
+  - a line longer than one message continues in the next one.
+- `/taches-scout` returns its first chunk only, with a pointer to the per-task view.
+- Side effect, found by the real formatter: before the fix, even an ordinary proposal showed `0 7 * * 1-5` with ` * * ` turned into italics. Expressions are now inline code.
+
+### F7: pause reason
+
+- `reason` must be a string of at most 200 characters (`MAX_REASON_CHARS`); otherwise the call is refused.
+- After a successful pause, `manage` posts a notice to the owner: « ⏸️ Scout a mis en pause une tâche planifiée », with the task name and reason in code blocks, and how to resume it (with approval).
+- Pause still needs no approval: it only stops runs.
+
+### Tests
+
+| Test | What it proves | On 392e02d |
+|---|---|---|
+| `test_r2_f6_create_and_update_show_model_text_only_in_fences` | Spoiler, link, collapsed quote, strike, heading, backticks in name and instructions: every line is inside a fence, never outside; fences balanced; rendered size bounded | FAILED |
+| `test_r2_f6_feedback_and_long_text_stay_in_balanced_fences` | Feedback text; a 5,600-character all-escaped prompt over three or more messages | FAILED |
+| `test_r2_f6_text_that_telegram_would_not_show_verbatim_is_refused` (7 cases) | ```` ``` ```` line, indented ```` ```python ````, table, task list, `<details>`, `$$`, `\r`: refused for create and feedback, nothing posted | 7 FAILED |
+| `test_r2_f6_stored_operator_text_is_marked_never_rendered` | Remove of an operator job with fence and table lines: marked, note shown | FAILED |
+| `test_r2_f6_command_output_fences_journal_feedback_and_names` | `/taches-scout`: journal, feedback and name fenced; long output truncated with balanced fences | FAILED |
+| `test_r2_f7_pause_reason_capped_and_owner_told` | 201 and 100,000 characters, non-string: refused; valid reason: notice posted, verbatim | FAILED |
+| `test_pol_11` (updated) | Split keeps every character, rendered size bounded | FAILED |
+| Image `test_r2_01` | Through Hermes' real `format_message`: the Markdown-laden create, update and feedback proposals have no unescaped MarkdownV2 special character outside code entities; every instruction line and the name are inside pre blocks; no post takes the rich path | FAILED (`md_create`: entities outside code) |
+| Image `test_r2_02` | Fence-breaker and table instructions refused before any post; no job saved | ERROR: the old plugin saved both jobs, the cap filled early, and the lab aborted (`KeyError: 'Remplissage 2'`) |
+| Image `test_r2_03` | Every post of the lab (more than 30, both labs) goes through the real formatter: no unescaped special outside code, no rich path, rendered at most 4,096 UTF-16 units; the long owner proposal shows all its instructions in pre blocks | FAILED (plain `deny` proposal: unescaped `_ _` from ` * * `) |
+| Image `test_r2_04` | `/taches-scout` output and the pause notice through the real formatter | FAILED (no notice) |
+| Image `test_g2_06` (updated) | Pause now posts exactly one notice | FAILED |
+
+How « fails on 392e02d » was measured:
+- `git archive 392e02d hermes` was exported to the scratchpad (not a worktree), with the new test files and lab copied in.
+- Unit, `-k "test_r2_ or pol_11"`: 13 failed, 0 passed.
+- Image, `tool_search` off:
+  - With the full new lab: the lab aborts (above).
+  - With the two refusal scenarios removed so the lab completes: `test_r2_01`, `test_r2_03`, `test_r2_04` and `test_g2_06` fail.
+
+Results on 4e8e279:
+- `test_scout_cron.py` + `test_scout_cron_role.py`: 179 passed (166 + 13).
+- `test_scout_cron_image.py`: 116 passed (58 per lab, `tool_search` off and auto).
+
+### Full suite after the last product commit
+
+- Command, from the worktree root at 4e8e279: `uv run pytest hermes/tests -q -p no:cacheprovider -o faulthandler_timeout=300 -rf`. Nothing deselected: the Kaféine gateway labs and both cron image labs are included.
+- Started 20:26:58 AST (00:26 UTC, 26 Nov), ended 21:02:08 AST.
+- Result: 1 failed, 1167 passed, 27 skipped, in 2109.24 s; exit code 1. Total 1195 = 1175 at 392e02d + 20 new items.
+- The only failure is the pre-existing date-sensitive `test_scout03_kandidat.py::test_l06_create_candidature_side_effects` (`'2026-11-26' == '2026-11-25'`). The run started after 20:00 AST, when the UTC date of the fake server's container is already the next day. It is explained under « Answers to review 1 » and passed in the reviewer's run before 20:00. The test and its fixture are unchanged since 975e302.
+- The report commit on top of 4e8e279 changes only `report.md`.
+
+### Not done in this cycle
+
+- No check mode: only plugin files changed, the role and configuration did not. The cycle-1 check mode, `changed=5` with the plugin code among the five, still describes what a deployment changes.
+- Telegram's own client rendering stays an owner test. The lab proves what Hermes sends (MarkdownV2 text with no entity outside code); the runbook (owner test) tells the owner to deny any proposal that shows formatting outside a monospace block.
+- `tools.override` is plugin-wide (review 2 reservation): any later scout_cron change could replace another built-in in Scout's scope without a config change. This is unchanged and recorded; review scout_cron changes with it in mind.
 
 ## Answers to review 1
 
@@ -234,6 +312,8 @@ Test counts (exact):
 | New: image lab | `test_scout_cron_image.py` | 86 passed (43 tests × 2 labs, tool_search off/auto) |
 | Cycle 1, full run on 392e02d | `uv run pytest hermes/tests -q -p no:cacheprovider -o faulthandler_timeout=300 -rf` | 1 failed, 1147 passed, 27 skipped, nothing deselected. The failure is the pre-existing date-sensitive `test_scout03_kandidat.py::test_l06` (fails identically on 975e302 between 20:00 and 24:00 AST) |
 | Cycle 1: unit, role, image | `test_scout_cron.py`, `test_scout_cron_role.py`, `test_scout_cron_image.py` | 154, 13, 108 passed |
+| Cycle 2, full run on 4e8e279 | same command | 1 failed, 1167 passed, 27 skipped, nothing deselected; the failure is the pre-existing date-sensitive `test_l06` (run after 20:00 AST) |
+| Cycle 2: unit + role, image | `test_scout_cron.py`, `test_scout_cron_role.py`, `test_scout_cron_image.py` | 179, 116 passed |
 | Cycle 1: new tests against 5a1fb5a | export of 5a1fb5a + new test files | unit `test_r1_*`: 56 failed, 6 passed (non-empty audit rows already refused); image `test_r1_*`: 9 of 9 failed |
 
 The run on the untouched base commit is the reference: everything passing there passes on the branch except the deliberately updated assertions listed under Deviations.
@@ -376,4 +456,4 @@ To revert the whole MR instead, mind three things:
 
 ## Recommended next action
 
-Codex re-review of MR !111 at 392e02d (cycle 1), brief by the pilot. Then the owner's deployment decision (D-DEPLOY) and the owner Telegram tests above. Nothing is safe to execute on hermes-31 without that decision.
+Re-review of MR !111 at 4e8e279 (cycle 2), brief by the pilot. Then the owner's deployment decision (D-DEPLOY) and the owner Telegram tests above. Nothing is safe to execute on hermes-31 without that decision.
