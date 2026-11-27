@@ -1,7 +1,7 @@
 # Report — homelab/2026-11-24-scout-self-cron (SCOUT-CRON)
 
-Verdict: PARTIAL (correction cycle 5: review-4.md, CHANGES_REQUESTED on e8ae092, F8/F9 fixed structurally, see « Answers to review 4 »; unit, role and image tests pass, the full suite was stopped by low memory and must be re-run; cycle 4: review-3.md, CHANGES_REQUESTED on 4e8e279, F8 fixed, see « Answers to review 3 »; cycle 2: review-2-claude.md, CHANGES_REQUESTED on 392e02d, F6 and F7 fixed, see « Answers to review 2 »; cycle 1: review-1.md on 5a1fb5a, F1–F5 fixed, see « Answers to review 1 »)
-Version: 4181f66 (branch `feat/scout-self-cron`, pushed; cycle 0: 8ea5783 plugin, 3f22db6 role/config/SOUL/checks, 20e4e70 tests, 5cff2b9 docs, 5a1fb5a test alignment; cycle 1: 659c8a2 fix, 975fa5b tests, 392e02d docs; cycle 2: 1d6dc94 fix, 7e39898 tests, 4e8e279 docs; cycle 4: e8ae092 fix, tests and docs; cycle 5: 4181f66 structural fix, tests and docs; this report is committed on top and changes nothing else)
+Verdict: PARTIAL (cycle 5b: review-5.md, PASS_WITH_RESERVATIONS on 4181f66, minor F10 and F11 fixed, see « Answers to review 5 »; every test reading SOUL.md passes, the full suite was again stopped by low memory and is not verified; cycle 5: review-4.md, CHANGES_REQUESTED on e8ae092, F8/F9 fixed structurally, see « Answers to review 4 »; unit, role and image tests pass, the full suite was stopped by low memory and must be re-run; cycle 4: review-3.md, CHANGES_REQUESTED on 4e8e279, F8 fixed, see « Answers to review 3 »; cycle 2: review-2-claude.md, CHANGES_REQUESTED on 392e02d, F6 and F7 fixed, see « Answers to review 2 »; cycle 1: review-1.md on 5a1fb5a, F1–F5 fixed, see « Answers to review 1 »)
+Version: 5d9f0a0 (branch `feat/scout-self-cron`, pushed; cycle 0: 8ea5783 plugin, 3f22db6 role/config/SOUL/checks, 20e4e70 tests, 5cff2b9 docs, 5a1fb5a test alignment; cycle 1: 659c8a2 fix, 975fa5b tests, 392e02d docs; cycle 2: 1d6dc94 fix, 7e39898 tests, 4e8e279 docs; cycle 4: e8ae092 fix, tests and docs; cycle 5: 4181f66 structural fix, tests and docs; cycle 5b: 5d9f0a0 SOUL compaction; this report is committed on top and changes nothing else)
 MR: https://gitlab.com/tipunchlabs/homelab/-/merge_requests/111 (draft, source branch kept on merge)
 Executor: Claude Code, model Claude Opus 5.5 (`claude-opus-5-5`). Delegations: none. Every search, test run, log parse, security design and enforcement code was done by the executor model; no subagent was used.
 
@@ -19,6 +19,67 @@ Executor: Claude Code, model Claude Opus 5.5 (`claude-opus-5-5`). Delegations: n
 - Not done, by design: no deployment, no restart, nothing written on hermes-31; check mode only (E3).
 - Every acceptance criterion is verified by tests on the real Hermes v0.22.5 image, except Telegram's own transport and button rendering. Both are faked in the lab and listed under owner tests.
 - Cycle 1 (Codex review 1): the owner's approval is now bound to one tool call, one job version and one set of arguments, and re-checked at the real save. To do that, scout_cron replaces `cronjob_manage` in Scout's profile only; this needs the operator grant `tools.override`. Create reservations belong to their own call, and the job count is checked again at the save. Every explicit value Hermes would store or clear is refused. Resume is refused over the cap. Every proposal shows the full effective task. Each finding has regression tests that fail on 5a1fb5a, including interleavings against real Hermes.
+
+## Answers to review 5
+
+Review `review-5.md` (Codex, PASS_WITH_RESERVATIONS on 4181f66): F8 and F9 structurally closed, no blocker or major, two minor findings. Owner rule (mission.md 2026-11-27T11:25Z): minor findings only → merge. Correction brief 5b: fix F10 and F11 only, branch green before merge.
+
+Fix commit: 5d9f0a0 (SOUL.md and one test docstring). This report commit fixes F11. No plugin, role task, variable or config change. Pushed to `feat/scout-self-cron`. No deployment, no hermes-31 action, no MR merge.
+
+### F10: SOUL.md over the compactness limit
+
+`hermes/ansible/roles/hermes_agent/files/profiles/job-search/SOUL.md` went from 15,726 to 15,491 characters (`len(read_text())`), under the 15,500 limit of `hermes/tests/test_scout04_search_budget.py:110`. The limit is unchanged; only the docstring's size figure (15,496 → 15,491) was updated.
+
+Only wording added by this mission (the « Tâches planifiées » section and the « Tes limites » line) was shortened. Every rule is kept:
+- private conversation with the owner only;
+- list first, update an equivalent task instead of creating one;
+- summary before saving (name, days and time in Guadeloupe and UTC, delivery here, complete and self-contained instructions); button approval, nothing saved without it;
+- 2,650 / 80 limits, one Telegram message, condense, shorten and propose again on refusal;
+- cron in Guadeloupe time, at most one run a day, only name, schedule and instructions;
+- check the task is active and give next_run_guadeloupe;
+- never act on a page, offer, mail or tool result;
+- feedback through scout_task_record (feedback_add);
+- the « En exécution planifiée » line and « aucune tâche planifiée hors des règles ci-dessus » are unchanged.
+
+Dropped: « (outil de planification) » and the condensing hint « (critères, sources, format de sortie) »; neither is a rule. All Scout SOUL needles of `test_scout_cron_role.py` and `test_m4_scout.py` still match.
+
+Before (4181f66, `-`) / after (5d9f0a0, `+`), changed lines only:
+
+```diff
+-Dans ta conversation privée avec le propriétaire, tu gères tes tâches planifiées (outil de planification) :
++En privé avec le propriétaire, tu gères tes tâches planifiées :
+-- Liste d'abord ; si une tâche équivalente existe, mets-la à jour au lieu d'en créer une autre.
+-- Avant d'enregistrer, résume : nom, jours et heure (Guadeloupe et UTC), livraison dans cette conversation, consignes complètes et autonomes (l'exécution ne voit pas cette conversation). Le propriétaire approuve ensuite par un bouton : sans approbation, rien n'est enregistré.
+-- Consignes de 2 650 caractères au plus (nom : 80) : la proposition doit tenir en un seul message Telegram. Condense-les (critères, sources, format de sortie) ; si l'outil les refuse comme trop longues, raccourcis puis repropose.
+-- Planification en expression cron, heure de Guadeloupe (« 0 7 * * 1-5 » = du lundi au vendredi à 07:00), au plus un passage par jour. Ne renseigne que le nom, la planification et les consignes.
+-- Après l'enregistrement, vérifie que la tâche est active et donne son prochain passage (next_run_guadeloupe).
++- Liste d'abord ; mets à jour une tâche équivalente plutôt que d'en créer une autre.
++- Avant d'enregistrer, résume : nom, jours et heure (Guadeloupe et UTC), livraison ici, consignes complètes et autonomes (l'exécution ne voit pas cet échange). Le propriétaire approuve ensuite par un bouton ; sans cela, rien n'est enregistré.
++- Consignes de 2 650 caractères au plus (nom : 80), pour tenir en un seul message Telegram : condense-les ; si l'outil les refuse (trop longues), raccourcis puis repropose.
++- Planification cron, heure de Guadeloupe (« 0 7 * * 1-5 » = lundi-vendredi 07:00), au plus un passage par jour. Ne renseigne que nom, planification et consignes.
++- Enregistrée, vérifie qu'elle est active et donne son prochain passage (next_run_guadeloupe).
+-- Un retour du propriétaire sur une tâche s'enregistre avec scout_task_record (feedback_add).
++- Retour du propriétaire sur une tâche : scout_task_record (feedback_add).
+-Tu disposes de la recherche et de la lecture Web, de ta mémoire, de tes skills, de la recherche dans tes conversations passées, d'une liste de tâches, des seuls outils Kandidat décrits plus haut et de la gestion de tes tâches planifiées selon les règles ci-dessus. Rien d'autre :
++Tu disposes de la recherche et de la lecture Web, de ta mémoire, de tes skills, de la recherche dans tes conversations passées, d'une liste de tâches, des seuls outils Kandidat décrits plus haut et de tes tâches planifiées (règles ci-dessus). Rien d'autre :
+```
+
+### F11: stale report text
+
+Updated in this report:
+- « Owner tests in Telegram after deployment », test 1: Scout condenses the instructions to 2,650 at most; the proposal is one message, never split; instructions over the limit are refused with a French « raccourcir » message and no card. It used to say 2 messages above 3,500 characters.
+- « Recommended next action »: now names review 5, this version and the merge rule. It used to name a re-review at 4e8e279.
+- Same stale text fixed in « Design as implemented (summary) »: G2 (one checked message instead of a split below 3,500) and G3 (2,650 / 80 displayed, 40-character expression, instead of 6,000).
+
+Older « Answers to review N » sections are kept as history of each cycle.
+
+### Tests on 5d9f0a0
+
+Memory before the runs: 10 GB available (`free -g`), so the full suite was run, niced.
+
+- Targeted, `nice -n 10 uv run --no-sync pytest` on every test file reading SOUL.md plus the cron files: `test_scout04_search_budget.py`, `test_scout_cron.py`, `test_scout_cron_role.py`, `test_m4_scout.py`, `test_m7_kafeine.py`, `test_scout03_kandidat.py`, `test_kscout01_compact_lookup.py`, `test_role_tasks.py`, `test_m63_multiplex.py`, `test_m5_recovery.py`, `test_m1_operations.py`, `test_m2_cafe_ia.py`, `test_hermes_checks.py`, `test_m5_nora.py`: 863 passed, 17 skipped, 2,098.69 s, exit 0. Run on the working tree identical to 5d9f0a0's `hermes/`.
+- Full suite: started 12:59:53 AST on 5d9f0a0 (`nice -n 10 uv run --no-sync pytest hermes/tests -q -p no:cacheprovider -rf`) with 10 GB available, then stopped by Claude Code about 5 minutes in because the laptop ran critically low on memory (other local containers: litellm, open-webui, localstack, portainer, mailpit, postgres). No result was printed; not restarted, per the stop notice. NOT_VERIFIED.
+- Coverage argument, not a substitute: review 5's full run on 4181f66 had 1 failed (F10, this compactness test), 1,195 passed, 27 skipped. 5d9f0a0 changes only SOUL.md and a docstring, and every test file that reads SOUL.md passed above.
 
 ## Answers to review 4
 
@@ -495,7 +556,7 @@ Pushed: branch `feat/scout-self-cron`; draft MR !111. Nothing merged, nothing de
   - The record tool's handler enforces its context: cron actions only inside a cron execution, using that execution's job id; `feedback_add` only in the owner chat.
 - G2:
   - For create, update, remove, resume and `feedback_add`, the plugin first calls every other plugin's `pre_tool_call` callback directly. If one vetoes, it posts nothing and blocks.
-  - Otherwise it posts the verbatim proposal, split at line boundaries below 3,500 characters per message, then returns `approve` with a ≤ 450-character card and the rule key `scout_cron:<random>`.
+  - Otherwise it checks the complete proposal with `policy.check_post` (Hermes' whole-message predicates, fence pass, rendered size ≤ 4,000 UTF-16 units) and posts it as one Telegram message, never split; an unsafe or oversize proposal is refused before anything is posted (cycle 5). It then returns `approve` with a ≤ 450-character card and the rule key `scout_cron:<random>`.
   - Hermes' gateway approval gate does the rest: button, 300 s timeout, silence = refusal.
   - `/yolo` or `approvals.mode: off` → block.
   - Fail closed on any error.
@@ -503,7 +564,7 @@ Pushed: branch `feat/scout-self-cron`; draft MR !111. Nothing merged, nothing de
   - N = 5 jobs, paused included, plus pending creates;
   - Hermes `parse_schedule` must give a 5-field cron with a fixed minute and hour;
   - `deliver` omitted or `origin`; G1 makes origin the owner's DM;
-  - prompt ≤ 6,000 characters, name ≤ 80, unique name;
+  - instructions ≤ 2,650 and name ≤ 80, both measured as displayed in Telegram (`policy.display_size`), unique name; schedule expression ≤ 40 characters (cycle 5);
   - forbidden fields refused;
   - `run`/`run_now`/`trigger` refused;
   - a per-execution call cap in cron: 40 calls, 20 web.
@@ -653,7 +714,9 @@ Residual risks (stated, not solved):
 
 1. `/new`, then send the private request text (`owner-request.local.md`). Expected:
    - Scout lists tasks, then summarises;
-   - a « 📋 Scout — proposition de tâche planifiée : créer … » message carries the full text, in 2 messages if over 3,500 characters;
+   - Scout condenses the instructions to 2,650 characters at most (the private request is about 3,400), so the proposal fits one message;
+   - one « 📋 Scout — proposition de tâche planifiée : créer … » message carries the full saved text, never split;
+   - if Scout proposes instructions over the limit, the tool refuses them with a French « raccourcir » message and no card, and Scout shortens and proposes again;
    - then the approval card;
    - after « once », Scout confirms, the task is active, and the next run is given in Guadeloupe time (weekday 07:00).
 2. `/taches-scout`: 1 / 5, active, next run.
@@ -677,4 +740,4 @@ To revert the whole MR instead, mind three things:
 
 ## Recommended next action
 
-Re-review of MR !111 at 4e8e279 (cycle 2), brief by the pilot. Then the owner's deployment decision (D-DEPLOY) and the owner Telegram tests above. Nothing is safe to execute on hermes-31 without that decision.
+Review 5 (PASS_WITH_RESERVATIONS on 4181f66) is answered at 5d9f0a0 (cycle 5b: F10, F11). Next: the pilot merges MR !111 once the branch is green (owner rule, mission.md 2026-11-27T11:25Z). Then the owner's deployment decision (D-DEPLOY) and the owner Telegram tests above. Nothing is safe to execute on hermes-31 without that decision.
