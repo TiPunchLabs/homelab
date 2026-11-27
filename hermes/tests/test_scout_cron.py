@@ -880,6 +880,92 @@ def test_r2_f7_pause_reason_capped_and_owner_told(plugin: scout_cron._Plugin) ->
     assert_shown_verbatim(plugin.port.posts, [MD_NAME, "**vacances**"])
 
 
+# ---- review 3 (F8): pieces created by splitting ---------------------------------------------------------
+
+F8_HIDDEN = "||hidden|| [link](https://example.invalid)"
+F8_PROMPT = "a" * 3458 + "```\n" + F8_HIDDEN  # the review's synthetic reproduction, 3,504 characters
+# Tails that are harmless mid-line but unsafe as the first line of a piece: a fence (closes the reopened
+# one), an indented fence, a table separator (rich path), a task-list item, a <details> tag.
+F8_TAILS = ["```", "  ```", "|---|---|", "- [ ] x", "<details>"]
+_RICH_OR_FENCE = (r"^\s*```", r"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*){1,}\|?\s*$", r"^\s*[-*]\s+\[[ xX]\]\s+",
+                  r"^(?:<details\b|</details>|<summary\b|</summary>)")
+
+
+def assert_post_safe(post: str) -> tuple[list[str], list[str]]:
+    """Test-side oracle, independent of policy's own check: balanced plugin fences only, and no line that
+    Hermes would read as a fence, a table, a task list or <details>; returns (inside, outside)."""
+    import re
+    inside, outside = fenced_lines(post)
+    for line in inside + outside:
+        assert not any(re.search(rx, line) for rx in _RICH_OR_FENCE), line
+    assert "$$" not in post and "\r" not in post and rendered_cost(post) <= 4096
+    return inside, outside
+
+
+def test_r3_f8_review_reproduction_is_shown_verbatim_and_saved_exactly(plugin: scout_cron._Plugin) -> None:
+    approved(plugin, create_args(prompt=F8_PROMPT), "f8")
+    assert len(plugin.port.posts) >= 2  # the long line is cut across messages
+    inside, outside = [], []
+    for post in plugin.port.posts:
+        i, o = assert_post_safe(post)
+        inside, outside = inside + i, outside + o
+    assert F8_HIDDEN in inside and not any("||" in o or "](" in o for o in outside)
+    assert "a" * 3458 + "```" in "".join(inside)  # the cut pieces, rejoined, are the original line
+    assert dispatch(plugin, create_args(prompt=F8_PROMPT), "f8")["success"]
+    assert plugin.port.store[-1]["prompt"] == F8_PROMPT
+
+
+@pytest.mark.parametrize("tail", F8_TAILS)
+def test_r3_f8_a_cut_at_any_position_never_makes_an_unsafe_piece(tail: str) -> None:
+    """Every length from 1 to 400 with a 120-unit limit puts the first, second and third piece boundary
+    of the line at every offset around the tail."""
+    counts = set()
+    for n in range(1, 400):
+        line = "a" * n + tail
+        chunks = policy.split_for_telegram("\n".join(["Instructions :", *policy.verbatim(f"{line}\n{F8_HIDDEN}"),
+                                                       "fin"]), limit=120)
+        counts.add(len(chunks))
+        inside, outside = [], []
+        for chunk in chunks:
+            i, o = assert_post_safe(chunk)
+            inside, outside = inside + i, outside + o
+        assert F8_HIDDEN in inside and not any("||" in o for o in outside), n
+        assert "".join(inside) == line + F8_HIDDEN, n
+    assert {2, 3, 4, 5} <= counts
+
+
+def test_r3_f8_unsafe_final_post_refused_before_any_post_or_approval(plugin: scout_cron._Plugin) -> None:
+    args = create_args(prompt="a" + "`" * 3400)  # every cut leaves a piece starting with ```
+    out = call(plugin, args, call_id="f8b")
+    assert out is not None and out["action"] == "block" and "Telegram" in out["message"], out
+    assert plugin.port.posts == [] and plugin._bindings == {}
+    assert not dispatch(plugin, args, "f8b")["success"]
+    assert plugin.port.store == []
+
+
+@pytest.mark.parametrize("sep", ["\u2028", "\u2029", "\x0b", "\x0c", "\x1c", "\x85"])
+def test_r3_f8_line_separators_that_hermes_splits_on_are_refused_before_posting(
+        plugin: scout_cron._Plugin, sep: str) -> None:
+    out = call(plugin, create_args(prompt=f"avant{sep}|---|---|"), call_id="f8s")
+    assert out is not None and out["action"] == "block" and "Telegram" in out["message"], out
+    assert plugin.port.posts == [] and plugin._bindings == {}
+
+
+def test_r3_f8_notice_and_command_fall_back_when_stored_text_cannot_be_split_safely(
+        plugin: scout_cron._Plugin) -> None:
+    plugin.port.store.append(job(name="Op"))
+    plugin.port.notes[("aaaa11112222", "journal")] = "a" + "`" * 4000
+    owner = SimpleNamespace(platform=SimpleNamespace(value="telegram"), chat_type="dm", chat_id=OWNER, user_id=OWNER)
+    assert "non affichable" in plugin.command("aaaa11112222", source=owner)
+    args = {"action": "pause", "job_id": "aaaa11112222"}
+    assert call(plugin, args) is None
+    plugin.port.store[0]["paused_reason"] = "a" + "`" * 199
+    plugin.port.store[0]["name"] = "a" + "`" * 3900  # operator-written
+    assert dispatch(plugin, args, "f8c")["success"]
+    assert len(plugin.port.posts) == 1 and "non affichables" in plugin.port.posts[0]
+    assert_post_safe(plugin.port.posts[0])
+
+
 # ---- ledger --------------------------------------------------------------------------------------------
 
 def test_led_01_normalization() -> None:

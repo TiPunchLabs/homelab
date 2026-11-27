@@ -78,6 +78,14 @@ _UNSAFE_LINES = (
 _MARK = "· "
 
 
+def _unsafe_line(line: str) -> bool:
+    return any(rx.search(line) for rx, _ in _UNSAFE_LINES)
+
+
+class UnsafePost(ValueError):
+    """A Telegram post that Hermes would not show verbatim (review 3, F8): never posted."""
+
+
 def unsafe_shapes(text: str) -> list[str]:
     """Shapes in ``text`` that Telegram would not show verbatim inside a code fence (empty = safe)."""
     found = [why for line in text.split("\n") for rx, why in _UNSAFE_LINES if rx.search(line)]
@@ -95,7 +103,7 @@ def verbatim(text: str) -> list[str]:
     for line in str(text).replace("\r", "␍").split("\n"):
         if "$$" in line:
             line, marked = re.sub(r"\$(?=\$)", "$ ", line), marked + 1
-        if any(rx.search(line) for rx, _ in _UNSAFE_LINES):
+        if _unsafe_line(line):
             line, marked = _MARK + line, marked + 1
         lines.append(line)
     lines.append(FENCE)
@@ -480,7 +488,10 @@ def _cost(line: str, fenced: bool) -> int:
 def split_for_telegram(text: str, limit: int = 3500) -> list[str]:
     """Split a post at line boundaries into chunks whose RENDERED size stays under ``limit`` (Telegram: 4096),
     never leaving a fence open: a chunk that ends inside a fence closes it, the next one reopens it. A line
-    too long for one chunk is cut (inside a fence it continues on the next message)."""
+    too long for one chunk is cut (inside a fence it continues on the next message), never where a piece
+    would become a fence line or another unsafe shape (review 3, F8: « aaa```» cut before the ``` closed
+    the reopened fence). Every line of every chunk is checked; raises UnsafePost rather than return a
+    chunk Hermes would not show verbatim."""
     budget = limit - 2 * _cost(FENCE, False) - 20  # closing fence and the « (i/n) » line
     chunks: list[str] = []
     cur: list[str] = []
@@ -505,6 +516,8 @@ def split_for_telegram(text: str, limit: int = 3500) -> list[str]:
             keep = 1
             while keep < len(line) and used + _cost(line[:keep + 1], fenced) <= budget:
                 keep += 1
+            while keep > 1 and (_unsafe_line(line[:keep]) or _unsafe_line(line[keep:])):
+                keep -= 1
             cur.append(line[:keep])
             used += _cost(line[:keep], fenced)
             line = line[keep:]
@@ -515,4 +528,22 @@ def split_for_telegram(text: str, limit: int = 3500) -> list[str]:
         close()
     if len(chunks) > 1:
         chunks = [f"({i}/{len(chunks)})\n{c}" for i, c in enumerate(chunks, start=1)]
+    for chunk in chunks:
+        check_post(chunk)
     return chunks
+
+
+def check_post(chunk: str) -> None:
+    """Raise UnsafePost unless Hermes would show ``chunk`` as intended: fences are only the plugin's own
+    ``` lines and balanced, no other line could close/open a fence, toggle the table pass or select the
+    rich renderer (table, task list, <details>), no « $$ » or CR, rendered size under Telegram's 4096.
+    Lines are also checked as Hermes' table detector cuts them (str.splitlines: U+2028, form feed...)."""
+    fences, rendered = 0, 0
+    for line in chunk.split("\n"):
+        if line == FENCE:
+            fences += 1
+        elif any(_unsafe_line(part) for part in [line, *line.splitlines()]):
+            raise UnsafePost("unsafe line shape")
+        rendered += _cost(line, fences % 2 == 1)
+    if fences % 2 or "$$" in chunk or "\r" in chunk or rendered > 4096:
+        raise UnsafePost("unbalanced fence, $$, CR or oversize")

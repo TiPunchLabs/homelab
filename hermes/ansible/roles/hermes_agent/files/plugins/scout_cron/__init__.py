@@ -60,6 +60,9 @@ MSG_BYPASS = ("Planification refusée : l'approbation automatique (/yolo ou appr
 MSG_VETO = "Action refusée : un autre contrôle de sécurité bloque les outils dans cette conversation."
 MSG_POST = "Impossible d'afficher la proposition complète : rien n'est enregistré."
 MSG_ERROR = "Contrôle de planification en erreur : rien n'est enregistré."
+MSG_UNSAFE_POST = ("Proposition refusée : une fois découpée pour Telegram, elle ne s'afficherait pas telle quelle "
+                   "(``` ou forme Markdown à une coupure) ; rien n'est affiché ni enregistré. Reformuler "
+                   "(lignes plus courtes, sans ```).")
 MSG_GUARD = ("Planification indisponible : la garde d'enregistrement n'est pas installée (opérateur : "
              "plugins.entries.scout_cron.granted_capabilities: [tools.override]).")
 MSG_STALE = ("Rien n'est enregistré : l'approbation portait sur un état qui a changé depuis (tâche renommée, "
@@ -213,10 +216,14 @@ class _Plugin:
             if binding is None or self.port.other_hooks_veto(self, binding.hook_kwargs):
                 self._release(call_id)
                 return _block(MSG_VETO)
+            # Every final post is checked before the first one is sent (review 3, F8).
             for chunk in policy.split_for_telegram(decision.proposal):
                 if not self.port.post(chunk):
                     self._release(call_id)
                     return _block(MSG_POST)
+        except policy.UnsafePost:
+            self._release(call_id)
+            return _block(MSG_UNSAFE_POST)
         except Exception:
             logger.warning("scout_cron confirmation failed; refusing", exc_info=True)
             self._release(call_id)
@@ -430,7 +437,12 @@ class _Plugin:
                               *policy.verbatim(str(job.get("name") or job_id))]
                              + (["Motif :", *policy.verbatim(reason)] if reason else [])
                              + ["Reprise : demander à Scout (approbation requise)."])
-            for chunk in policy.split_for_telegram(text):
+            try:
+                chunks = policy.split_for_telegram(text)
+            except policy.UnsafePost:
+                chunks = [f"⏸️ Scout a mis en pause la tâche id {job_id} (nom et motif non affichables tels "
+                          "quels : /taches-scout)."]
+            for chunk in chunks:
                 self.port.post(chunk)
         except Exception:
             logger.warning("scout_cron: pause notice not posted", exc_info=True)
@@ -631,7 +643,11 @@ class _Plugin:
         if not jobs:
             lines.append("Aucune tâche.")
         # One reply: the first chunk (fences balanced, rendered size bounded), then where the rest is.
-        chunks = policy.split_for_telegram("\n".join(lines))
+        try:
+            chunks = policy.split_for_telegram("\n".join(lines))
+        except policy.UnsafePost:
+            logger.warning("/taches-scout: list not shown verbatim, refused")
+            return "Liste non affichable telle quelle dans Telegram (opérateur : journal de la gateway)."
         if len(chunks) > 1:
             return chunks[0].split("\n", 1)[1] + "\n(suite tronquée : /taches-scout <nom ou id> pour une tâche)"
         return chunks[0]

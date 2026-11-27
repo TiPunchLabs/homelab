@@ -459,6 +459,35 @@ def test_r2_04_command_and_pause_notice_render_verbatim(lab: dict[str, Any]) -> 
     assert len(notice) == 1 and "mis en pause" in notice[0]["mdv2"] and mdv2_parts(notice[0]["mdv2"])[1] == []
 
 
+# ---- review 3, F8: piece boundaries through the real formatter -------------------------------------------
+F8_HIDDEN = "||hidden|| [link](https://example.invalid)"
+
+
+def assert_views_verbatim(views: list[dict], line: str) -> None:
+    for view in views:
+        pres, bare = mdv2_parts(view["mdv2"])
+        assert not view["rich"] and bare == [], (bare, view["mdv2"][-300:])
+        assert len(view["mdv2"].encode("utf-16-le")) // 2 <= 4096
+    pre = shown_in_pre(views)
+    assert F8_HIDDEN in pre.split("\n")
+    assert line in "".join(pre.split("\n"))  # the cut pieces, rejoined, are the original line
+
+
+def test_r3_01_review_reproduction_reaches_the_owner_verbatim(lab: dict[str, Any]) -> None:
+    t = turn(lab, "md_split")
+    assert "card" in t["order"] and len(t["telegram"]) >= 2, t["order"]
+    assert_views_verbatim(t["telegram"], "a" * 3458 + "```")
+
+
+def test_r3_02_every_piece_boundary_renders_verbatim(lab: dict[str, Any]) -> None:
+    sweep = lab["main"]["split_sweep"]
+    assert sorted(sweep) == sorted(["```", "  ```", "|---|---|", "- [ ] x", "<details>"])
+    for tail, cases in sweep.items():
+        assert {2, 3, 4} <= {len(views) for views in cases}, tail
+        for n, views in enumerate(cases, start=1):
+            assert_views_verbatim(views, "a" * n + tail)
+
+
 # ---- AC4 / G4 ---------------------------------------------------------------------------------------------
 
 def test_g4_01_tainted_session_blocked_and_nothing_posted(lab: dict[str, Any]) -> None:
