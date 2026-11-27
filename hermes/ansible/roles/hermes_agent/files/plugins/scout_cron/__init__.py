@@ -60,9 +60,11 @@ MSG_BYPASS = ("Planification refusée : l'approbation automatique (/yolo ou appr
 MSG_VETO = "Action refusée : un autre contrôle de sécurité bloque les outils dans cette conversation."
 MSG_POST = "Impossible d'afficher la proposition complète : rien n'est enregistré."
 MSG_ERROR = "Contrôle de planification en erreur : rien n'est enregistré."
-MSG_UNSAFE_POST = ("Proposition refusée : une fois découpée pour Telegram, elle ne s'afficherait pas telle quelle "
-                   "(``` ou forme Markdown à une coupure) ; rien n'est affiché ni enregistré. Reformuler "
-                   "(lignes plus courtes, sans ```).")
+MSG_UNSAFE_POST = ("Proposition refusée : Telegram ne l'afficherait pas telle quelle ({why}) ; rien n'est affiché "
+                   "ni enregistré. Reformuler sans cette forme (tableau, liste de cases à cocher, <details>, $$, "
+                   "ligne de ```).")
+MSG_LONG_POST = ("Proposition refusée : elle ferait {size} caractères affichés, plus qu'un seul message Telegram "
+                 "({budget}) ; rien n'est affiché ni enregistré. Raccourcir les instructions ou le nom.")
 MSG_GUARD = ("Planification indisponible : la garde d'enregistrement n'est pas installée (opérateur : "
              "plugins.entries.scout_cron.granted_capabilities: [tools.override]).")
 MSG_STALE = ("Rien n'est enregistré : l'approbation portait sur un état qui a changé depuis (tâche renommée, "
@@ -216,14 +218,16 @@ class _Plugin:
             if binding is None or self.port.other_hooks_veto(self, binding.hook_kwargs):
                 self._release(call_id)
                 return _block(MSG_VETO)
-            # Every final post is checked before the first one is sent (review 3, F8).
-            for chunk in policy.split_for_telegram(decision.proposal):
-                if not self.port.post(chunk):
-                    self._release(call_id)
-                    return _block(MSG_POST)
-        except policy.UnsafePost:
+            # One message, checked whole before it is posted; never split (review 4, F9).
+            policy.check_post(decision.proposal)
+            if not self.port.post(decision.proposal):
+                self._release(call_id)
+                return _block(MSG_POST)
+        except policy.UnsafePost as exc:
             self._release(call_id)
-            return _block(MSG_UNSAFE_POST)
+            if exc.size is not None:
+                return _block(MSG_LONG_POST.format(size=exc.size, budget=policy.POST_BUDGET))
+            return _block(MSG_UNSAFE_POST.format(why=exc))
         except Exception:
             logger.warning("scout_cron confirmation failed; refusing", exc_info=True)
             self._release(call_id)
@@ -288,8 +292,8 @@ class _Plugin:
             return _block(f"Champs non permis pour feedback_add : {', '.join(extra)}")
         text = args.get("text")
         limit = self.settings.limits.feedback_chars
-        if not isinstance(text, str) or not text.strip() or len(text) > limit:
-            return _block(f"Le retour doit faire entre 1 et {limit} caractères.")
+        if not isinstance(text, str) or not text.strip() or policy.display_size(text) > limit:
+            return _block(f"Le retour doit faire entre 1 et {limit} caractères (affichés dans Telegram).")
         shapes = policy.unsafe_shapes(text)
         if shapes:
             return _block(f"Le retour contient une forme que Telegram n'afficherait pas telle quelle "
@@ -304,11 +308,20 @@ class _Plugin:
                     return _block("Tâche introuvable : lister d'abord.")
                 ctx = self._context()
                 name, jid = str(job.get("name") or job.get("id")), str(job["id"])
-                proposal = "\n".join([
-                    f"📋 Scout — retour à ajouter au journal d'une tâche (id {jid})",
-                    "Il sera lu par chaque exécution suivante. Rien n'est enregistré sans votre approbation.", "",
-                    "Tâche concernée :", *policy.verbatim(name), *policy.job_snapshot(job, ctx), "",
-                    f"Retour à ajouter ({len(text)} caractères) :", *policy.verbatim(text)])
+                # The unchanged instructions in full when the post still fits one message, else their size and
+                # fingerprint (review 4: one message, never split).
+                for full in (True, False):
+                    proposal = "\n".join([
+                        f"📋 Scout — retour à ajouter au journal d'une tâche (id {jid})",
+                        "Il sera lu par chaque exécution suivante. Rien n'est enregistré sans votre approbation.", "",
+                        "Tâche concernée :", *policy.verbatim(name), *policy.job_snapshot(job, ctx, instructions=full),
+                        "", f"Retour à ajouter ({len(text)} caractères) :", *policy.verbatim(text)])
+                    try:
+                        policy.check_post(proposal)
+                        break
+                    except policy.UnsafePost as exc:
+                        if exc.size is None:
+                            break  # a shape problem: _confirm refuses it with its reason
                 decision = policy.Decision(
                     "confirm", proposal=proposal,
                     card=f"Scout — retour pour « {name} » : {len(text)} caractères. "
@@ -438,12 +451,11 @@ class _Plugin:
                              + (["Motif :", *policy.verbatim(reason)] if reason else [])
                              + ["Reprise : demander à Scout (approbation requise)."])
             try:
-                chunks = policy.split_for_telegram(text)
+                policy.check_post(text)
             except policy.UnsafePost:
-                chunks = [f"⏸️ Scout a mis en pause la tâche id {job_id} (nom et motif non affichables tels "
-                          "quels : /taches-scout)."]
-            for chunk in chunks:
-                self.port.post(chunk)
+                text = (f"⏸️ Scout a mis en pause la tâche id {job_id} (nom et motif non affichables tels quels "
+                        "dans un message : /taches-scout).")
+            self.port.post(text)
         except Exception:
             logger.warning("scout_cron: pause notice not posted", exc_info=True)
 
@@ -575,8 +587,8 @@ class _Plugin:
         binding = self._release(self._call_id())
         text = args.get("text")
         limit = self.settings.limits.feedback_chars
-        if not isinstance(text, str) or not text.strip() or len(text) > limit:
-            return _fail(f"Retour limité à {limit} caractères.")
+        if not isinstance(text, str) or not text.strip() or policy.display_size(text) > limit:
+            return _fail(f"Retour limité à {limit} caractères (affichés dans Telegram).")
         refused = self._common_gate()
         if refused:
             return _fail(refused["message"])
@@ -614,6 +626,7 @@ class _Plugin:
                 jobs = self.port.jobs()
                 tz, now = self.port.timezone(), self.port.now()
                 lines = [f"🗓️ Tâches planifiées de Scout : {len(jobs)} / {self.settings.limits.max_jobs}"]
+                bodies: tuple[int, int, str] | None = None  # where the journal/feedback bodies are, and a summary
                 for job in jobs:
                     expr = str((job.get("schedule") or {}).get("expr") or job.get("schedule_display") or "?")
                     state = "en pause" if (job.get("state") == "paused" or not job.get("enabled", True)) else "active"
@@ -633,24 +646,30 @@ class _Plugin:
                                                         str(job.get("name") or "").casefold()):
                         jid = str(job["id"])
                         prompt = str(job.get("prompt") or "")
+                        journal = self.port.note_get(jid, "journal") or ""
+                        feedback = self.port.note_get(jid, "feedback") or ""
                         lines += [f"  Instructions : {len(prompt)} caractères, empreinte {policy._digest(prompt)}",
-                                  f"  Offres déjà signalées : {self.ledger.count(jid, now.astimezone(display).date())}",
-                                  "  Journal :", *policy.verbatim(self.port.note_get(jid, "journal") or "(vide)"),
-                                  "  Retours :", *policy.verbatim(self.port.note_get(jid, "feedback") or "(aucun)")]
+                                  f"  Offres déjà signalées : {self.ledger.count(jid, now.astimezone(display).date())}"]
+                        start = len(lines)
+                        lines += ["  Journal :", *policy.verbatim(journal or "(vide)"),
+                                  "  Retours :", *policy.verbatim(feedback or "(aucun)")]
+                        bodies = (start, len(lines), f"  Journal : {len(journal)} caractères ; retours : "
+                                  f"{len(feedback)} caractères (trop longs pour un seul message, non affichés)")
         except Exception:
             logger.warning("/taches-scout failed", exc_info=True)
             return "Lecture des tâches impossible (journal d'erreurs de la gateway)."
         if not jobs:
             lines.append("Aucune tâche.")
-        # One reply: the first chunk (fences balanced, rendered size bounded), then where the rest is.
-        try:
-            chunks = policy.split_for_telegram("\n".join(lines))
-        except policy.UnsafePost:
-            logger.warning("/taches-scout: list not shown verbatim, refused")
-            return "Liste non affichable telle quelle dans Telegram (opérateur : journal de la gateway)."
-        if len(chunks) > 1:
-            return chunks[0].split("\n", 1)[1] + "\n(suite tronquée : /taches-scout <nom ou id> pour une tâche)"
-        return chunks[0]
+        # One reply, one message, never split: the full view, else without journal and feedback bodies.
+        views = [lines] + ([lines[:bodies[0]] + [bodies[2]] + lines[bodies[1]:]] if bodies else [])
+        for text in ("\n".join(view) for view in views):
+            try:
+                policy.check_post(text)
+                return text
+            except policy.UnsafePost:
+                continue
+        logger.warning("/taches-scout: list not shown verbatim in one message, refused")
+        return "Liste trop longue ou non affichable telle quelle en un message (opérateur : journal de la gateway)."
 
 
 def register(ctx: Any) -> None:

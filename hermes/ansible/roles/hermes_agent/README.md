@@ -1243,11 +1243,12 @@ Operator procedures (enable, owner test, inspect/pause/remove a job, rollback):
   arguments only. A change in between saves nothing. `scout-schedule` verifies the override.
 - Telegram renders posts as MarkdownV2: names, instructions, feedback and journal are only ever posted
   inside code blocks (shown verbatim); text that could break one or select Telegram's rich renderer is
-  refused (review 2, F6). Each final message, after splitting, is checked the same way before anything
-  is posted; a proposal that fails is refused before the approval card (review 3, F8). A pause needs no approval but posts a notice; its reason is capped at 200
+  refused (review 2, F6). Every post is one Telegram message, never split: it is checked whole against
+  Hermes' own whole-message predicates and a size bound before anything is posted, and refused otherwise,
+  before the approval card (reviews 3 and 4, F8/F9). A pause needs no approval but posts a notice; its reason is capped at 200
   characters (F7).
 - Limits: at most 5 jobs (paused included; resume is refused over the cap); one fixed minute and hour (at most one run a day);
-  delivery to the owner's chat only; instructions of at most 6,000 characters; no script, toolsets,
+  delivery to the owner's chat only; instructions of at most 2,650 characters and names of 80, as displayed in Telegram (one message); schedule expressions of 40; no script, toolsets,
   skills, workdir or model fields; no immediate run; 40 tool calls and 20 web calls per cron run.
 - Scout's timezone is `America/Guadeloupe` (Scout's profile only): `0 7 * * 1-5` means 07:00 in
   Guadeloupe, 11:00 UTC.

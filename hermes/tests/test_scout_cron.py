@@ -278,7 +278,7 @@ def ctx(store: list[dict] | None = None, pending: int = 0, **lim: int) -> policy
 
 
 def test_pol_01_create_proposal_is_verbatim_and_complete() -> None:
-    prompt = "Ligne 1\n• puce « citée »\n" + "x" * 3000
+    prompt = "Ligne 1\n• puce « citée »\n" + "x" * 2500
     d = policy.evaluate(create_args(prompt=prompt), ctx())
     assert d.kind == "confirm" and d.reserves_slot
     assert prompt in d.proposal
@@ -301,7 +301,7 @@ def test_pol_02_natural_schedule_resolved_by_hermes_parser() -> None:
     ({"skills": ["a"]}, "non permis"), ({"context_from": ["x"]}, "non permis"), ({"continuity": True}, "non permis"),
     ({"attach_to_session": True}, "non permis"), ({"pinned": True}, "non permis"), ({"repeat": 3}, "non permis"),
     ({"monitor": "https://x.test"}, "non permis"), ({"paused": True}, "non permis"),
-    ({"prompt": "x" * 6001}, "6000"), ({"name": "n" * 81}, "80"), ({"name": ""}, "nom"), ({"prompt": ""}, "instructions"),
+    ({"prompt": "x" * 2651}, "2650"), ({"name": "n" * 81}, "80"), ({"name": ""}, "nom"), ({"prompt": ""}, "instructions"),
 ])
 def test_pol_03_create_refusals(extra: dict[str, Any], why: str) -> None:
     d = policy.evaluate(create_args(**extra), ctx())
@@ -373,14 +373,6 @@ def test_pol_10_deliver_is_owner() -> None:
     for bad in (job(origin={"platform": "telegram", "chat_id": "999"}), job(deliver="telegram:111:5"),
                 job(origin={"platform": "slack", "chat_id": OWNER}), job(deliver="local"), job(deliver="all")):
         assert not policy.deliver_is_owner(bad, owners)
-
-
-def test_pol_11_split_for_telegram_keeps_every_character() -> None:
-    text = "a\n" + "b" * 8000 + "\n" + "c" * 100
-    chunks = policy.split_for_telegram(text, 3500)
-    assert all(rendered_cost(c) <= 3500 for c in chunks) and chunks[0].startswith("(1/")
-    assert "".join(c.split("\n", 1)[1] for c in chunks).replace("\n", "") == text.replace("\n", "")
-    assert policy.split_for_telegram("court") == ["court"]
 
 
 # ---- plugin hooks ----------------------------------------------------------------------------------------
@@ -727,9 +719,9 @@ def test_r1_f4_resume_is_refused_while_over_the_cap() -> None:
 def test_r1_f4_conformity_checks_stored_sizes() -> None:
     owners, lim = frozenset({OWNER}), Limits()
     assert policy.conformity_errors(job(), owners, lim) == []
-    assert any("6000" in e for e in policy.conformity_errors(job(prompt="x" * 6001), owners, lim))
+    assert any("2650" in e for e in policy.conformity_errors(job(prompt="x" * 2651), owners, lim))
     assert any("80" in e for e in policy.conformity_errors(job(name="n" * 81), owners, lim))
-    big = job(prompt="x" * 6001)
+    big = job(prompt="x" * 2651)
     assert policy.evaluate({"action": "resume", "job_id": big["id"]}, ctx([big])).kind == "refuse"
     assert policy.evaluate({"action": "update", "job_id": big["id"], "schedule": "0 8 * * 1"}, ctx([big])).kind == "refuse"
     assert policy.evaluate({"action": "update", "job_id": big["id"], "prompt": "Court."}, ctx([big])).kind == "confirm"
@@ -799,7 +791,7 @@ def assert_shown_verbatim(posts: list[str], payloads: list[str]) -> None:
         i, o = fenced_lines(post)
         inside += i
         outside += o
-        assert rendered_cost(post) <= 3500
+        assert rendered_cost(post) <= policy.POST_BUDGET
     for payload in payloads:
         for line in payload.split("\n"):
             assert line in inside, line
@@ -822,9 +814,9 @@ def test_r2_f6_feedback_and_long_text_stay_in_balanced_fences(plugin: scout_cron
              tool="scout_task_record")
     assert_shown_verbatim(plugin.port.posts, [MD_NAME, MD_PROMPT])
     plugin.port.posts.clear()
-    long_prompt = ("\\`|*_[" * 9 + "\n") * 100  # 5,600 characters, every one escaped by Telegram
+    long_prompt = ("\\`|*_[" * 9 + "\n") * 36  # 2,628 displayed, every one escaped by Telegram outside code
     approved(plugin, create_args(name="Longue", prompt=long_prompt.strip()), "m4")
-    assert len(plugin.port.posts) >= 3
+    assert len(plugin.port.posts) == 1  # one message, never split (review 4)
     assert_shown_verbatim(plugin.port.posts, [long_prompt.strip()])
 
 
@@ -863,7 +855,7 @@ def test_r2_f6_command_output_fences_journal_feedback_and_names(plugin: scout_cr
     plugin.port.notes[("aaaa11112222", "feedback")] = "f\\" * 750
     long = plugin.command("aaaa11112222", source=owner)
     fenced_lines(long)
-    assert rendered_cost(long) <= 3600 and "suite tronquée" in long
+    assert rendered_cost(long) <= 4000 and "trop longs pour un seul message" in long
 
 
 def test_r2_f7_pause_reason_capped_and_owner_told(plugin: scout_cron._Plugin) -> None:
@@ -880,67 +872,69 @@ def test_r2_f7_pause_reason_capped_and_owner_told(plugin: scout_cron._Plugin) ->
     assert_shown_verbatim(plugin.port.posts, [MD_NAME, "**vacances**"])
 
 
-# ---- review 3 (F8): pieces created by splitting ---------------------------------------------------------
+# ---- reviews 3 and 4 (F8, F9): one message, never split, checked whole ----------------------------------
+# Review 3 (F8): splitting created a closing fence. Review 4 (F9): splitting created a task list across two
+# lines that Hermes' whole-message detector sends to the rich renderer. Correction 5 removed splitting: every
+# post is ONE message, checked whole against Hermes' own predicates; instructions are capped so that the
+# worst-case proposal fits.
 
 F8_HIDDEN = "||hidden|| [link](https://example.invalid)"
-F8_PROMPT = "a" * 3458 + "```\n" + F8_HIDDEN  # the review's synthetic reproduction, 3,504 characters
-# Tails that are harmless mid-line but unsafe as the first line of a piece: a fence (closes the reopened
-# one), an indented fence, a table separator (rich path), a task-list item, a <details> tag.
-F8_TAILS = ["```", "  ```", "|---|---|", "- [ ] x", "<details>"]
+F8_PROMPT = "a" * 3458 + "```\n" + F8_HIDDEN  # review 3's synthetic reproduction, 3,504 characters
+F9_PROMPT = "a" * 3458 + "-\n[ ] " + F8_HIDDEN  # review 4's synthetic reproduction, 3,506 characters
 _RICH_OR_FENCE = (r"^\s*```", r"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*){1,}\|?\s*$", r"^\s*[-*]\s+\[[ xX]\]\s+",
                   r"^(?:<details\b|</details>|<summary\b|</summary>)")
 
 
-def assert_post_safe(post: str) -> tuple[list[str], list[str]]:
-    """Test-side oracle, independent of policy's own check: balanced plugin fences only, and no line that
-    Hermes would read as a fence, a table, a task list or <details>; returns (inside, outside)."""
+def assert_one_safe_message(post: str) -> tuple[list[str], list[str]]:
+    """Test-side oracle, independent of policy.check_post: balanced plugin fences only, no line Hermes would
+    read as a fence, table, task list or <details>, none of Hermes' whole-message rich predicates
+    (adapter.py:1340-1346, re-typed here), and a rendered size within one message; returns (inside, outside)."""
     import re
     inside, outside = fenced_lines(post)
     for line in inside + outside:
         assert not any(re.search(rx, line) for rx in _RICH_OR_FENCE), line
-    assert "$$" not in post and "\r" not in post and rendered_cost(post) <= 4096
+    assert not any(re.match(_RICH_OR_FENCE[1], line) for line in post.splitlines())
+    assert not re.search(r"(?m)^\s*[-*]\s+\[[ xX]\]\s+", post), "task list across lines"
+    assert not re.search(r"(?m)^<details\b|^</details>|^<summary\b|^</summary>", post)
+    assert "$$" not in post and "\r" not in post and "\x00" not in post and rendered_cost(post) <= 4000
     return inside, outside
 
 
-def test_r3_f8_review_reproduction_is_shown_verbatim_and_saved_exactly(plugin: scout_cron._Plugin) -> None:
-    approved(plugin, create_args(prompt=F8_PROMPT), "f8")
-    assert len(plugin.port.posts) >= 2  # the long line is cut across messages
-    inside, outside = [], []
-    for post in plugin.port.posts:
-        i, o = assert_post_safe(post)
-        inside, outside = inside + i, outside + o
-    assert F8_HIDDEN in inside and not any("||" in o or "](" in o for o in outside)
-    assert "a" * 3458 + "```" in "".join(inside)  # the cut pieces, rejoined, are the original line
-    assert dispatch(plugin, create_args(prompt=F8_PROMPT), "f8")["success"]
-    assert plugin.port.store[-1]["prompt"] == F8_PROMPT
+def test_r3_f8_review_reproduction_now_fails_closed(plugin: scout_cron._Plugin) -> None:
+    for prompt in (F8_PROMPT, F9_PROMPT):
+        out = call(plugin, create_args(prompt=prompt), call_id="f8")
+        assert out is not None and out["action"] == "block" and "maximum 2650" in out["message"], out
+        assert "raccourcir" in out["message"]
+        assert plugin.port.posts == [] and plugin._bindings == {}
+        assert not dispatch(plugin, create_args(prompt=prompt), "f8")["success"] and plugin.port.store == []
 
 
-@pytest.mark.parametrize("tail", F8_TAILS)
-def test_r3_f8_a_cut_at_any_position_never_makes_an_unsafe_piece(tail: str) -> None:
-    """Every length from 1 to 400 with a 120-unit limit puts the first, second and third piece boundary
-    of the line at every offset around the tail."""
-    counts = set()
-    for n in range(1, 400):
-        line = "a" * n + tail
-        chunks = policy.split_for_telegram("\n".join(["Instructions :", *policy.verbatim(f"{line}\n{F8_HIDDEN}"),
-                                                       "fin"]), limit=120)
-        counts.add(len(chunks))
-        inside, outside = [], []
-        for chunk in chunks:
-            i, o = assert_post_safe(chunk)
-            inside, outside = inside + i, outside + o
-        assert F8_HIDDEN in inside and not any("||" in o for o in outside), n
-        assert "".join(inside) == line + F8_HIDDEN, n
-    assert {2, 3, 4, 5} <= counts
+@pytest.mark.parametrize("tail", ["```", "  ```", "a```b", "|---|---|", "- [ ] x", "<details>"])
+def test_r3_f8_a_fence_or_rich_tail_inside_a_line_is_one_verbatim_message(plugin: scout_cron._Plugin,
+                                                                           tail: str) -> None:
+    """The F8 shape below the cap, at the longest accepted size and below it: one message, never split, the
+    hidden line only inside the code block."""
+    for n in (1, 500, 2650 - policy.display_size(tail + "\n" + F8_HIDDEN)):
+        plugin.port.posts.clear()
+        prompt = "a" * n + tail + "\n" + F8_HIDDEN
+        approved(plugin, create_args(name=f"T{n}", prompt=prompt), f"t{n}")
+        assert len(plugin.port.posts) == 1, n
+        inside, outside = assert_one_safe_message(plugin.port.posts[0])
+        assert "a" * n + tail in inside and F8_HIDDEN in inside and not any("||" in o for o in outside)
 
 
-def test_r3_f8_unsafe_final_post_refused_before_any_post_or_approval(plugin: scout_cron._Plugin) -> None:
-    args = create_args(prompt="a" + "`" * 3400)  # every cut leaves a piece starting with ```
-    out = call(plugin, args, call_id="f8b")
-    assert out is not None and out["action"] == "block" and "Telegram" in out["message"], out
-    assert plugin.port.posts == [] and plugin._bindings == {}
-    assert not dispatch(plugin, args, "f8b")["success"]
-    assert plugin.port.store == []
+@pytest.mark.parametrize("text", ["-\n[ ] x", "*\n[X] x", "-  \n \t[ ] x", "a\n-\n[x] b", "début\n*\n\n[ ]  fin",
+                                  "x\n- \t\n[X] " + F8_HIDDEN])
+def test_r4_f9_cross_line_task_lists_are_refused_before_anything_is_posted(plugin: scout_cron._Plugin,
+                                                                             text: str) -> None:
+    for args, tool in ((create_args(prompt=text), "cronjob_manage"), (create_args(name="A", prompt="ok"), None)):
+        if tool is None:
+            plugin.port.store.append(job())
+            args, tool = {"action": "feedback_add", "job_id": "aaaa11112222", "text": text}, "scout_task_record"
+        out = call(plugin, args, tool=tool, call_id="f9")
+        assert out is not None and out["action"] == "block" and "Telegram" in out["message"], out
+        assert "liste de cases à cocher" in out["message"] and plugin.port.posts == [] and plugin._bindings == {}
+    assert policy.hermes_rich("```\n" + text + "\n```") == ["liste de cases à cocher"]
 
 
 @pytest.mark.parametrize("sep", ["\u2028", "\u2029", "\x0b", "\x0c", "\x1c", "\x85"])
@@ -951,19 +945,121 @@ def test_r3_f8_line_separators_that_hermes_splits_on_are_refused_before_posting(
     assert plugin.port.posts == [] and plugin._bindings == {}
 
 
-def test_r3_f8_notice_and_command_fall_back_when_stored_text_cannot_be_split_safely(
+def test_r4_check_post_applies_hermes_whole_message_predicates() -> None:
+    ok = "En-tête\n```\nligne a```\n· ```\n```\nfin `0 7 * * 1-5`"
+    policy.check_post(ok)
+    bad = {
+        "task list across lines": "```\n-\n[ ] x\n```",
+        "table on a U+2028 line": "```\nx\u2028|---|---|\n```",
+        "details": "```\n<details>\n```",
+        "math": "```\nprix $$\n```",
+        "a fence line inside": "```\nx\n```\n||caché||\n```",
+        "an unclosed fence": "```\nx",
+        "an opener with lead-in prose": "voici ```\nx\n```",
+        "an opener with a language": "```py\nx\n```",
+        "a NUL (Hermes placeholders)": "```\n\x00PH0\x00\n```",
+        "a carriage return": "```\nx\r\n```",
+    }
+    for why, post in bad.items():
+        with pytest.raises(policy.UnsafePost):
+            policy.check_post(post)
+            pytest.fail(why)
+    with pytest.raises(policy.UnsafePost) as exc:
+        policy.check_post("```\n" + "x" * 3995 + "\n```")
+    assert exc.value.size is not None and exc.value.size > policy.POST_BUDGET
+
+
+WORST_NAMES = ["\\" * 40, "`\\" * 20, "😀" * 40]  # 80 displayed units each
+
+
+def worst_exprs() -> list[str]:
+    """Accepted daily expressions of at most MAX_EXPR_CHARS, dense in MarkdownV2 specials."""
+    out = []
+    for minute, hour in (("59", "23"), ("58", "22")):
+        for tail in ("* *", "* 1-5", "1-12 1-5"):
+            dom = ""
+            for a in range(1, 31, 3):
+                cand = f"{dom},{a}-{a + 1}" if dom else f"{a}-{a + 1}"
+                if len(f"{minute} {hour} {cand} {tail}") > policy.MAX_EXPR_CHARS:
+                    break
+                dom = cand
+            out.append(f"{minute} {hour} {dom} {tail}")
+    return [e for e in out if daily_fields(e)]
+
+
+def test_r4_worst_case_accepted_proposal_is_one_message(plugin: scout_cron._Plugin) -> None:
+    """The derivation of report.md « Answers to review 4 »: at the upper bounds (instructions 2,650 and name
+    80, both as displayed; expression 40), every create, update, remove and resume proposal, on each day of a
+    week, paused or not, fits one message; so does feedback at its bound with full-size instructions."""
+    lim = Limits()
+    assert lim.max_prompt_chars == BOUNDS["max_prompt_chars"][1] == 2650 and BOUNDS["max_name_chars"][1] == 80
+    p = lim.max_prompt_chars
+    prompts = ["\\" * (p // 2), "😀" * (p // 2), "x" * p, "\\`x\n" * (p // 6) + "x" * (p % 6)]
+    exprs, worst = worst_exprs(), 0
+    for prompt in prompts:
+        assert policy.display_size(prompt) == p
+    for day in range(7):
+        for e1 in exprs:
+            e2 = next(e for e in exprs if e != e1)
+            for paused in (False, True):
+                extra = {"state": "paused", "enabled": False} if paused else {}
+                stored = job(job_id="ffffffffffff", name=WORST_NAMES[0], expr=e1, prompt=prompts[0], **extra)
+                c = policy.Context(**{**ctx([stored]).__dict__, "now": NOW + timedelta(days=day)})
+                cases = [create_args(name=WORST_NAMES[1], schedule=e1, prompt=prompts[1]),
+                         {"action": "remove", "job_id": "ffffffffffff"},
+                         {"action": "update", "job_id": "ffffffffffff", "name": WORST_NAMES[2], "schedule": e2,
+                          "prompt": prompts[day % 2 + 1]}] + ([{"action": "resume", "job_id": "ffffffffffff"}]
+                                                              if paused else [])
+                for args in cases:
+                    c2 = policy.Context(**{**c.__dict__, "jobs": [] if args["action"] == "create" else [stored]})
+                    d = policy.evaluate(args, c2)
+                    assert d.kind == "confirm", (args["action"], d.message)
+                    policy.check_post(d.proposal)
+                    assert_one_safe_message(d.proposal)
+                    worst = max(worst, rendered_cost(d.proposal))
+    assert 3900 < worst <= policy.POST_BUDGET < 4096
+    # The same through the plugin: one post, under 4096; feedback at its bound with full-size instructions.
+    plugin.settings = parse_settings(settings_raw(feedback_chars=3000, run_tool_calls=6, run_web_calls=2))
+    plugin.port.store.append(job(name=WORST_NAMES[0], expr=exprs[0], prompt=prompts[0]))
+    approved(plugin, {"action": "update", "job_id": "aaaa11112222", "name": WORST_NAMES[2], "schedule": exprs[3],
+                      "prompt": prompts[1]}, "w1")
+    approved(plugin, {"action": "feedback_add", "job_id": "aaaa11112222", "text": "\\" * 1500},
+             "w2", tool="scout_task_record")
+    assert len(plugin.port.posts) == 2
+    for post in plugin.port.posts:
+        assert_one_safe_message(post)
+    assert "Instructions enregistrées (inchangées) :" in plugin.port.posts[1]  # too long to show both in full
+    assert "\\" * 1500 in plugin.port.posts[1]
+
+
+def test_r4_limit_plus_one_is_refused_with_a_french_message() -> None:
+    for prompt in ("x" * 2651, "😀" * 1325 + "x", "\\" * 1325 + "x"):
+        assert policy.display_size(prompt) == 2651
+        d = policy.evaluate(create_args(prompt=prompt), ctx())
+        assert d.kind == "refuse" and "maximum 2650" in d.message and "un seul message" in d.message, d.message
+    assert policy.evaluate(create_args(prompt="x" * 2650), ctx()).kind == "confirm"
+    assert policy.evaluate(create_args(name="😀" * 41), ctx()).kind == "refuse"
+    assert policy.evaluate(create_args(schedule="0 7 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 * *"), ctx()).kind == "refuse"
+    for name, bad in (("max_prompt_chars", 2651), ("max_name_chars", 81), ("feedback_chars", 3001)):
+        with pytest.raises(SettingsError):
+            parse_settings(settings_raw(**{name: bad}))
+
+
+def test_r4_notice_and_command_stay_one_message_when_stored_text_is_too_long(
         plugin: scout_cron._Plugin) -> None:
     plugin.port.store.append(job(name="Op"))
     plugin.port.notes[("aaaa11112222", "journal")] = "a" + "`" * 4000
     owner = SimpleNamespace(platform=SimpleNamespace(value="telegram"), chat_type="dm", chat_id=OWNER, user_id=OWNER)
-    assert "non affichable" in plugin.command("aaaa11112222", source=owner)
+    view = plugin.command("aaaa11112222", source=owner)
+    assert "trop longs pour un seul message" in view
+    assert_one_safe_message(view)
     args = {"action": "pause", "job_id": "aaaa11112222"}
     assert call(plugin, args) is None
     plugin.port.store[0]["paused_reason"] = "a" + "`" * 199
     plugin.port.store[0]["name"] = "a" + "`" * 3900  # operator-written
     assert dispatch(plugin, args, "f8c")["success"]
     assert len(plugin.port.posts) == 1 and "non affichables" in plugin.port.posts[0]
-    assert_post_safe(plugin.port.posts[0])
+    assert_one_safe_message(plugin.port.posts[0])
 
 
 # ---- ledger --------------------------------------------------------------------------------------------

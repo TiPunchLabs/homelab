@@ -258,7 +258,7 @@ hermes_scout_mail_payload: >-
 # =============================================================================
 hermes_scout_cron_enabled: false
 # Surcharges des plafonds (bornes verifiees par le plugin, config.py BOUNDS) :
-# max_jobs 5, max_prompt_chars 6000, run_tool_calls 40, run_web_calls 20...
+# max_jobs 5, max_prompt_chars 2650 (maximum : une proposition = un message Telegram), run_tool_calls 40...
 hermes_scout_cron_limits: {}
 hermes_scout_cron_dest: "{{ hermes_data_dir }}/profiles/job-search/plugins/scout_cron"
 hermes_scout_cron_payload: >-

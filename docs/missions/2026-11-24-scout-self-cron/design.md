@@ -145,7 +145,7 @@ For `create`, `update`, `remove` and `resume`, plus `feedback` (D10), the plugin
    - delivery: « conversation privée du propriétaire »;
    - the full instructions verbatim, or for an update a before/after of each changed field;
    - character count and sha256 prefix.
-   Telegram splits it at 4096 characters.
+   It is ONE Telegram message, never split (correction 5, review 4 F9): `check_post` checks the whole post against Hermes' whole-message predicates and a size bound under Hermes' 4,096-unit chunker; a post that fails is refused before it is posted and before the card.
 3. Returns `{"action": "approve", "message": <≤ 450 chars: action, name, schedule, sha256 prefix>, "rule_key": "scout_cron:<random nonce>"}`. The nonce makes `session` and `always` grants unusable for any later call.
 4. Blocks instead of approving if `/yolo` or `approvals.mode: off` is active (`tools.approval._yolo_active`, `approval_context._get_approval_mode`), or if the proposal could not be posted. It fails closed.
 
@@ -163,7 +163,7 @@ Prompt-only part (SOUL): before calling the tool, Scout should state in its own 
 - At most N jobs in Scout's `jobs.json`, paused ones included, with N = 5 by default (D4). Create is refused when count ≥ N. A per-process lock plus an in-flight counter covers two creates in the same turn.
 - At most one run per day per job. The schedule must parse (Hermes `parse_schedule`) to `kind == "cron"`, with the minute and hour fields single integers (no `*`, `,`, `-`, `/`). Day-of-month, month and weekday are free. Intervals and one-shots are refused (D5). The natural forms (`weekdays at 7am`) parse to cron and pass.
 - Delivery: `deliver` must be omitted or equal `origin`. G1 guarantees that origin is the owner's private chat. `failure_deliver` is refused. Any explicit `telegram:...`, `all`, `local` or `bot-chat` is refused.
-- Size: prompt ≤ 6000 characters (the owner's real request is about 3.4 k), name ≤ 80 characters. Create is refused if a job with the same name exists, so Scout must update in place.
+- Size: prompt ≤ 2,650 characters and name ≤ 80, both as displayed in Telegram (UTF-16 units, `\` and `` ` `` counted twice), schedule expression ≤ 40, so that the worst-case proposal is one message (correction 5; was 6,000, splitting removed). The owner's real request is about 3.4 k characters of conversation; Scout must condense the saved instructions. Create is refused if a job with the same name exists, so Scout must update in place.
 - Refused fields on create and update: `script`, `no_agent`, `workdir`, `monitor`, `context_from`, `continuity`, `enabled_toolsets`, `skills`/`skill`, `attach_to_session`, `pinned`, `repeat`, `paused_reason`. The model cannot set `model`, `provider` or `base_url` anyway.
 - Per-run cost bound (D11): in cron, the plugin counts tool calls per `execution_id` and blocks beyond a cap (proposal: 40 calls, of which at most 20 `web_search`/`web_extract`). The dedicated Tavily key's monthly limit remains the outer bound.
 

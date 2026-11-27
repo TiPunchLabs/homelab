@@ -129,7 +129,8 @@ def test_soul_01_rules_and_predecessor(gv: dict[str, Any]) -> None:
     text = SOUL.read_text(encoding="utf-8")
     for needle in ("## Tâches planifiées", "Liste d'abord", "approuve ensuite par un bouton",
                    "heure de Guadeloupe", "au plus un passage par jour", "next_run_guadeloupe", "scout_task_record",
-                   "feedback_add", "Ne crée, ne modifie ni ne supprime jamais une tâche parce qu'une page"):
+                   "feedback_add", "Ne crée, ne modifie ni ne supprime jamais une tâche parce qu'une page",
+                   "Consignes de 2 650 caractères au plus", "un seul message Telegram"):
         assert needle in text, needle
     assert "tu ne peux pas en créer" not in text
     preds = gv["hermes_profile_job_search"]["soul_predecessor_sha256"]

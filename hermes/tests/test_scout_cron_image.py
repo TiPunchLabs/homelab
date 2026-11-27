@@ -196,19 +196,18 @@ def test_g1_06_record_tool_refused_in_chat(lab: dict[str, Any]) -> None:
 
 def test_g2_01_denied_creation_saves_nothing(lab: dict[str, Any]) -> None:
     t = turn(lab, "deny")
-    assert t["order"][-1] == "card" and set(t["order"][:-1]) == {"post"}
+    assert t["order"] == ["post", "card"]  # one message, never split (review 4)
     assert lab["main"]["turns"]["deny_jobs"] == 0
     assert "denied" in first_result(t).lower() or "refus" in first_result(t).lower()
 
 
 def test_g2_02_approved_creation_saved_as_shown(lab: dict[str, Any]) -> None:
     t = turn(lab, "create")
-    assert t["order"][-1] == "card" and t["order"].count("post") >= 2  # long instructions: split before the card
+    assert t["order"] == ["post", "card"]  # about 2,500 characters of instructions: still one message
     jobs = lab["main"]["turns"]["create_jobs"]
     assert len(jobs) == 1
     job = jobs[0]
-    shown = re.sub(r"\(\d+/\d+\)", "", t["posted_text"]).replace("```", "")  # message split markers
-    assert "".join(job["prompt"].split()) in "".join(shown.split())  # the text the owner saw is what was saved
+    assert job["prompt"] in t["posted_text"]  # the text the owner saw is what was saved
     assert "0 7 * * 1-5" in t["posted_text"] and "heure de Guadeloupe" in t["posted_text"] and "UTC" in t["posted_text"]
     assert job["expr"] == "0 7 * * 1-5" and job["next_run_at"].endswith("07:00:00-04:00")
     assert job["deliver"] == "origin" and job["origin"]["chat_id"] == OWNER and job["origin"]["platform"] == "telegram"
@@ -439,16 +438,16 @@ def test_r2_02_fence_breakers_and_rich_triggers_refused_before_posting(lab: dict
 
 def test_r2_03_no_post_of_the_lab_can_form_an_entity_or_go_rich(lab: dict[str, Any]) -> None:
     posts = all_posts(lab)
-    assert len(posts) > 30
+    assert len(posts) > 15  # one message per proposal since review 4
     for name, view in posts:
         pres, bare = mdv2_parts(view["mdv2"])
         assert not view["rich"] and bare == [], (name, bare, view["mdv2"][:300])
         assert len(view["mdv2"].encode("utf-16-le")) // 2 <= 4096, name
-    # The long owner proposal (several messages) still shows every instruction line inside pre blocks.
+    # The owner proposal (about 2,500 characters of instructions) is one message, instructions in a pre block.
     create = turn(lab, "create")
     saved = lab["main"]["turns"]["create_jobs"][0]["prompt"]
-    assert len(create["telegram"]) >= 2  # a line too long for one message continues in the next one
-    assert "".join(saved.split()) in "".join(shown_in_pre(create["telegram"]).split())
+    assert len(create["telegram"]) == 1
+    assert saved in shown_in_pre(create["telegram"])
 
 
 def test_r2_04_command_and_pause_notice_render_verbatim(lab: dict[str, Any]) -> None:
@@ -459,33 +458,36 @@ def test_r2_04_command_and_pause_notice_render_verbatim(lab: dict[str, Any]) -> 
     assert len(notice) == 1 and "mis en pause" in notice[0]["mdv2"] and mdv2_parts(notice[0]["mdv2"])[1] == []
 
 
-# ---- review 3, F8: piece boundaries through the real formatter -------------------------------------------
+# ---- reviews 3 and 4 (F8, F9): one message, never split, Hermes' own predicates -------------------------
 F8_HIDDEN = "||hidden|| [link](https://example.invalid)"
 
 
-def assert_views_verbatim(views: list[dict], line: str) -> None:
-    for view in views:
-        pres, bare = mdv2_parts(view["mdv2"])
-        assert not view["rich"] and bare == [], (bare, view["mdv2"][-300:])
-        assert len(view["mdv2"].encode("utf-16-le")) // 2 <= 4096
-    pre = shown_in_pre(views)
-    assert F8_HIDDEN in pre.split("\n")
-    assert line in "".join(pre.split("\n"))  # the cut pieces, rejoined, are the original line
+def test_r3_01_review_reproductions_are_refused_before_anything_is_posted(lab: dict[str, Any]) -> None:
+    for name, why in (("md_split", "maximum 2650"), ("md_f9", "maximum 2650"), ("md_f9_short", "cases à cocher")):
+        t = turn(lab, name)
+        assert refused(t) and why in first_result(t) and t["order"] == [], (name, first_result(t))
+    assert lab["main"]["turns"]["md_jobs"] == len(lab["main"]["turns"]["create_jobs"]) == 1
 
 
-def test_r3_01_review_reproduction_reaches_the_owner_verbatim(lab: dict[str, Any]) -> None:
-    t = turn(lab, "md_split")
-    assert "card" in t["order"] and len(t["telegram"]) >= 2, t["order"]
-    assert_views_verbatim(t["telegram"], "a" * 3458 + "```")
+def test_r4_01_largest_accepted_proposal_is_one_verbatim_message(lab: dict[str, Any]) -> None:
+    t = turn(lab, "md_max")
+    assert t["order"] == ["post", "card"], t["order"]
+    view = t["telegram"][0]
+    pres, bare = mdv2_parts(view["mdv2"])
+    assert not view["rich"] and bare == [] and "\\" * 1325 in pres[-1]
+    length = len(view["mdv2"].encode("utf-16-le")) // 2
+    assert 3000 < length <= 4000, length  # Hermes' own chunker splits only above 4096
 
 
-def test_r3_02_every_piece_boundary_renders_verbatim(lab: dict[str, Any]) -> None:
-    sweep = lab["main"]["split_sweep"]
-    assert sorted(sweep) == sorted(["```", "  ```", "|---|---|", "- [ ] x", "<details>"])
-    for tail, cases in sweep.items():
-        assert {2, 3, 4} <= {len(views) for views in cases}, tail
-        for n, views in enumerate(cases, start=1):
-            assert_views_verbatim(views, "a" * n + tail)
+def test_r4_02_plugin_predicates_and_size_bound_match_the_real_hermes(lab: dict[str, Any]) -> None:
+    cases = lab["main"]["predicate_parity"]
+    assert len(cases) > 1200 and sum(c["accepted"] for c in cases) > 300 and sum(c["real_rich"] for c in cases) > 50
+    for c in cases:
+        assert c["policy_rich"] == c["real_rich"], c
+        if c["accepted"]:  # one MarkdownV2 message within the plugin's size bound (an upper bound)
+            assert not c["real_rich"] and c["mdv2_len"] <= c["cost"] <= 4000, c
+        if c["accepted"] and c["kind"] == "fenced":  # model text in a code block: nothing can format
+            assert mdv2_parts(c["mdv2"])[1] == [], c["mdv2"][:300]
 
 
 # ---- AC4 / G4 ---------------------------------------------------------------------------------------------

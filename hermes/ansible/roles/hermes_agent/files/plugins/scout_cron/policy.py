@@ -16,6 +16,11 @@ table separator, a task list, ``<details>`` or ``$$``. So text that comes from t
 (name, instructions, feedback, journal, a stored schedule or delivery) is only ever posted inside a code
 fence (``verbatim``), which ``format_message`` never converts; a line that could close the fence or select
 the rich path is refused in new text (``unsafe_shapes``) and visibly marked in stored text.
+
+One message, never split (review 4, F9): a post is checked whole (``check_post``) against Hermes' own
+whole-message predicates and must fit one Telegram message; otherwise it is refused, never cut. The limits
+(instructions measured as displayed, name, schedule expression) are set so that every proposal for a job
+within them fits (worst case derived in report.md, « Answers to review 4 »).
 """
 
 from __future__ import annotations
@@ -67,6 +72,12 @@ MSG_UPDATE_KEEPS = "Instructions enregistrées (inchangées)"
 MAX_REASON_CHARS = 200  # pause reason (review 2, F7)
 
 FENCE = "```"
+MAX_EXPR_CHARS = 40  # a cron expression; real ones are about 11 (« 0 7 * * 1-5 »)
+# One Telegram message: Hermes splits the FORMATTED text above 4096 UTF-16 units (TelegramAdapter.send →
+# _send_text_locked → truncate_message(format_message(content), 4096, len_fn=utf16_len), Hermes v0.22.5
+# plugins/platforms/telegram/adapter.py:3693). ``check_post`` bounds that size from above (``_cost``) and
+# keeps 96 units of margin.
+POST_BUDGET = 4000
 # Line shapes that would close the fence (Hermes: a line starting with ``` toggles its table pass and a
 # line of only ``` closes a fence) or select Telegram's rich renderer (TelegramAdapter._needs_rich_rendering).
 _UNSAFE_LINES = (
@@ -77,22 +88,64 @@ _UNSAFE_LINES = (
 )
 _MARK = "· "
 
+# Hermes v0.22.5 whole-message predicates, copied verbatim (re-check them on any Hermes upgrade; the image
+# tests compare them with the real ones on every post of the lab).
+# TelegramAdapter._needs_rich_rendering, plugins/platforms/telegram/adapter.py:1330-1346:
+#   1340: any(_TABLE_SEPARATOR_RE.match(line) for line in content.splitlines()), the regex being
+#         gateway/platforms/helpers.py:285 TABLE_SEPARATOR_RE (also used by convert_table_to_bullets,
+#         helpers.py:322, the table pass of format_message);
+#   1342: re.search(r"(?m)^\s*[-*]\s+\[[ xX]\]\s+", content)  (\s+ may cross a newline: review 4, F9);
+#   1344: re.search(r"(?m)^<details\b|^</details>|^<summary\b|^</summary>", content);
+#   1346: "$$" in content.
+# TelegramAdapter.format_message, adapter.py:5683: the fenced-code pass (a fence closes at any line of only
+# ```, any indent). adapter.py:5648/5727: placeholders are « \x00PH<n>\x00 », restored by str.replace.
+_H_TABLE_SEPARATOR = re.compile(r'^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*){1,}\|?\s*$')
+_H_TASK_LIST = re.compile(r"(?m)^\s*[-*]\s+\[[ xX]\]\s+")
+_H_DETAILS = re.compile(r"(?m)^<details\b|^</details>|^<summary\b|^</summary>")
+_H_FENCED = re.compile(r'(?m)^((?:(?!```)[^\n])*)(```[^`\n]*\n)([\s\S]*?)(^[ \t]*```)[ \t]*\r?$')
+
 
 def _unsafe_line(line: str) -> bool:
     return any(rx.search(line) for rx, _ in _UNSAFE_LINES)
 
 
+def hermes_rich(text: str) -> list[str]:
+    """Which of Hermes' whole-message rich predicates ``text`` matches (empty = MarkdownV2 path)."""
+    found = []
+    if any(_H_TABLE_SEPARATOR.match(line) for line in text.splitlines()):
+        found.append("tableau")
+    if _H_TASK_LIST.search(text):
+        found.append("liste de cases à cocher")
+    if _H_DETAILS.search(text):
+        found.append("balise <details> ou <summary>")
+    if "$$" in text:
+        found.append("« $$ »")
+    return found
+
+
 class UnsafePost(ValueError):
-    """A Telegram post that Hermes would not show verbatim (review 3, F8): never posted."""
+    """A post that Hermes would not show verbatim in one Telegram message: never posted, never split.
+    ``size`` is set when the only problem is its length."""
+
+    def __init__(self, why: str, size: int | None = None) -> None:
+        super().__init__(why)
+        self.size = size
+
+
+def display_size(text: str) -> int:
+    """What ``text`` takes in Telegram once Hermes puts it in a code block: UTF-16 units (Telegram's
+    measure) plus the \\ and ` that Hermes escapes there. Equal to len() for ordinary text."""
+    return len(text.encode("utf-16-le")) // 2 + text.count("\\") + text.count("`")
 
 
 def unsafe_shapes(text: str) -> list[str]:
     """Shapes in ``text`` that Telegram would not show verbatim inside a code fence (empty = safe)."""
     found = [why for line in text.split("\n") for rx, why in _UNSAFE_LINES if rx.search(line)]
-    if "$$" in text:
-        found.append("« $$ »")
+    found += hermes_rich(text)
     if "\r" in text:
         found.append("retour chariot")
+    if "\x00" in text:
+        found.append("caractère nul")
     return sorted(set(found))
 
 
@@ -208,9 +261,10 @@ def conformity_issues(job: Mapping[str, Any], owners: frozenset[str],
     if not deliver_is_owner(job, owners):
         issues.append(("deliver", "livraison ailleurs que la conversation privée du propriétaire"))
     prompt, name = job.get("prompt"), job.get("name")
-    if not isinstance(prompt, str) or len(prompt) > limits.max_prompt_chars:
-        issues.append(("prompt", f"instructions absentes ou de plus de {limits.max_prompt_chars} caractères"))
-    if name is not None and (not isinstance(name, str) or len(name.strip()) > limits.max_name_chars):
+    if not isinstance(prompt, str) or display_size(prompt) > limits.max_prompt_chars:
+        issues.append(("prompt", f"instructions absentes ou de plus de {limits.max_prompt_chars} caractères "
+                                 "affichés"))
+    if name is not None and (not isinstance(name, str) or display_size(name.strip()) > limits.max_name_chars):
         issues.append(("name", f"nom de plus de {limits.max_name_chars} caractères"))
     return issues
 
@@ -270,10 +324,13 @@ def _name_lines(name: str, label: str = "Nom de la tâche") -> list[str]:
     return [f"{label} :", *verbatim(name)]
 
 
-def job_snapshot(job: Mapping[str, Any], ctx: Context) -> list[str]:
-    """Everything a run of this stored job does: schedule (Guadeloupe and UTC), delivery, instructions."""
-    return (_job_schedule_lines(job, ctx, _paused(job)) + delivery_lines(job, ctx.owners)
-            + _instructions(str(job.get("prompt") or ""), "Instructions enregistrées"))
+def job_snapshot(job: Mapping[str, Any], ctx: Context, instructions: bool = True) -> list[str]:
+    """Everything a run of this stored job does: schedule (Guadeloupe and UTC), delivery, instructions
+    (in full, or their size and fingerprint when they do not change and the post must stay one message)."""
+    prompt = str(job.get("prompt") or "")
+    shown = (_instructions(prompt, "Instructions enregistrées") if instructions else
+             [f"Instructions enregistrées (inchangées) : {len(prompt)} caractères, empreinte {_digest(prompt)}"])
+    return _job_schedule_lines(job, ctx, _paused(job)) + delivery_lines(job, ctx.owners) + shown
 
 
 def _check_schedule(text: Any, ctx: Context) -> tuple[str | None, Decision | None]:
@@ -287,6 +344,8 @@ def _check_schedule(text: Any, ctx: Context) -> tuple[str | None, Decision | Non
         return None, refuse("seules les tâches récurrentes à heure fixe sont permises "
                             "(ni intervalle, ni exécution unique)")
     expr = str(parsed.get("expr") or "")
+    if len(expr) > MAX_EXPR_CHARS:
+        return None, refuse(f"expression de planification de plus de {MAX_EXPR_CHARS} caractères")
     try:
         daily_fields(expr)
         if not next_runs(expr, ctx.tz, ctx.now, 1):
@@ -308,12 +367,15 @@ def _text_args(args: Mapping[str, Any], ctx: Context, creating: bool
     prompt = prompt.strip() if prompt else None
     if creating and not name:
         return None, None, refuse("un nom de tâche est obligatoire")
-    if name and len(name) > ctx.limits.max_name_chars:
-        return None, None, refuse(f"le nom dépasse {ctx.limits.max_name_chars} caractères")
+    if name and display_size(name) > ctx.limits.max_name_chars:
+        return None, None, refuse(f"le nom dépasse {ctx.limits.max_name_chars} caractères (affichés dans Telegram)")
     if creating and not prompt:
         return None, None, refuse("les instructions de la tâche sont obligatoires")
-    if prompt and len(prompt) > ctx.limits.max_prompt_chars:
-        return None, None, refuse(f"les instructions dépassent {ctx.limits.max_prompt_chars} caractères")
+    if prompt and display_size(prompt) > ctx.limits.max_prompt_chars:
+        return None, None, refuse(
+            f"les instructions font {display_size(prompt)} caractères une fois affichées dans Telegram, maximum "
+            f"{ctx.limits.max_prompt_chars} pour que la proposition tienne en un seul message : les raccourcir "
+            "(résumer, retirer les répétitions) puis reproposer")
     for label, value in (("le nom", name), ("les instructions", prompt)):
         shapes = unsafe_shapes(value or "")
         if shapes:
@@ -330,11 +392,11 @@ def _name_taken(name: str, ctx: Context, except_id: str | None = None) -> bool:
     return any(_norm_name(j.get("name")) == wanted and str(j.get("id")) != str(except_id) for j in ctx.jobs)
 
 
-def _header(action_fr: str, name: str) -> list[str]:
+def _header(action_fr: str, name: str, label: str = "Nom de la tâche") -> list[str]:
     """The name comes from the model or an operator: fenced, never inline."""
     return [f"📋 Scout — proposition de tâche planifiée : {action_fr}",
             "Rien n'est enregistré tant que vous n'avez pas approuvé avec le bouton qui suit.", "",
-            *_name_lines(name)]
+            *_name_lines(name, label)]
 
 
 def _card(action_fr: str, name: str, detail: str) -> str:
@@ -443,7 +505,8 @@ def evaluate(args: Mapping[str, Any], ctx: Context) -> Decision:
             return refuse("une autre tâche porte déjà ce nom")
         dispatch["name"] = new_name
         changed.append("nom")
-        before_after += _name_lines(name, "Nom actuel") + _name_lines(new_name, "Nouveau nom")
+        # Each name is shown once (one message, review 4): the current one at the top, the new one below.
+        before_after.append("Nom : remplacé (nom actuel en tête, nouveau nom ci-dessous)")
     expr = old_expr
     if args.get("schedule"):
         new_expr, problem = _check_schedule(args.get("schedule"), ctx)
@@ -468,82 +531,53 @@ def evaluate(args: Mapping[str, Any], ctx: Context) -> Decision:
         return refuse("aucune modification demandée (les valeurs données sont déjà celles de la tâche)")
     unchanged = [f for f in ("nom", "planification", "instructions", "livraison") if f not in changed]
     final_name = dispatch.get("name", name)
-    lines = _header("mettre à jour", name) + [
+    lines = _header("mettre à jour", name, "Nom actuel") + [
         f"Identifiant : {jid}", f"Champs modifiés : {', '.join(changed)}",
         f"Champs inchangés : {', '.join(unchanged)}", *before_after, "",
         "Tâche après la mise à jour :" + (" (reste en pause)" if _paused(job) else ""),
-        *_name_lines(final_name)] + schedule_lines(expr, ctx) + delivery_lines(job, ctx.owners) + _instructions(
+        *_name_lines(final_name, "Nouveau nom" if "nom" in changed else "Nom de la tâche")] + schedule_lines(expr, ctx) + delivery_lines(job, ctx.owners) + _instructions(
             prompt, "Nouvelles instructions complètes" if "instructions" in changed else MSG_UPDATE_KEEPS)
     return Decision("confirm", proposal="\n".join(lines), card=_card("mettre à jour", name, ", ".join(changed)),
                     meta=_bound(job, dispatch, {"name": final_name, "prompt": prompt, "expr": expr}))
 
 
+_MDV2_SPECIAL = set("_*[]()~`>#+-=|{}.!\\")  # Hermes' _MDV2_ESCAPE_RE, adapter.py:378
+
+
 def _cost(line: str, fenced: bool) -> int:
-    """Upper bound of the line's length once Hermes renders it as MarkdownV2, in UTF-16 units (Telegram's
-    measure), newline included: inside a fence only \\ and ` are escaped; outside, any character may be."""
+    """Upper bound of the line's length once Hermes renders it as MarkdownV2, in UTF-16 units (the measure of
+    Hermes' 4096 chunker), newline included: inside a fence only \\ and ` are escaped (adapter.py:5675);
+    outside, format_message escapes each MarkdownV2 special at most once (_escape_mdv2, adapter.py:378 and
+    5724) and its conversions only shorten. The image tests check this bound against the real formatter."""
     units = len(line.encode("utf-16-le")) // 2
-    return (units + line.count("\\") + line.count("`") if fenced else 2 * units) + 1
+    if fenced:
+        return units + line.count("\\") + line.count("`") + 1
+    return units + sum(ch in _MDV2_SPECIAL for ch in line) + 1
 
 
-def split_for_telegram(text: str, limit: int = 3500) -> list[str]:
-    """Split a post at line boundaries into chunks whose RENDERED size stays under ``limit`` (Telegram: 4096),
-    never leaving a fence open: a chunk that ends inside a fence closes it, the next one reopens it. A line
-    too long for one chunk is cut (inside a fence it continues on the next message), never where a piece
-    would become a fence line or another unsafe shape (review 3, F8: « aaa```» cut before the ``` closed
-    the reopened fence). Every line of every chunk is checked; raises UnsafePost rather than return a
-    chunk Hermes would not show verbatim."""
-    budget = limit - 2 * _cost(FENCE, False) - 20  # closing fence and the « (i/n) » line
-    chunks: list[str] = []
-    cur: list[str] = []
-    used, fenced = 0, False
-
-    def close() -> None:
-        nonlocal cur, used
-        chunks.append("\n".join(cur + ([FENCE] if fenced else [])))
-        cur, used = ([FENCE], _cost(FENCE, False)) if fenced else ([], 0)
-
-    for line in text.split("\n"):
-        marker = line == FENCE
-        while True:
-            cost = _cost(line, fenced and not marker)
-            if used + cost <= budget or (marker and fenced):
-                cur.append(line)
-                used += cost
-                break
-            if cur and cur != [FENCE]:
-                close()
-                continue
-            keep = 1
-            while keep < len(line) and used + _cost(line[:keep + 1], fenced) <= budget:
-                keep += 1
-            while keep > 1 and (_unsafe_line(line[:keep]) or _unsafe_line(line[keep:])):
-                keep -= 1
-            cur.append(line[:keep])
-            used += _cost(line[:keep], fenced)
-            line = line[keep:]
-            close()
-        if marker:
-            fenced = not fenced
-    if cur and cur != [FENCE]:
-        close()
-    if len(chunks) > 1:
-        chunks = [f"({i}/{len(chunks)})\n{c}" for i, c in enumerate(chunks, start=1)]
-    for chunk in chunks:
-        check_post(chunk)
-    return chunks
-
-
-def check_post(chunk: str) -> None:
-    """Raise UnsafePost unless Hermes would show ``chunk`` as intended: fences are only the plugin's own
-    ``` lines and balanced, no other line could close/open a fence, toggle the table pass or select the
-    rich renderer (table, task list, <details>), no « $$ » or CR, rendered size under Telegram's 4096.
-    Lines are also checked as Hermes' table detector cuts them (str.splitlines: U+2028, form feed...)."""
-    fences, rendered = 0, 0
-    for line in chunk.split("\n"):
+def check_post(post: str) -> None:
+    """Raise UnsafePost unless Hermes would send ``post`` as ONE MarkdownV2 message showing every code block
+    exactly as built: line checks, then the whole string against Hermes' own predicates. Never splits."""
+    fences, rendered, blocks, body = 0, 0, [], []
+    for line in post.split("\n"):
         if line == FENCE:
             fences += 1
+            if fences % 2 == 0:
+                blocks.append("".join(f"{x}\n" for x in body))
+            body = []
         elif any(_unsafe_line(part) for part in [line, *line.splitlines()]):
-            raise UnsafePost("unsafe line shape")
-        rendered += _cost(line, fences % 2 == 1)
-    if fences % 2 or "$$" in chunk or "\r" in chunk or rendered > 4096:
-        raise UnsafePost("unbalanced fence, $$, CR or oversize")
+            raise UnsafePost("forme de ligne non sûre")
+        elif fences % 2:
+            body.append(line)
+        rendered += _cost(line, fences % 2 == 1 and line != FENCE)
+    if fences % 2:
+        raise UnsafePost("bloc de code non fermé")
+    if hermes_rich(post) or "\r" in post or "\x00" in post:
+        raise UnsafePost("forme que Hermes enverrait autrement qu'en MarkdownV2 : " + ", ".join(hermes_rich(post)))
+    # Hermes' own fence pass must find exactly these blocks, opened by a bare ``` at line start, and no
+    # other ``` may remain outside them.
+    found = [(m.group(1), m.group(2), m.group(3)) for m in _H_FENCED.finditer(post)]
+    if found != [("", FENCE + "\n", b) for b in blocks] or FENCE in _H_FENCED.sub("", post):
+        raise UnsafePost("blocs de code lus autrement par Hermes")
+    if rendered > POST_BUDGET:
+        raise UnsafePost("plus long qu'un message Telegram", size=rendered)

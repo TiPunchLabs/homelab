@@ -20,7 +20,10 @@ class SettingsError(ValueError):
 @dataclass(frozen=True)
 class Limits:
     max_jobs: int = 5
-    max_prompt_chars: int = 6000
+    # Instructions, name and feedback are measured as displayed in Telegram (policy.display_size). The upper
+    # bounds keep every proposal in ONE message (review 4): worst case derived in report.md, « Answers to
+    # review 4 » (instructions 2,681, feedback 3,078 at POST_BUDGET 4,000 with names of 80).
+    max_prompt_chars: int = 2650
     max_name_chars: int = 80
     journal_chars: int = 3000
     feedback_chars: int = 1500
@@ -33,10 +36,10 @@ class Limits:
 # (minimum, maximum) accepted for each limit.
 BOUNDS: dict[str, tuple[int, int]] = {
     "max_jobs": (1, 10),
-    "max_prompt_chars": (200, 8000),
-    "max_name_chars": (10, 120),
+    "max_prompt_chars": (200, 2650),
+    "max_name_chars": (10, 80),
     "journal_chars": (200, 8000),
-    "feedback_chars": (100, 4000),
+    "feedback_chars": (100, 3000),
     "ledger_days": (7, 730),
     "ledger_max": (100, 20000),
     "run_tool_calls": (5, 200),
