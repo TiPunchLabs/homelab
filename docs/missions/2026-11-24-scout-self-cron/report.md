@@ -1,7 +1,7 @@
 # Report — homelab/2026-11-24-scout-self-cron (SCOUT-CRON)
 
-Verdict: PASS (correction cycle 2: review-2-claude.md, CHANGES_REQUESTED on 392e02d, F6 and F7 fixed, see « Answers to review 2 »; cycle 1: review-1.md on 5a1fb5a, F1–F5 fixed, see « Answers to review 1 »)
-Version: 4e8e279 (branch `feat/scout-self-cron`; cycle 0: 8ea5783 plugin, 3f22db6 role/config/SOUL/checks, 20e4e70 tests, 5cff2b9 docs, 5a1fb5a test alignment; cycle 1: 659c8a2 fix, 975fa5b tests, 392e02d docs; cycle 2: 1d6dc94 fix, 7e39898 tests, 4e8e279 docs; this report is committed on top and changes nothing else)
+Verdict: PASS (correction cycle 4: review-3.md, CHANGES_REQUESTED on 4e8e279, F8 fixed, see « Answers to review 3 »; cycle 2: review-2-claude.md, CHANGES_REQUESTED on 392e02d, F6 and F7 fixed, see « Answers to review 2 »; cycle 1: review-1.md on 5a1fb5a, F1–F5 fixed, see « Answers to review 1 »)
+Version: e8ae092 (branch `feat/scout-self-cron`, not pushed; cycle 0: 8ea5783 plugin, 3f22db6 role/config/SOUL/checks, 20e4e70 tests, 5cff2b9 docs, 5a1fb5a test alignment; cycle 1: 659c8a2 fix, 975fa5b tests, 392e02d docs; cycle 2: 1d6dc94 fix, 7e39898 tests, 4e8e279 docs; cycle 4: e8ae092 fix, tests and docs; this report is committed on top and changes nothing else)
 MR: https://gitlab.com/tipunchlabs/homelab/-/merge_requests/111 (draft, source branch kept on merge)
 Executor: Claude Code, model Claude Opus 5.5 (`claude-opus-5-5`). Delegations: none. Every search, test run, log parse, security design and enforcement code was done by the executor model; no subagent was used.
 
@@ -19,6 +19,57 @@ Executor: Claude Code, model Claude Opus 5.5 (`claude-opus-5-5`). Delegations: n
 - Not done, by design: no deployment, no restart, nothing written on hermes-31; check mode only (E3).
 - Every acceptance criterion is verified by tests on the real Hermes v0.22.5 image, except Telegram's own transport and button rendering. Both are faked in the lab and listed under owner tests.
 - Cycle 1 (Codex review 1): the owner's approval is now bound to one tool call, one job version and one set of arguments, and re-checked at the real save. To do that, scout_cron replaces `cronjob_manage` in Scout's profile only; this needs the operator grant `tools.override`. Create reservations belong to their own call, and the job count is checked again at the save. Every explicit value Hermes would store or clear is refused. Resume is refused over the cap. Every proposal shows the full effective task. Each finding has regression tests that fail on 5a1fb5a, including interleavings against real Hermes.
+
+## Answers to review 3
+
+Review `review-3.md` (Codex, CHANGES_REQUESTED on 4e8e279). It confirms F7 and F1–F5 fixed and raises F8 [major]. The owner approved a 4th cycle limited to F8 (mission.md, 2026-11-27T01:35Z). Fix commit: e8ae092 (plugin, tests, runbook G2 row, role README; nothing else). No role task, variable or config change. Not pushed.
+
+### F8: splitting must not create a fence or another unsafe line
+
+Root cause, confirmed in the v0.22.5 image (`plugins/platforms/telegram/adapter.py`):
+- `format_message` closes a fenced block at the first line matching `^[ \t]*```[ \t]*\r?$` (any indent, only backticks).
+- `unsafe_shapes` refused ``` only at the start of an input line, so `"a" * 3458 + "```"` was accepted. `split_for_telegram` cut that line to fit one message. The remainder, ```` ``` ````, became a whole line right after the reopened fence, so Hermes closed the block there, and the spoiler and link that followed were rendered as MarkdownV2.
+- The same cut can create other unsafe lines: an indented fence, a table separator (rich path; on 4e8e279 a remainder `-|---|` also matched), a task-list item or `<details>`.
+- Found while checking Hermes' rich detector for this fix: `_needs_rich_rendering` checks table separators on `content.splitlines()`, which also splits on U+2028, U+2029, `\x0b`, `\x0c`, `\x1c`–`\x1e` and `\x85`. Verified in the image: `_needs_rich_rendering("```\naaa |---|---|\n```")` is True. Plugin checks split on `\n` only, so such text was accepted and sent on the rich path. The final-post check below now catches it.
+
+Fix (`policy.py`, `__init__.py`):
+- `split_for_telegram` never cuts where the head piece or the remainder would itself be an unsafe line (`_unsafe_line`: fence, table separator, task list, `<details>`/`<summary>`); it moves the cut earlier instead.
+- `check_post()` checks every final message, after numbering:
+  - fences are only the plugin's own ```` ``` ```` lines, and they are balanced;
+  - no other line is unsafe, also when cut as Hermes' `splitlines()` would cut it;
+  - no `$$`, no CR;
+  - rendered size within 4,096.
+  `split_for_telegram` raises `UnsafePost` if any message fails, so no message is returned.
+- `_confirm` splits the whole proposal before the first post. On `UnsafePost`, nothing is posted, the binding and any reservation are dropped, and the call is refused before the approval card with `MSG_UNSAFE_POST` (asks Scout to reformulate). This covers create, update, resume, remove and feedback, which all go through `_confirm`.
+- Pause notice: if the stored name or reason cannot be split safely, a short notice with the job id only is posted. The pause still needs no approval.
+- `/taches-scout`: if the list cannot be split safely, it returns a fixed refusal line and logs a warning.
+- Not done: refusing every ``` run in new text (the review's optional extra defence). Accepted text is now shown verbatim or refused, so it was not needed.
+
+Tests added (all fail on 4e8e279, all pass on e8ae092):
+- Unit, `test_scout_cron.py` (14 cases). They use a test-side oracle `assert_post_safe`, independent of `policy.check_post`:
+  - `test_r3_f8_review_reproduction_is_shown_verbatim_and_saved_exactly`: the review's prompt (3,458 `a` + ``` + `||hidden|| [link](https://example.invalid)`). It is approved and posted in at least 2 messages, each one safe. The hidden line appears only inside fences, the cut pieces rejoin to the original line, and the saved prompt equals the input.
+  - `test_r3_f8_a_cut_at_any_position_never_makes_an_unsafe_piece` (5 tails: ```` ``` ````, indented ```` ``` ````, `|---|---|`, `- [ ] x`, `<details>`): every length 1–399 with a 120-unit limit. This puts the 1st to 4th piece boundary at every offset around the tail (2 to 5 messages seen). Each message is safe and the pieces rejoin to the line.
+  - `test_r3_f8_unsafe_final_post_refused_before_any_post_or_approval`: `"a" + "`" * 3400` (every cut leaves a piece starting with ```). Result: block, no post, no binding, dispatch refused, nothing saved.
+  - `test_r3_f8_line_separators_that_hermes_splits_on_are_refused_before_posting` (6 separators): blocked before posting.
+  - `test_r3_f8_notice_and_command_fall_back_when_stored_text_cannot_be_split_safely`.
+- Proof on 4e8e279 (export of 4e8e279 `hermes/` plus the new test file): `-k r3_` gives 14 failed. Every failure is behavioural (fence left open, unsafe piece `<details>` / `-|---|`, `approve` instead of `block`), not a missing helper.
+- Image lab, Hermes' real `format_message` and `_needs_rich_rendering` (`image_lab.py`):
+  - new turn `md_split`: the review's exact prompt through the real agent, plugin and approval flow (denied, nothing saved);
+  - new `split_sweep`: the plugin's own splitter (limit 120) on each of the 5 tails for lengths 1–259, every message rendered by the real formatter.
+  - `test_r3_01`: the posts are not rich and have no unescaped MarkdownV2 special character outside code (`mdv2_parts`). The hidden line is inside a pre block, and the line rejoins.
+  - `test_r3_02`: the same checks for every sweep case, with 2, 3 and 4 messages covered.
+  - The existing `test_r2_03` now also covers the `md_split` posts.
+- Proof on 4e8e279's plugin with the new lab: `-k "r3_ or r2_03"` gives 6 failed, 114 deselected. In both labs `test_r2_03`, `test_r3_01` and `test_r3_02` fail, each with bare `|`, `[`, `]`… outside code. That is the review's spoiler and link leaking.
+
+Results on e8ae092:
+- unit + role: 193 passed (179 + 14).
+- image: 120 passed (116 + 2 tests × 2 labs), 263.87 s.
+- full suite: `uv run --no-sync pytest hermes/tests -q -p no:cacheprovider -rf`, 21:44:04 to 23:52:51 AST (7726.36 s): 1 failed, 1185 passed, 27 skipped, nothing deselected (1,213 collected = 1,195 + 18 new). The failure is the pre-existing date-sensitive `test_scout03_kandidat.py::test_l06_create_candidature_side_effects` (`'2026-11-27' == '2026-11-26'`; it fails on any commit when run between 20:00 and midnight AST). Review 3's own run of 4e8e279 passed it in daytime.
+
+Limits and reservations (unchanged unless stated):
+- How Telegram's own app renders the posts is still an owner test. The lab proves what Hermes sends, not what the client draws.
+- A Scout proposal whose instructions can only be split unsafely is now refused, and Scout has to reformulate. This is a new, deliberate refusal case.
+- Every reservation from review 3 stands: the plugin-wide `tools.override` grant, the concurrency window against another writer process, and the earlier owner follow-ups.
 
 ## Answers to review 2
 
@@ -314,6 +365,9 @@ Test counts (exact):
 | Cycle 1: unit, role, image | `test_scout_cron.py`, `test_scout_cron_role.py`, `test_scout_cron_image.py` | 154, 13, 108 passed |
 | Cycle 2, full run on 4e8e279 | same command | 1 failed, 1167 passed, 27 skipped, nothing deselected; the failure is the pre-existing date-sensitive `test_l06` (run after 20:00 AST) |
 | Cycle 2: unit + role, image | `test_scout_cron.py`, `test_scout_cron_role.py`, `test_scout_cron_image.py` | 179, 116 passed |
+| Cycle 4, full run on e8ae092 | `uv run --no-sync pytest hermes/tests -q -p no:cacheprovider -rf` | 1 failed, 1185 passed, 27 skipped, nothing deselected, 7726.36 s; the failure is the pre-existing date-sensitive `test_l06` (run after 20:00 AST) |
+| Cycle 4: unit + role, image | `test_scout_cron.py`, `test_scout_cron_role.py`, `test_scout_cron_image.py` | 193, 120 passed |
+| Cycle 4: new tests against 4e8e279 | export of 4e8e279 + new test files | unit `-k r3_`: 14 of 14 failed; image `-k "r3_ or r2_03"`: 6 of 6 failed (bare MarkdownV2 specials) |
 | Cycle 1: new tests against 5a1fb5a | export of 5a1fb5a + new test files | unit `test_r1_*`: 56 failed, 6 passed (non-empty audit rows already refused); image `test_r1_*`: 9 of 9 failed |
 
 The run on the untouched base commit is the reference: everything passing there passes on the branch except the deliberately updated assertions listed under Deviations.
