@@ -34,7 +34,9 @@ def scout() -> dict[str, Any]:
 
 def test_c01_predecessors_add_the_deployed_scout04_soul(scout: dict[str, Any]) -> None:
     """The guard replaces M4.3, SCOUT-03 or SCOUT-04 (6565906, live on hermes-31 since 2026-11-13), nothing else."""
-    assert scout["soul_predecessor_sha256"] == [M43_SOUL, SCOUT03_SOUL, SCOUT04_SOUL]
+    # SCOUT-CRON appends the KANDIDAT-SCOUT-01 SOUL, live on hermes-31 on 2026-11-24.
+    assert scout["soul_predecessor_sha256"][:3] == [M43_SOUL, SCOUT03_SOUL, SCOUT04_SOUL]
+    assert scout["soul_predecessor_sha256"][3:] == ["7dc753fe06306cb334bb2c25f7fb4cb26aa6ca317d8e12fb6f7cd98607a4fd0a"]
     previous = subprocess.run(
         ["git", "show", "6565906:hermes/ansible/roles/hermes_agent/files/profiles/job-search/SOUL.md"],
         cwd=REPO, capture_output=True, check=False,

@@ -1,0 +1,14 @@
+name: scout_cron
+version: 1.1.0
+description: "Scout manages its own scheduled tasks under code-enforced guards (owner approval bound to the job, limits, cron-only record)."
+author: "TiPunchLabs homelab (SCOUT-CRON)"
+# Replaces cronjob_manage in Scout's profile only, to re-check every approved change at the real save
+# (operator grant: plugins.entries.scout_cron.granted_capabilities: [tools.override]).
+capabilities:
+  - tools.override
+provides_tools:
+  - scout_task_record
+provides_hooks:
+  - pre_tool_call
+  - post_tool_call
+  - transform_tool_result

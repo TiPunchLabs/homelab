@@ -28,11 +28,13 @@
 
 # Deux interrupteurs a garder d'accord : la declaration de Scout (litterale,
 # lue par `config set`) et la variable qui pose la cle et les settings.
+# SCOUT-CRON : scout_cron peut figurer a cote (son propre accord :
+# tasks/scout_cron.yml).
 - name: Refuse a scout_mail switch out of sync with Scout's plugins.enabled
   ansible.builtin.assert:
     that:
       - (hermes_scout_mail_enabled | bool) == ('scout_mail' in hermes_scout_mail_declared)
-      - hermes_scout_mail_declared | difference(['scout_mail']) | length == 0
+      - hermes_scout_mail_declared | difference(['scout_mail', 'scout_cron']) | length == 0
     fail_msg: >-
       hermes_scout_mail_enabled={{ hermes_scout_mail_enabled }} mais plugins.enabled de job-search vaut
       {{ hermes_scout_mail_declared }} : mettre les deux d'accord (runbook Scout mail, §2).

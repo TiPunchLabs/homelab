@@ -288,7 +288,17 @@ def by_prefix(tasks: list[dict[str, Any]], prefix: str) -> dict[str, Any]:
 def test_multiplex_profile_shares_the_deployed_tasks(prefix: str) -> None:
     """Creation, content, config and checks are the very tasks of profile.yml (the v0.20.4 standalone path)."""
     multiplex, standalone = tasks_of(TASKS / "profile_multiplex.yml"), tasks_of(TASKS / "profile.yml")
-    assert by_prefix(multiplex, prefix) == by_prefix(standalone, prefix)
+    mine, theirs = by_prefix(multiplex, prefix), by_prefix(standalone, prefix)
+    if prefix == "Verify that the declared tool restrictions":
+        # SCOUT-CRON: the multiplexed check (hermes-31) adds one allowlist per platform; profile.yml stays frozen
+        # since M4 (test_m5_nora.py::test_n08). Exactly that argument and its var differ, nothing else.
+        argv = list(mine["ansible.builtin.command"]["argv"])
+        assert argv.pop() == "{{ hermes_platform_allowed | to_json }}"
+        assert argv == theirs["ansible.builtin.command"]["argv"]
+        assert set(mine["vars"]) - set(theirs["vars"]) == {"hermes_platform_allowed"}
+        mine = {k: v for k, v in mine.items() if k not in ("ansible.builtin.command", "vars")}
+        theirs = {k: v for k, v in theirs.items() if k not in ("ansible.builtin.command", "vars")}
+    assert mine == theirs
 
 
 def test_multiplex_profile_writes_the_token_last_after_every_check() -> None:
@@ -908,8 +918,12 @@ def lab(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
             allowed = [t for t in cfg["platform_toolsets.telegram"] if t != "no_mcp"]
             # Same arguments as the role: Scout (SCOUT-03) lists its Kandidat servers instead of `no_mcp`.
             no_mcp = "true" if "no_mcp" in cfg["platform_toolsets.telegram"] else "false"
+            # SCOUT-CRON: profile_multiplex.yml passes one allowlist per platform (Scout's differ).
+            per_platform = json.dumps({p: cfg.get(f"platform_toolsets.{p}", []) for p in
+                                       ("telegram", "cron", "api_server", "cli")})
             facts.setdefault("toolsets", {})[name] = _checks(
-                "toolsets", ",".join(allowed), ",".join(cfg["agent.disabled_toolsets"]), no_mcp, env={"HERMES_HOME": home}
+                "toolsets", ",".join(allowed), ",".join(cfg["agent.disabled_toolsets"]), no_mcp, per_platform,
+                env={"HERMES_HOME": home},
             )
             if name != "default":
                 facts.setdefault("api_key", {})[name] = _checks("api-key", f"{home}/.env", env={"HERMES_HOME": home})
@@ -1032,7 +1046,10 @@ def test_lab_tool_surface_is_the_v0204_one(lab: dict[str, Any], name: str) -> No
     rc, out = lab["toolsets"][name]
     assert rc == 0, out
     tools = set(out.split(" | tools: ")[1].split(", "))
-    assert tools == (NORA_TOOLS if name == "default" else NINE_TOOLS)
+    # SCOUT-CRON: Scout's telegram adds cronjob_manage (scout_task_record needs the plugin, not installed here:
+    # test_scout_cron_image.py covers it).
+    expected = NORA_TOOLS if name == "default" else NINE_TOOLS | ({"cronjob_manage"} if name == "job-search" else set())
+    assert tools == expected
     assert not tools & BRIDGE_TOOLS
 
 

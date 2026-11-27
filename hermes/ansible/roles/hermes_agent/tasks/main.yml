@@ -335,6 +335,13 @@
     - hermes_gateway_multiplex
     - hermes_profiles | selectattr('name', 'eq', 'job-search') | list | length > 0
 
+# SCOUT-CRON : meme schema que scout_mail (activation par plugins.enabled).
+- name: Deploy the scout_cron plugin of Scout (inert unless enabled)
+  ansible.builtin.include_tasks: scout_cron.yml
+  when:
+    - hermes_gateway_multiplex
+    - hermes_profiles | selectattr('name', 'eq', 'job-search') | list | length > 0
+
 # `gateway run --replace` tue le detenteur d'un meme jeton, quel que soit son
 # profil. Le controle d'avant ne jugeait default qu'AVANT les profils : celui-ci
 # prouve qu'il est toujours le MEME processus connecte une fois qu'ils tournent.
@@ -473,6 +480,32 @@
       - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
       - scout-mail
       - "{{ 'true' if hermes_scout_mail_enabled | bool else 'false' }}"
+      - "{{ hermes_profiles | map(attribute='name') | join(',') }}"
+      - job-search
+  changed_when: false
+  when:
+    - hermes_gateway_multiplex
+    - not ansible_check_mode
+    - hermes_profiles | selectattr('name', 'eq', 'job-search') | list | length > 0
+
+# SCOUT-CRON : apres le redemarrage, dans la gateway reelle, le plugin, la
+# commande et les toolsets de planification n'existent que pour job-search
+# (telegram ; journal en cron) ; aucune autre plateforme, aucun autre profil ;
+# les taches de Scout respectent la politique (noms et horaires imprimes,
+# jamais une consigne). Aucune tache n'est creee par ce controle.
+- name: Verify that scout_cron is active for Scout only (or nowhere)
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - "{{ hermes_puid }}"
+      - hermes
+      - python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', 'hermes_checks.py') }}"
+      - scout-schedule
+      - "{{ 'true' if hermes_scout_cron_enabled | bool else 'false' }}"
       - "{{ hermes_profiles | map(attribute='name') | join(',') }}"
       - job-search
   changed_when: false

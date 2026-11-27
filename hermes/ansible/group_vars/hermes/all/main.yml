@@ -196,6 +196,17 @@ hermes_profile_cafe_ia:
       - Projets : HomeLab, FlowForge, expérimentations RAG, applications Python, agents IA, IA locale.
       Ces informations servent à contextualiser tes analyses et ta veille ; elles n'ouvrent aucun accès aux machines ni aux projets. Elles peuvent être datées : ne les présente pas comme des mesures actuelles.
 
+# SCOUT-CRON — Scout cree et gere ses propres taches planifiees, dans SA
+# conversation Telegram privee avec le proprietaire, sous gardes codees par le
+# plugin scout_cron (approbation de chaque creation/modification/suppression/
+# reprise avec le texte exact affiche, au plus une execution par jour et par
+# tache, 5 taches au plus, livraison au proprietaire seul, journal par tache en
+# cron). Runbook : docs/guides/runbook-scout-cron.md. Activer = true ICI et
+# scout_cron dans `plugins.enabled` de Scout, dans le meme commit. Couper :
+# false ici, retirer scout_cron de plugins.enabled ET remettre `cronjob` dans
+# agent.disabled_toolsets de Scout (runbook, rollback).
+hermes_scout_cron_enabled: true
+
 # SCOUT-MAIL-01 — /courriels : resume en lecture seule d'UNE boite AgentMail,
 # pour le proprietaire, dans la conversation privee de Scout. DESACTIVE tant
 # que le proprietaire n'a pas fourni la boite et une cle restreinte
@@ -217,9 +228,11 @@ hermes_scout_mail_inbox_id: "scout-emploi@agentmail.to"
 #   - vault_hermes_job_search_environment_hint : contexte professionnel PRIVE
 #     (le depot est public). Procedure : roles/hermes_agent/README.md, Scout.
 #
-# Outils : meme matrice que Kaféine et Néo (D5, M3.3.1). Ni terminal, ni
-# fichiers, ni navigateur, ni cronjob. Les crons emploi seront crees par
-# l'operateur en M4.4 (cron-drafts/job-search.yml).
+# Outils : matrice de Kaféine et Néo (D5, M3.3.1), ni terminal, ni fichiers,
+# ni navigateur. SCOUT-CRON : `cronjob` (gestion de ses taches) sur telegram
+# SEUL, sous le plugin scout_cron ; en cron, `scout_task_record` (journal et
+# registre de la tache en cours) remplace memory et session_search. Le
+# brouillon M4.4 (cron-drafts/job-search.yml) reste inactif et historique.
 #
 # Kandidat (SCOUT-03) : Scout SEUL, par deux entrees MCP vers le meme serveur,
 # une par niveau d'autorisation. Le filtre `tools.include` de Hermes est la
@@ -257,12 +270,15 @@ hermes_profile_job_search:
   # SOUL.md vivant remplace UNE fois par default_soul.yml, et seulement s'il
   # porte l'une de ces empreintes : celle de M4.3 (verifiee sur hermes-31 le
   # 2026-11-12), celle de SCOUT-03 (35d693d, deployee et verifiee le
-  # 2026-11-13) et celle de SCOUT-04 (6565906, deployee le 2026-11-13).
-  # Une version modifiee a la main n'est jamais touchee.
+  # 2026-11-13), celle de SCOUT-04 (6565906, deployee le 2026-11-13) et celle
+  # de KANDIDAT-SCOUT-01 (b42f1fe, en service, relevee sur hermes-31 le
+  # 2026-11-24 avant SCOUT-CRON). Une version modifiee a la main n'est jamais
+  # touchee.
   soul_predecessor_sha256:
     - f712d3359f8a9bcb3a1eb4481435d11e5c17c31cabac9c61e6ca3f4e3f0382fa
     - 777470b3fcaced3a4f7e7322e30aed238bc61907bb56d8b4eb16d2c0ab5b2fc1
     - 7fb4915a7c8951e60df769a40c6bd6aff1e4380db1b84b8abe94676bfd7073a9
+    - 7dc753fe06306cb334bb2c25f7fb4cb26aa6ca317d8e12fb6f7cd98607a4fd0a
   # Controle de deploiement (hermes_checks.py mcp) : serveurs MCP attendus par
   # plateforme ; aucune ecriture automatique (pas d'`auto_writes`). Les autres
   # profils n'en ont pas : le meme controle y exige zero serveur MCP actif.
@@ -281,11 +297,25 @@ hermes_profile_job_search:
     # (tasks/scout_mail.yml refuse un ecart) : [] = coupe, [scout_mail] = actif.
     # La cle AgentMail n'est PAS dans `env` (validate.yml refuse une valeur
     # vide) : tasks/scout_mail.yml la pose ou la retire du .env de Scout.
-    plugins.enabled: [scout_mail]
+    # SCOUT-CRON : [scout_mail, scout_cron] ; en accord avec
+    # hermes_scout_cron_enabled (tasks/scout_cron.yml refuse un ecart).
+    plugins.enabled: [scout_mail, scout_cron]
+    # SCOUT-CRON (revue 1, F1) : scout_cron remplace cronjob_manage dans ce
+    # profil SEUL, pour re-verifier chaque changement approuve au moment ou
+    # Hermes l'enregistre (tache, version, arguments, veto scout_mail, /yolo).
+    # Sans cette autorisation, le plugin refuse toute planification.
+    # Coupe (rollback) : la retirer avec scout_cron.
+    plugins.entries.scout_cron.granted_capabilities: [tools.override]
+    # SCOUT-CRON (D3) : les expressions cron et next_run_at de Scout sont en
+    # heure de Guadeloupe. Profil de Scout SEUL : les autres restent en UTC.
+    timezone: America/Guadeloupe
     # Les noms de serveurs MCP listes forment une liste blanche
     # (hermes_cli/tools_config.py, _merge_mcp_servers) : aucun autre serveur,
     # ni plugin MCP portable, ne s'y ajoute.
-    platform_toolsets.telegram: &hermes_job_search_toolsets
+    # SCOUT-CRON (G1) : `cronjob` et `scout_task_record` sur telegram SEUL
+    # (les gardes du plugin s'y appliquent). Hermes retire `cronjob` de toute
+    # execution cron (cron.allow_agent_scheduling, faux par defaut).
+    platform_toolsets.telegram:
       - web
       - skills
       - memory
@@ -294,7 +324,17 @@ hermes_profile_job_search:
       - clarify
       - kandidat
       - kandidat_confirm
+      - cronjob
+      - scout_task_record
+    # SCOUT-CRON (D9) : ni memory (ecriture sans approbation, injectee dans
+    # toutes les sessions de Scout), ni session_search (conversations privees
+    # et transcriptions marquees par scout_mail), ni todo ni clarify.
     platform_toolsets.cron:
+      - web
+      - skills
+      - kandidat
+      - scout_task_record
+    platform_toolsets.api_server: &hermes_job_search_toolsets
       - web
       - skills
       - memory
@@ -302,8 +342,16 @@ hermes_profile_job_search:
       - todo
       - clarify
       - kandidat
-    platform_toolsets.api_server: *hermes_job_search_toolsets
+      - kandidat_confirm
     platform_toolsets.cli: *hermes_job_search_toolsets
+    # Un toolset de plugin est actif PAR DEFAUT sur toute plateforme qui ne le
+    # declare pas « connu » (hermes_cli/tools_config.py,
+    # _enabled_plugin_toolsets) : ces listes l'en excluent. `cronjob` devient un
+    # toolset de plugin quand scout_cron remplace cronjob_manage (revue 1, F1) :
+    # connu partout sauf sur telegram, il n'est actif que la ou il est liste.
+    known_plugin_toolsets.api_server: [scout_task_record, cronjob]
+    known_plugin_toolsets.cli: [scout_task_record, cronjob]
+    known_plugin_toolsets.cron: [cronjob]
     # Une cle par serveur, valeur entiere : `config set` remplace la table,
     # aucune sous-cle ancienne (exclude, auth) ne survit.
     mcp_servers.kandidat:
@@ -354,16 +402,17 @@ hermes_profile_job_search:
     # pour proposer des skills, de toute facon mises en attente
     # (skills.write_approval). La reponse n'en depend pas (agent/turn_finalizer.py).
     skills.creation_nudge_interval: 0
-    # Meme liste que Kaféine et Néo : `browser` n'y figure PAS (il embarque
-    # web_search sur v2026.8.18, cf. M3.3.1) et reste hors des quatre listes
-    # blanches.
+    # Liste de Kaféine et Néo SANS `cronjob` (SCOUT-CRON) : la liste noire
+    # vaut pour toutes les plateformes, `cronjob` est donc borne par les listes
+    # blanches ci-dessus et par Hermes en cron. `browser` n'y figure PAS (il
+    # embarque web_search sur v2026.8.18, cf. M3.3.1) et reste hors des quatre
+    # listes blanches.
     agent.disabled_toolsets:
       - terminal
       - file
       - code_execution
       - computer_use
       - delegation
-      - cronjob
       - kanban
       - homeassistant
       - image_gen
