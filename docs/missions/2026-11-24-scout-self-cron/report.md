@@ -1,7 +1,7 @@
 # Report — homelab/2026-11-24-scout-self-cron (SCOUT-CRON)
 
-Verdict: PASS (correction cycle 4: review-3.md, CHANGES_REQUESTED on 4e8e279, F8 fixed, see « Answers to review 3 »; cycle 2: review-2-claude.md, CHANGES_REQUESTED on 392e02d, F6 and F7 fixed, see « Answers to review 2 »; cycle 1: review-1.md on 5a1fb5a, F1–F5 fixed, see « Answers to review 1 »)
-Version: e8ae092 (branch `feat/scout-self-cron`, not pushed; cycle 0: 8ea5783 plugin, 3f22db6 role/config/SOUL/checks, 20e4e70 tests, 5cff2b9 docs, 5a1fb5a test alignment; cycle 1: 659c8a2 fix, 975fa5b tests, 392e02d docs; cycle 2: 1d6dc94 fix, 7e39898 tests, 4e8e279 docs; cycle 4: e8ae092 fix, tests and docs; this report is committed on top and changes nothing else)
+Verdict: PARTIAL (correction cycle 5: review-4.md, CHANGES_REQUESTED on e8ae092, F8/F9 fixed structurally, see « Answers to review 4 »; unit, role and image tests pass, the full suite was stopped by low memory and must be re-run; cycle 4: review-3.md, CHANGES_REQUESTED on 4e8e279, F8 fixed, see « Answers to review 3 »; cycle 2: review-2-claude.md, CHANGES_REQUESTED on 392e02d, F6 and F7 fixed, see « Answers to review 2 »; cycle 1: review-1.md on 5a1fb5a, F1–F5 fixed, see « Answers to review 1 »)
+Version: 4181f66 (branch `feat/scout-self-cron`, pushed; cycle 0: 8ea5783 plugin, 3f22db6 role/config/SOUL/checks, 20e4e70 tests, 5cff2b9 docs, 5a1fb5a test alignment; cycle 1: 659c8a2 fix, 975fa5b tests, 392e02d docs; cycle 2: 1d6dc94 fix, 7e39898 tests, 4e8e279 docs; cycle 4: e8ae092 fix, tests and docs; cycle 5: 4181f66 structural fix, tests and docs; this report is committed on top and changes nothing else)
 MR: https://gitlab.com/tipunchlabs/homelab/-/merge_requests/111 (draft, source branch kept on merge)
 Executor: Claude Code, model Claude Opus 5.5 (`claude-opus-5-5`). Delegations: none. Every search, test run, log parse, security design and enforcement code was done by the executor model; no subagent was used.
 
@@ -20,6 +20,170 @@ Executor: Claude Code, model Claude Opus 5.5 (`claude-opus-5-5`). Delegations: n
 - Every acceptance criterion is verified by tests on the real Hermes v0.22.5 image, except Telegram's own transport and button rendering. Both are faked in the lab and listed under owner tests.
 - Cycle 1 (Codex review 1): the owner's approval is now bound to one tool call, one job version and one set of arguments, and re-checked at the real save. To do that, scout_cron replaces `cronjob_manage` in Scout's profile only; this needs the operator grant `tools.override`. Create reservations belong to their own call, and the job count is checked again at the save. Every explicit value Hermes would store or clear is refused. Resume is refused over the cap. Every proposal shows the full effective task. Each finding has regression tests that fail on 5a1fb5a, including interleavings against real Hermes.
 
+## Answers to review 4
+
+Review `review-4.md` (Codex, CHANGES_REQUESTED on e8ae092):
+- F8 is not closed;
+- F9 [major]: splitting creates a task list across two lines (`-\n[ ] ...`); Hermes' whole-message rich detector matches it, while the line checks miss it.
+
+The owner approved a 5th cycle with a structural fix (mission.md, 2026-11-27T05:50Z), following `correction-brief-5.md`.
+
+Fix commit: 4181f66. It changes:
+- plugin, tests and lab;
+- Scout's SOUL;
+- runbook, role README, design.md and the role defaults comment.
+
+No role task or configuration change. Pushed to `feat/scout-self-cron`. No deployment, no hermes-31 action, no MR merge.
+
+### Structural fix: one message, never split, checked whole
+
+The splitter is removed: `split_for_telegram`, the chunk numbering and the per-chunk loop are gone. Every post the plugin makes is one Telegram message.
+
+Proposals (create, update, remove, resume, feedback):
+- `_confirm` calls `policy.check_post` on the complete proposal, then posts it once.
+- On `UnsafePost` nothing is posted: the binding and any reservation are dropped, and the call is refused before the approval card, with a French reason:
+  - `MSG_LONG_POST` for size (shorten the instructions or the name);
+  - `MSG_UNSAFE_POST` for a shape (table, task list, `<details>`, `$$`, ```` ``` ```` line).
+
+`check_post` (policy.py) runs on the final, complete post:
+- line checks, as before, also on `str.splitlines()` parts;
+- Hermes' whole-message predicates on the whole string, copied verbatim with citations, through `hermes_rich()`. From Hermes v0.22.5 `TelegramAdapter._needs_rich_rendering`:
+  - adapter.py:1340: `TABLE_SEPARATOR_RE`, from gateway/platforms/helpers.py:285, on every `content.splitlines()` line. The same regex drives `convert_table_to_bullets` (helpers.py:322), the table pass of `format_message`;
+  - adapter.py:1342: `(?m)^\s*[-*]\s+\[[ xX]\]\s+` on the whole text. Its `\s+` crosses newlines, which is F9;
+  - adapter.py:1344: `<details>`/`<summary>`;
+  - adapter.py:1346: `$$`.
+  Any match leads to a refusal.
+- Hermes' fence pass, adapter.py:5683, applied to the whole post. It must find exactly the plugin's code blocks:
+  - opened by a bare ```` ``` ```` with no lead-in prose and no language;
+  - with the same bodies;
+  - with no ```` ``` ```` left outside them.
+- No `\r`, and no NUL: Hermes' placeholders are `\x00PH<n>\x00`, restored with `str.replace` (adapter.py:5648, 5727).
+- Size: the rendered MarkdownV2 length in UTF-16 units must stay within `POST_BUDGET` = 4,000.
+  - Hermes splits only above 4,096: `_send_text_locked` → `truncate_message(format_message(content), 4096, len_fn=utf16_len)`, adapter.py:3693. That leaves 96 units of margin.
+  - `_cost` is an upper bound. Inside a code block, only `\` and `` ` `` are escaped (adapter.py:5679). Outside, `_escape_mdv2` escapes each special character at most once (adapter.py:378, 5724), and the other conversions only shorten.
+  - The image lab checks this bound against the real formatter.
+
+Other posts:
+- Pause notice: if the stored name or reason does not fit, a short notice with the id only is posted.
+- `/taches-scout <task>`:
+  1. full view;
+  2. else the same view without the journal and feedback bodies (sizes only);
+  3. else a fixed line.
+- Feedback proposal: the job's full instructions when the whole post fits one message; otherwise their size and fingerprint, marked « inchangées ». F5 named create, update, delete and resume; the cycle-1 test also covers feedback with short instructions, and passes.
+- Update proposal: each name is shown once, the current one in the header (« Nom actuel ») and the new one in the recap (« Nouveau nom »). It used to be shown twice each. The F5 content is unchanged: changed and unchanged fields, the full effective instructions, schedule and delivery.
+
+New text is refused earlier, in policy (`unsafe_shapes` now includes `hermes_rich`):
+- create and update: name and instructions;
+- feedback.
+
+### The limit, derived from the worst case
+
+Measure: instructions, name and feedback are now measured as displayed in a Telegram code block (`policy.display_size`):
+- UTF-16 units: an emoji counts 2;
+- plus `\` and `` ` `` counted twice, because Hermes escapes them inside the block.
+
+For ordinary text this equals `len()`. Counting raw characters could not bound the worst case: 2,650 backslashes or emoji render as 5,300 units.
+
+Worst-case inputs, all at the new upper bounds:
+- names of 80 displayed units (`\` ×40, `` `\ `` ×20, 😀 ×40);
+- schedule expressions of the new maximum, 40 characters, dense in escaped characters (`59 23 1-2,4-5,7-8,10-11,13-14,16-17 * *` and variants);
+- instructions made of `\`, 😀, `x`, or mixed lines;
+- each of the 7 weekdays as the start day, for the longest French day names in the « Prochains passages » lines;
+- paused or not.
+
+Actions:
+- create;
+- update changing name, schedule and instructions: current name, new name, before/after line and full recap;
+- remove, with the full stored instructions;
+- resume;
+- feedback, with full-size stored instructions.
+
+Derivation script `docs/missions/2026-11-24-scout-self-cron/derive-limits.py`, run from the worktree with `uv run --no-sync python`, binary search on the instruction size:
+- Instructions: worst post at 2,681 = 4,000 units, from an update. At 2,682 it is 4,001.
+- Feedback (instructions shown as size and fingerprint): worst post at 3,078 = 4,000 units. At 3,079 it is 4,001.
+
+Chosen values (config.py):
+
+| Limit | Default | Upper bound | Before |
+|---|---|---|---|
+| `max_prompt_chars` | 2,650 | 2,650 | default 6,000, bound 8,000 |
+| `max_name_chars` | 80 | 80 | bound 120 |
+| `feedback_chars` | 1,500 | 3,000 | bound 4,000 |
+| schedule expression (`MAX_EXPR_CHARS`, code) | 40 | — | not capped |
+
+2,650 is 31 below the derived 2,681. That gives slack beyond the 96-unit margin.
+
+Refusal for instructions over the limit, in French: « les instructions font N caractères une fois affichées dans Telegram, maximum 2650 pour que la proposition tienne en un seul message : les raccourcir (résumer, retirer les répétitions) puis reproposer ».
+
+Consequence for the owner:
+- design.md notes that the owner's real request is about 3.4 k characters of conversation.
+- Scout must now condense the saved instructions to 2,650 at most. Scout's SOUL now states this in French: « Consignes de 2 650 caractères au plus (nom : 80) … tenir en un seul message Telegram … si l'outil les refuse comme trop longues, raccourcis puis repropose ».
+- Operator-made jobs above the limits, or with out-of-policy stored values, still fail closed: their proposals are refused when they do not fit, as before for every non-conforming field.
+
+### Tests
+
+Unit tests (`test_scout_cron.py`):
+- `test_r3_f8_review_reproduction_now_fails_closed`: the review-3 F8 prompt (3,504) and the review-4 F9 prompt (3,506) are refused, with « maximum 2650 » and « raccourcir ». No post, no binding, nothing saved.
+- `test_r3_f8_a_fence_or_rich_tail_inside_a_line_is_one_verbatim_message` (6 tails, up to the largest accepted size): exactly one message. The test-side oracle accepts it; this oracle includes Hermes' whole-message predicates, retyped. The hidden line appears only inside the code block.
+- `test_r4_f9_cross_line_task_lists_are_refused_before_anything_is_posted` (6 forms: `-\n[ ] x`, `*\n[X] x`, whitespace across the checkbox boundary, the F9 hidden text): blocked for create and for feedback, with no post and no binding. `hermes_rich` reports « liste de cases à cocher ».
+- `test_r4_check_post_applies_hermes_whole_message_predicates`: 10 unsafe whole posts are refused:
+  - cross-line task list;
+  - table on a U+2028 line;
+  - `<details>`;
+  - `$$`;
+  - inner fence line;
+  - unclosed fence;
+  - lead-in opener;
+  - language opener;
+  - NUL placeholder;
+  - CR.
+
+  Oversize carries `size`.
+- `test_r4_worst_case_accepted_proposal_is_one_message`: the derivation above as a test. Every case is one message with `rendered ≤ 4,000`, and the worst is above 3,900. Through the plugin: an update at the bounds, and feedback at 3,000 with full-size instructions (shown as size and fingerprint), each one post.
+- `test_r4_limit_plus_one_is_refused_with_a_french_message`: displayed 2,651 is refused (`x`, emoji, backslash variants) and 2,650 is accepted. A name of 82 displayed is refused, and so is an expression over 40. Settings 2,651 / 81 / 3,001 are rejected.
+- `test_r4_notice_and_command_stay_one_message_when_stored_text_is_too_long`.
+- Removed: `test_pol_11` and the review-3 cut-position sweep, both tests of the removed splitter.
+- Updated:
+  - `pol_01`, `pol_03` and `r1_f4` for the new limit;
+  - `r2_f6_feedback_and_long_text` (now one message);
+  - `r2_f6_command_output` (compact view instead of truncation).
+
+Image lab, Hermes v0.22.5 real formatter and detector:
+- `test_r3_01`: the F8 and F9 reproductions, and the short F9 form, go through the real agent and approval flow. All are refused before anything is posted (`order == []`), and nothing is saved.
+- `test_r4_01`: the largest accepted proposal (name `\` ×40, instructions `\` ×1,325) is exactly `post, card`. It is not rich, has no unescaped MarkdownV2 special outside code, keeps the instructions intact in the pre block, and the real formatted length is between 3,000 and 4,000 UTF-16 units.
+- `test_r4_02`: parity on 1,222 posts:
+  - the F8/F9 shapes and a seeded fuzz of 600 strings over `- * [ ] x X | : <details> </summary> $ ` \ U+2028 \f # > ~ _ ( ) 😀 é`;
+  - each string both fenced as Scout's text and raw.
+
+  The plugin's `hermes_rich` equals the real `_needs_rich_rendering` on every post. On every accepted post, the real `format_message` UTF-16 length is ≤ the plugin's bound, which is ≤ 4,000. Accepted fenced posts have no unescaped special character.
+- `test_g2_01`, `test_g2_02` and `test_r2_03` now require exactly one proposal post. The lab's owner prompt is now about 2,500 characters (was about 4,580).
+- The lab prints its JSON result in ASCII, because the corpus holds U+2028 and form feeds that broke stdout line splitting.
+
+Proof on e8ae092:
+- Unit: export of e8ae092 `hermes/` plus the new `test_scout_cron.py`, `-k "r3_ or r4_"`: 17 failed, 6 passed.
+  - The 6 that pass are the U+2028-family separator tests, fixed in cycle 4.
+  - 11 fail because the old code approves instead of refusing: the F8/F9 reproductions and the 6 F9 forms, plus the check_post, worst-case, limit and notice tests.
+  - 6 (the tail tests) fail on the missing `display_size` helper. They test the new one-message guarantee, not the old bug.
+- Image: old plugin with the new lab (in a scratch copy only, the parity step tolerates the missing helpers), `-k "r3_01 or r4_0 or g2_01 or g2_02 or r2_03"`: 12 of 12 failed.
+  - In both labs the old plugin approves F9 and splits it into 3 messages. The third starts with the `-` / `[ ] ||hidden|| …` task list, which the real detector routes to the rich path.
+  - Proposals take several posts.
+  - `r4_02` cannot run there: `hermes_rich` is missing.
+
+Results on 4181f66:
+- unit + role: 201 passed;
+- image: 122 passed (61 × 2 labs), 269.57 s;
+- full suite: NOT COMPLETED. `nice -n 10 uv run --no-sync pytest hermes/tests -q -p no:cacheprovider -rf`, started 07:44:05 AST, was stopped by Claude Code at about 30 % of the run because the laptop was critically low on memory (about 6 GiB available, with unrelated containers running: litellm, open-webui, localstack and others). No failure appeared before the stop; no Hermes lab container was left behind. It was not restarted, per the stop notice. It must be re-run by the owner, or on request, before review 5 counts on it.
+
+### Limits and reservations
+
+- How the Telegram client renders the post is still an owner test. The lab proves what Hermes sends: one MarkdownV2 message, never the rich path.
+- The copied predicates must be re-checked on any Hermes upgrade; `test_r4_02` does that on the pinned image.
+- New refusal cases:
+  - instructions over 2,650 as displayed;
+  - names over 80 as displayed;
+  - expressions over 40;
+  - and any stored job whose proposal does not fit one message (operator-made or out-of-policy values).
+- Review 3 and 4 reservations stand: the plugin-wide `tools.override`, the other-process write race, the pinned-image dependency, and the earlier owner follow-ups.
 ## Answers to review 3
 
 Review `review-3.md` (Codex, CHANGES_REQUESTED on 4e8e279). It confirms F7 and F1–F5 fixed and raises F8 [major]. The owner approved a 4th cycle limited to F8 (mission.md, 2026-11-27T01:35Z). Fix commit: e8ae092 (plugin, tests, runbook G2 row, role README; nothing else). No role task, variable or config change. Not pushed.
@@ -365,6 +529,9 @@ Test counts (exact):
 | Cycle 1: unit, role, image | `test_scout_cron.py`, `test_scout_cron_role.py`, `test_scout_cron_image.py` | 154, 13, 108 passed |
 | Cycle 2, full run on 4e8e279 | same command | 1 failed, 1167 passed, 27 skipped, nothing deselected; the failure is the pre-existing date-sensitive `test_l06` (run after 20:00 AST) |
 | Cycle 2: unit + role, image | `test_scout_cron.py`, `test_scout_cron_role.py`, `test_scout_cron_image.py` | 179, 116 passed |
+| Cycle 5, full run on 4181f66 | `nice -n 10 uv run --no-sync pytest hermes/tests -q -p no:cacheprovider -rf` | NOT COMPLETED: stopped by Claude Code at about 30 % (low system memory), no failure before the stop; re-run required |
+| Cycle 5: unit + role, image | `test_scout_cron.py`, `test_scout_cron_role.py`, `test_scout_cron_image.py` | 201, 122 passed |
+| Cycle 5: new tests against e8ae092 | export of e8ae092 + new test files | unit `-k "r3_ or r4_"`: 17 failed (11 on behaviour, 6 on a missing helper), 6 passed (cycle-4 separator tests); image: 12 of 12 selected failed |
 | Cycle 4, full run on e8ae092 | `uv run --no-sync pytest hermes/tests -q -p no:cacheprovider -rf` | 1 failed, 1185 passed, 27 skipped, nothing deselected, 7726.36 s; the failure is the pre-existing date-sensitive `test_l06` (run after 20:00 AST) |
 | Cycle 4: unit + role, image | `test_scout_cron.py`, `test_scout_cron_role.py`, `test_scout_cron_image.py` | 193, 120 passed |
 | Cycle 4: new tests against 4e8e279 | export of 4e8e279 + new test files | unit `-k r3_`: 14 of 14 failed; image `-k "r3_ or r2_03"`: 6 of 6 failed (bare MarkdownV2 specials) |
