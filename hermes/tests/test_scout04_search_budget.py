@@ -105,7 +105,7 @@ def test_b03_soul_rules(rule: str) -> None:
 def test_b03_soul_stays_compact() -> None:
     """SOUL.md is re-sent with every model call: the SCOUT-04 rules add at most ~2.2k chars to SCOUT-03's.
 
-    SCOUT-CRON adds the « Tâches planifiées » rules (14,289 -> 15,496 chars, about 300 tokens per call); the
+    SCOUT-CRON adds the « Tâches planifiées » rules (14,289 -> 15,491 chars, about 300 tokens per call); the
     cron-run details live in the scout_task_record tool description, sent only where that tool exists."""
     assert len(SOUL.read_text()) <= 15500
 
